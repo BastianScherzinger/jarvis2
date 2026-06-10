@@ -479,5 +479,221 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
   }catch{}
   loadTop();
   loadVerifierModel();
+  loadMediaModels();
   setInterval(loadTop, 30000);
+  _initPageFromHash();
 })();
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PAGE NAVIGATION
+// ════════════════════════════════════════════════════════════════════════════
+const _PAGES = ['leads', 'images', 'videos'];
+
+function showPage(name){
+  if(!_PAGES.includes(name)) name = 'leads';
+  document.querySelectorAll('.page').forEach(p =>
+    p.classList.toggle('active', p.dataset.page === name));
+  document.querySelectorAll('.topnav-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.page === name));
+  location.hash = name;
+  if(name === 'images' || name === 'videos') loadGallery();
+}
+
+function _initPageFromHash(){
+  const h = (location.hash || '').slice(1);
+  if(_PAGES.includes(h)) showPage(h);
+}
+window.addEventListener('hashchange', () => {
+  const h = (location.hash || '').slice(1);
+  if(_PAGES.includes(h)) showPage(h);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MEDIA — Bild / Video Generierung
+// ════════════════════════════════════════════════════════════════════════════
+let _mediaModels = null;
+const _activePolls = {};   // {prefix: intervalId}
+
+async function loadMediaModels(){
+  let d;
+  try{ d = await(await fetch('/api/media/models')).json(); }
+  catch{ d = {image:{}, video:{}, higgsfield:{}}; }
+  _mediaModels = d;
+
+  // Bild-Modelle
+  const imgSel = document.getElementById('img-model');
+  if(imgSel){
+    const keys = Object.keys(d.image || {});
+    imgSel.innerHTML = keys.length
+      ? keys.map(k => `<option value="${_e(k)}">${_e(d.image[k].name || k)}</option>`).join('')
+      : '<option value="">Diffusers nicht installiert</option>';
+  }
+
+  // Video-Modelle (lokal)
+  const vidSel = document.getElementById('vid-model');
+  if(vidSel){
+    const keys = Object.keys(d.video || {});
+    vidSel.innerHTML = keys.length
+      ? keys.map(k => `<option value="${_e(k)}">${_e(d.video[k].name || k)}</option>`).join('')
+      : '<option value="">Diffusers nicht installiert</option>';
+  }
+
+  // Higgsfield-Modelle
+  const hfSel = document.getElementById('vid-hf-model');
+  if(hfSel){
+    const keys = Object.keys(d.higgsfield || {});
+    hfSel.innerHTML = keys.length
+      ? keys.map(k => `<option value="${_e(k)}">${_e(d.higgsfield[k].name || k)} · ${d.higgsfield[k].credits||'?'} Cr.</option>`).join('')
+      : '<option value="dop-lite">Dop Lite</option>';
+  }
+}
+
+function onVidBackend(){
+  const backend = document.getElementById('vid-backend').value;
+  const local   = document.getElementById('vid-model');
+  const hf       = document.getElementById('vid-hf-model');
+  if(backend === 'higgsfield'){
+    local.style.display = 'none';
+    hf.style.display    = '';
+  }else{
+    local.style.display = '';
+    hf.style.display    = 'none';
+  }
+}
+
+async function generateImage(){
+  const prompt = (document.getElementById('img-prompt').value || '').trim();
+  if(!prompt){ return; }
+  const model = document.getElementById('img-model').value || '';
+  const btn   = document.getElementById('img-gen-btn');
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/media/generate/image', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({prompt, model_key: model}),
+    });
+    const d = await res.json();
+    if(d.ok && d.job_id) pollJob(d.job_id, 'img');
+    else _showJob('img', {status:'error', error: d.reason || 'Fehler'});
+  }catch(e){ _showJob('img', {status:'error', error:String(e)}); }
+  finally{ btn.disabled = false; }
+}
+
+async function generateVideo(){
+  const prompt  = (document.getElementById('vid-prompt').value || '').trim();
+  if(!prompt){ return; }
+  const backend = document.getElementById('vid-backend').value;
+  const btn     = document.getElementById('vid-gen-btn');
+  btn.disabled  = true;
+  const payload = {prompt, backend};
+  if(backend === 'higgsfield') payload.hf_model  = document.getElementById('vid-hf-model').value || 'dop-lite';
+  else                         payload.model_key = document.getElementById('vid-model').value || '';
+  try{
+    const res = await fetch('/api/media/generate/video', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await res.json();
+    if(d.ok && d.job_id) pollJob(d.job_id, 'vid');
+    else _showJob('vid', {status:'error', error: d.reason || 'Fehler'});
+  }catch(e){ _showJob('vid', {status:'error', error:String(e)}); }
+  finally{ btn.disabled = false; }
+}
+
+function _showJob(prefix, job){
+  const el = document.getElementById(prefix + '-job-status');
+  if(!el) return;
+  el.style.display = 'block';
+  el.classList.toggle('running', job.status === 'running' || job.status === 'queued');
+  el.classList.toggle('err',     job.status === 'error');
+
+  let body = '';
+  if(job.status === 'queued'){
+    body = `<div class="jc-row"><span class="jc-spin"></span><span>In Warteschlange…</span></div>`;
+  }else if(job.status === 'running'){
+    const el2 = (job.elapsed || 0);
+    body = `<div class="jc-row"><span class="jc-spin"></span><span>Generierung läuft… <b id="${prefix}-jc-elapsed">${el2}s</b></span></div>
+            <div class="jc-scan"></div>`;
+  }else if(job.status === 'done'){
+    body = `<div class="jc-row"><span class="jc-ok">✓</span><span>Fertig in ${job.elapsed||0}s</span></div>`;
+  }else if(job.status === 'error'){
+    body = `<div class="jc-row"><span class="jc-x">✕</span><span>Fehler: ${_e(job.error||'unbekannt')}</span></div>`;
+  }
+  el.innerHTML = body;
+}
+
+function pollJob(jobId, prefix){
+  if(_activePolls[prefix]){ clearInterval(_activePolls[prefix]); }
+  _showJob(prefix, {status:'queued'});
+  let elapsed = 0;
+  _activePolls[prefix] = setInterval(async () => {
+    let job;
+    try{ job = await(await fetch('/api/media/job/' + jobId)).json(); }
+    catch{ return; }
+
+    if(job.status === 'running'){
+      _showJob(prefix, job);
+      // Lokaler Elapsed-Zähler (Backend liefert elapsed erst am Ende)
+      elapsed += 1.5;
+      const e = document.getElementById(prefix + '-jc-elapsed');
+      if(e) e.textContent = Math.round(elapsed) + 's';
+    }else if(job.status === 'done'){
+      clearInterval(_activePolls[prefix]); _activePolls[prefix] = null;
+      _showJob(prefix, job);
+      loadGallery();
+      setTimeout(() => {
+        const el = document.getElementById(prefix + '-job-status');
+        if(el) el.style.display = 'none';
+      }, 4000);
+    }else if(job.status === 'error'){
+      clearInterval(_activePolls[prefix]); _activePolls[prefix] = null;
+      _showJob(prefix, job);
+    }else{
+      _showJob(prefix, job);
+    }
+  }, 1500);
+}
+
+async function loadGallery(){
+  let g;
+  try{ g = await(await fetch('/api/media/gallery')).json(); }
+  catch{ return; }
+
+  const imgEl = document.getElementById('img-gallery');
+  if(imgEl){
+    const imgs = g.images || [];
+    imgEl.innerHTML = imgs.length
+      ? imgs.map(it => `<div class="media-card" onclick="openMediaFull('${_e(it.url)}','image')">
+          <img src="${_e(it.url)}" loading="lazy" alt="${_e(it.name)}"/>
+        </div>`).join('')
+      : '<div class="media-empty">Noch keine Bilder generiert</div>';
+  }
+
+  const vidEl = document.getElementById('vid-gallery');
+  if(vidEl){
+    const vids = g.videos || [];
+    vidEl.innerHTML = vids.length
+      ? vids.map(it => `<div class="media-card">
+          <video src="${_e(it.url)}" controls preload="metadata"></video>
+        </div>`).join('')
+      : '<div class="media-empty">Noch keine Videos generiert</div>';
+  }
+}
+
+function openMediaFull(url, kind){
+  document.getElementById('modal-inner').innerHTML = `
+    <div class="m-hdr">
+      <div class="m-title" style="font-size:13px">Vorschau</div>
+      <button class="m-close" onclick="closeModal()">✕</button>
+    </div>
+    <div style="text-align:center">
+      ${kind === 'image'
+        ? `<img src="${_e(url)}" style="max-width:100%;border-radius:10px"/>`
+        : `<video src="${_e(url)}" controls autoplay style="max-width:100%;border-radius:10px"></video>`}
+    </div>
+    <div style="text-align:center;margin-top:10px">
+      <a href="${_e(url)}" download class="export-btn" style="text-decoration:none">↓ Download</a>
+    </div>`;
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('modal').classList.add('open');
+}

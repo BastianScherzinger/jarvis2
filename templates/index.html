@@ -21,6 +21,12 @@
     </div>
   </div>
 
+  <nav class="topnav">
+    <button class="topnav-btn active" data-page="leads"  onclick="showPage('leads')">Leads</button>
+    <button class="topnav-btn"        data-page="images" onclick="showPage('images')">Bilder</button>
+    <button class="topnav-btn"        data-page="videos" onclick="showPage('videos')">Videos</button>
+  </nav>
+
   <div class="topbar-center">
     <!-- Claude Toggle -->
     <div class="claude-toggle" id="claude-toggle" onclick="toggleClaude()">
@@ -51,7 +57,7 @@
 </header>
 
 <!-- ══════════════════════════════ LAYOUT ═══════════════════════════════════ -->
-<main class="layout">
+<main class="layout page active" data-page="leads">
 
   <!-- ── LEFT: Sphere + Stats ──────────────────────────────────────────── -->
   <aside class="left-panel">
@@ -149,6 +155,45 @@
     </div>
   </aside>
 
+</main>
+
+<!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
+<main class="media-page page" data-page="images">
+  <div class="media-head">
+    <div class="media-title">Bild-Generierung</div>
+    <div class="media-sub" id="img-engine-info">Lokale Diffusion · Hugging Face</div>
+  </div>
+  <div class="composer">
+    <textarea id="img-prompt" placeholder="Beschreibe das Bild... (z.B. 'moderne Website für einen Dachdecker-Betrieb, Hero-Bild, professionell')"></textarea>
+    <div class="composer-row">
+      <select id="img-model" class="flt"></select>
+      <button class="start-btn" id="img-gen-btn" onclick="generateImage()">⚡ Generieren</button>
+    </div>
+  </div>
+  <div id="img-job-status" class="job-card" style="display:none"></div>
+  <div class="media-grid" id="img-gallery"></div>
+</main>
+
+<!-- ══════════════════════════ VIDEO-SEITE ══════════════════════════════════ -->
+<main class="media-page page" data-page="videos">
+  <div class="media-head">
+    <div class="media-title">Video-Generierung</div>
+    <div class="media-sub" id="vid-engine-info">Lokal (Wan 2.1) oder Higgsfield Cloud</div>
+  </div>
+  <div class="composer">
+    <textarea id="vid-prompt" placeholder="Beschreibe das Video... (z.B. 'Drohnenflug über eine moderne Dachsanierung, cineastisch, 4K')"></textarea>
+    <div class="composer-row">
+      <select id="vid-backend" class="flt" onchange="onVidBackend()">
+        <option value="local">Lokal (Wan 2.1)</option>
+        <option value="higgsfield">Higgsfield Cloud</option>
+      </select>
+      <select id="vid-model" class="flt"></select>
+      <select id="vid-hf-model" class="flt" style="display:none"></select>
+      <button class="start-btn" id="vid-gen-btn" onclick="generateVideo()">⚡ Generieren</button>
+    </div>
+  </div>
+  <div id="vid-job-status" class="job-card" style="display:none"></div>
+  <div class="media-grid" id="vid-gallery"></div>
 </main>
 
 <!-- ══════════════════════════ MODAL ════════════════════════════════════════ -->

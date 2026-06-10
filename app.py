@@ -4,15 +4,27 @@ JARVIS LeadHunter — Flask Backend.
 import json
 import os
 import queue
+from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    render_template,
+    request,
+    send_from_directory,
+    stream_with_context,
+)
 
 import db
+import media_queue
 from scrapers import controller, _http
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
 db.init_db()
+
+_MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
 
 def _sse(data: dict) -> str:
@@ -94,6 +106,103 @@ def api_verifier_model():
         "model":     controller.get_verifier_model(),
         "available": _http.ollama_models(),
     })
+
+
+# ── Media: Bild/Video-Generierung ────────────────────────────────────────────
+
+@app.route("/workspace/media/<path:fn>")
+def serve_media(fn):
+    # send_from_directory schützt selbst gegen Path-Traversal
+    return send_from_directory(_MEDIA_DIR, fn)
+
+
+@app.route("/api/media/status")
+def api_media_status():
+    try:
+        import media_engine
+        return jsonify(media_engine.get_status())
+    except ImportError:
+        return jsonify({
+            "diffusers_ok":       False,
+            "image_model":        "",
+            "image_model_key":    "",
+            "video_model":        "",
+            "video_model_key":    "",
+            "higgsfield_api_key": False,
+        })
+
+
+@app.route("/api/media/models")
+def api_media_models():
+    try:
+        import media_engine
+        return jsonify({
+            "image":      media_engine.IMAGE_MODELS,
+            "video":      media_engine.VIDEO_MODELS,
+            "higgsfield": media_engine.HIGGSFIELD_MODELS,
+        })
+    except ImportError:
+        return jsonify({"image": {}, "video": {}, "higgsfield": {}})
+
+
+@app.route("/api/media/generate/image", methods=["POST"])
+def api_media_generate_image():
+    body   = request.get_json(silent=True) or {}
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"ok": False, "reason": "no_prompt"}), 400
+    if len(prompt) > 1000:
+        return jsonify({"ok": False, "reason": "prompt_too_long"}), 400
+    params = {
+        "prompt":    prompt,
+        "model_key": (body.get("model_key") or "").strip(),
+        "steps":     body.get("steps", 25),
+        "width":     body.get("width"),
+        "height":    body.get("height"),
+    }
+    job_id = media_queue.submit("image", params)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/media/generate/video", methods=["POST"])
+def api_media_generate_video():
+    body    = request.get_json(silent=True) or {}
+    prompt  = (body.get("prompt") or "").strip()
+    backend = (body.get("backend") or "local").strip()
+    if not prompt:
+        return jsonify({"ok": False, "reason": "no_prompt"}), 400
+    if len(prompt) > 1000:
+        return jsonify({"ok": False, "reason": "prompt_too_long"}), 400
+
+    if backend == "higgsfield":
+        params = {"prompt": prompt, "hf_model": (body.get("hf_model") or "dop-lite").strip()}
+        job_id = media_queue.submit("higgsfield", params)
+    else:
+        params = {
+            "prompt":     prompt,
+            "model_key":  (body.get("model_key") or "").strip(),
+            "num_frames": body.get("num_frames", 25),
+        }
+        job_id = media_queue.submit("video", params)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/media/job/<job_id>")
+def api_media_job(job_id):
+    job = media_queue.get(job_id)
+    if job is None:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    return jsonify(job)
+
+
+@app.route("/api/media/jobs")
+def api_media_jobs():
+    return jsonify({"jobs": media_queue.list_jobs()})
+
+
+@app.route("/api/media/gallery")
+def api_media_gallery():
+    return jsonify(media_queue.gallery())
 
 
 @app.route("/api/stream")
