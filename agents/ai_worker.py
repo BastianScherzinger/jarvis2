@@ -1,55 +1,87 @@
 """
-AI-gestützter Scraper — Claude oder Ollama browsen selbst nach Leads.
-Nutzt DuckDuckGo-Suche + HTML-Parsing ohne Playwright.
+AI-gestützter Scraper — Ollama und/oder Claude suchen selbstständig nach Leads.
+Ollama generiert Suchanfragen + extrahiert Daten aus Webseiten-Text.
 """
 import json
 import os
 import re
+import time
 import urllib.request
 import urllib.parse
-import time
+import urllib.error
+import itertools
 
 from agents.scorer import score as calc_score
 from scrapers.website_checker import check_website
 import db
 
-_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36"
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
-def _get(url: str) -> str:
+# ── HTTP-Helfer ───────────────────────────────────────────────────────────────
+
+def _get(url: str, timeout: int = 10) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", errors="replace")
     except Exception:
         return ""
 
 
 def _ddg_search(query: str) -> list[dict]:
-    """DuckDuckGo HTML-Suche — gibt [{title, url, snippet}] zurück."""
+    """DuckDuckGo Lite HTML-Suche — robusteres Parsing."""
     q    = urllib.parse.quote_plus(query)
-    html = _get(f"https://html.duckduckgo.com/html/?q={q}")
+    html = _get(f"https://lite.duckduckgo.com/lite/?q={q}", timeout=12)
+    if not html:
+        html = _get(f"https://html.duckduckgo.com/html/?q={q}", timeout=12)
     if not html:
         return []
+
     results = []
-    for m in list(re.finditer(
-        r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>'
-        r'.*?<a[^>]+class="result__snippet"[^>]*>([^<]+)</a>',
-        html, re.DOTALL
-    ))[:8]:
-        results.append({"url": m.group(1), "title": m.group(2).strip(), "snippet": m.group(3).strip()})
+    # Lite DDG: Links in <a class="result-link">
+    for m in re.finditer(
+        r'<a[^>]+class="[^"]*result-link[^"]*"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>',
+        html, re.IGNORECASE
+    ):
+        url   = m.group(1).strip()
+        title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        if url.startswith("http") and title:
+            results.append({"url": url, "title": title, "snippet": ""})
+            if len(results) >= 8:
+                break
+
+    # Fallback: Standard DDG
+    if not results:
+        for m in re.finditer(
+            r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            html, re.IGNORECASE | re.DOTALL
+        ):
+            url   = m.group(1).strip()
+            title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+            if url.startswith("http") and title:
+                results.append({"url": url, "title": title, "snippet": ""})
+                if len(results) >= 8:
+                    break
+
     return results
 
+
+# ── KI-Backends ───────────────────────────────────────────────────────────────
 
 def _ask_ollama(prompt: str, system: str = "") -> str:
     model = os.environ.get("JARVIS_TOOL_MODEL") or os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
     payload = json.dumps({
         "model": model,
         "messages": [
-            {"role": "system", "content": system or "Du bist ein präziser Daten-Extraktor."},
+            {"role": "system", "content": system or "Du bist ein präziser Daten-Extraktor. Antworte NUR mit JSON."},
             {"role": "user",   "content": prompt},
         ],
         "stream": False,
+        "options": {"temperature": 0.1},
     }).encode("utf-8")
     req = urllib.request.Request(
         "http://127.0.0.1:11434/api/chat",
@@ -58,6 +90,8 @@ def _ask_ollama(prompt: str, system: str = "") -> str:
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read())["message"]["content"]
+    except urllib.error.URLError:
+        return ""   # Ollama nicht erreichbar — kein Fehler-Spam
     except Exception as e:
         return f"FEHLER: {e}"
 
@@ -66,106 +100,167 @@ def _ask_claude(prompt: str) -> str:
     try:
         import anthropic
         from config import get_api_key
-        client = anthropic.Anthropic(api_key=get_api_key())
+        key = get_api_key()
+        if not key:
+            return ""
+        client = anthropic.Anthropic(api_key=key)
         msg    = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=800,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text
-    except Exception as e:
-        return f"FEHLER: {e}"
+    except Exception:
+        return ""
 
 
-def run_loop(region: str, branche: str, on_lead, stop_event, ai_mode="local", max_per=20):
+def _extract_json(text: str) -> dict:
+    if not text:
+        return {}
+    try:
+        m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
+        if m:
+            return json.loads(m.group(0))
+    except Exception:
+        pass
+    return {}
+
+
+# ── Hauptschleife ─────────────────────────────────────────────────────────────
+
+def run_continuous(all_combos: list[tuple], on_lead, stop_event,
+                   ai_mode: str = "local", max_per: int = 12):
     """
-    ai_mode: 'local' | 'cloud' | 'both'
-    Sucht via DuckDuckGo nach Unternehmen, lässt KI die Daten extrahieren.
+    Langlebiger Thread — KI generiert eigene Suchanfragen pro Region+Branche
+    und extrahiert Unternehmensdaten aus den Suchergebnissen.
     """
-    query = f"{branche} {region} Telefon"
-    results = _ddg_search(query)
+    # Leicht versetzt starten damit Maps schon läuft
+    time.sleep(10)
+
+    ask = _ask_ollama if ai_mode == "local" else (_ask_claude if ai_mode == "cloud" else None)
+
+    turn = 0
+    for region, branche in itertools.cycle(all_combos):
+        if stop_event.is_set():
+            break
+
+        # Bei "both": abwechselnd Ollama und Claude
+        if ai_mode == "both":
+            ask = _ask_ollama if turn % 2 == 0 else _ask_claude
+            finder_key = "ollama_ai" if turn % 2 == 0 else "claude_ai"
+        elif ai_mode == "cloud":
+            finder_key = "claude_ai"
+        else:
+            finder_key = "ollama_ai"
+
+        turn += 1
+
+        try:
+            _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per)
+        except Exception as e:
+            on_lead({"_error": f"AI ({region}/{branche}): {e}"})
+
+        time.sleep(2.0)
+
+
+def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per):
+    # Schritt 1: KI generiert optimierte Suchanfragen
+    query_prompt = (
+        f"Erstelle 3 verschiedene Google-Suchanfragen auf Deutsch um lokale {branche}-Betriebe "
+        f"in {region} zu finden. Gib NUR ein JSON-Array zurück, keine Erklärung.\n"
+        f'Beispiel: ["Elektriker Berlin Mitte", "Elektrobetrieb Mitte Berlin Telefon", '
+        f'"Elektriker Berlin Mitte keine Webseite"]\n'
+        f"Ausgabe:"
+    )
+
+    queries_raw = ask(query_prompt) if ask else None
+
+    # Parsen oder Fallback
+    queries: list[str] = []
+    if queries_raw:
+        try:
+            m = re.search(r"\[.*?\]", queries_raw, re.DOTALL)
+            if m:
+                queries = json.loads(m.group(0))[:3]
+        except Exception:
+            pass
+
+    if not queries:
+        queries = [f"{branche} {region}", f"{branche} {region} Telefon"]
 
     found = 0
-    for res in results:
+    for query in queries:
         if stop_event.is_set() or found >= max_per:
             break
 
-        url     = res.get("url", "")
-        title   = res.get("title", "")
-        snippet = res.get("snippet", "")
+        results = _ddg_search(query)
 
-        if not title:
-            continue
+        for res in results:
+            if stop_event.is_set() or found >= max_per:
+                break
 
-        # Seiteninhalt lesen
-        html    = _get(url)
-        content = re.sub(r"<[^>]+>", " ", html)[:2000] if html else snippet
+            url   = res.get("url", "")
+            title = res.get("title", "")
+            if not title or not url.startswith("http"):
+                continue
 
-        extract_prompt = f"""Extrahiere aus folgendem Text Informationen über ein Unternehmen.
-Antworte NUR mit einem JSON-Objekt, keine Erklärungen.
+            # Seite laden + Text extrahieren
+            html    = _get(url)
+            content = re.sub(r"<[^>]+>", " ", html)
+            content = re.sub(r"\s{2,}", " ", content)[:2000]
 
-Text:
-{content[:1500]}
+            # KI extrahiert Firmendaten
+            extract_prompt = (
+                f"Extrahiere Firmendaten aus diesem Text. "
+                f"Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Erklärung).\n\n"
+                f"Text: {content[:1200]}\n\n"
+                f'{{"name":"Firmenname","adresse":"Str. Nr, PLZ Stadt","telefon":"+49...","website_url":"https://...oder leer","branche":"{branche}"}}'
+            )
 
-JSON-Format (alle Felder erforderlich):
-{{
-  "name": "Firmenname oder leer",
-  "adresse": "Straße Hausnr, PLZ Stadt oder leer",
-  "telefon": "Telefonnummer oder leer",
-  "website_url": "URL oder leer",
-  "branche": "{branche}"
-}}"""
+            raw  = ask(extract_prompt) if ask else ""
+            data = _extract_json(raw)
 
-        if ai_mode == "cloud":
-            raw = _ask_claude(extract_prompt)
-            finder = "claude_ai"
-        elif ai_mode == "both":
-            raw    = _ask_ollama(extract_prompt) if found % 2 == 0 else _ask_claude(extract_prompt)
-            finder = "ollama_ai" if found % 2 == 0 else "claude_ai"
-        else:
-            raw    = _ask_ollama(extract_prompt)
-            finder = "ollama_ai"
+            name = (data.get("name") or title)[:120]
+            if not name or len(name.strip()) < 3:
+                continue
 
-        # JSON aus Antwort extrahieren
-        try:
-            m    = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
-            data = json.loads(m.group(0)) if m else {}
-        except Exception:
-            data = {}
+            # Offensichtliche Nicht-Firmen filtern
+            skip_words = ["suche", "finden", "vergleich", "liste", "wikipedia", "facebook",
+                          "instagram", "youtube", "twitter", "yelp", "google"]
+            if any(w in name.lower() for w in skip_words):
+                continue
 
-        name = data.get("name") or title
-        if not name or len(name) < 3:
-            continue
+            website_url = (data.get("website_url") or "").strip()
+            if not website_url or website_url == url:
+                website_url = ""
+            has_web  = bool(website_url and website_url.startswith("http"))
+            web_info = check_website(website_url) if has_web else {}
 
-        website_url = data.get("website_url") or url
-        has_web     = bool(website_url)
-        web_info    = check_website(website_url) if has_web else {}
+            lead = {
+                "name":           name,
+                "adresse":        (data.get("adresse") or "")[:200],
+                "stadt":          region,
+                "bundesland":     "Berlin" if "Berlin" in region else "Schleswig-Holstein",
+                "branche":        branche,
+                "telefon":        (data.get("telefon") or "")[:50],
+                "website_url":    website_url[:300] if has_web else "",
+                "has_website":    int(has_web),
+                "website_alter":  web_info.get("alter_jahre", -1),
+                "bewertung":      0.0,
+                "anz_bewertungen": 0,
+                "bilder":         0,
+                "finder":         finder_key,
+                "maps_url":       "",
+            }
 
-        lead = {
-            "name":           name[:120],
-            "adresse":        (data.get("adresse") or "")[:200],
-            "stadt":          region,
-            "bundesland":     "Berlin" if "Berlin" in region else "Schleswig-Holstein",
-            "branche":        branche,
-            "telefon":        (data.get("telefon") or "")[:50],
-            "website_url":    website_url[:300] if has_web else "",
-            "has_website":    int(has_web),
-            "website_alter":  web_info.get("alter_jahre", -1),
-            "bewertung":      0.0,
-            "anz_bewertungen": 0,
-            "bilder":         0,
-            "finder":         finder,
-            "maps_url":       "",
-        }
+            pts, typ         = calc_score(lead)
+            lead["score"]    = pts
+            lead["lead_typ"] = typ
 
-        pts, typ         = calc_score(lead)
-        lead["score"]    = pts
-        lead["lead_typ"] = typ
+            lead_id = db.insert(lead)
+            if lead_id:
+                lead["id"] = lead_id
+                on_lead(lead)
+                found += 1
 
-        lead_id = db.insert(lead)
-        if lead_id:
-            lead["id"] = lead_id
-            on_lead(lead)
-            found += 1
-
-        time.sleep(0.8)
+            time.sleep(0.5)

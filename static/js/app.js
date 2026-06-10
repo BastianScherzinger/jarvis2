@@ -10,10 +10,11 @@ let _statsTimer= null;
 
 // ── Finder-Metadaten ──────────────────────────────────────────────────────────
 const FINDER = {
-  maps_playwright: { cls:'maps',   icon:'🗺',  label:'M',   name:'Google Maps',  sub:'Playwright Scraper' },
-  gelbe_seiten:    { cls:'gelbe',  icon:'📒',  label:'GS',  name:'Gelbe Seiten', sub:'HTTP Scraper' },
-  ollama_ai:       { cls:'ollama', icon:'🤖',  label:'AI',  name:'Ollama KI',    sub:'Lokales Modell' },
-  claude_ai:       { cls:'claude', icon:'✦',   label:'CL',  name:'Claude KI',    sub:'Anthropic API' },
+  maps_playwright: { cls:'maps',   icon:'🗺',  label:'M',   name:'Google Maps',   sub:'Playwright Scraper' },
+  gelbe_seiten:    { cls:'gelbe',  icon:'📒',  label:'GS',  name:'Gelbe Seiten',  sub:'HTTP Scraper' },
+  dasoertliche:    { cls:'gelbe',  icon:'📘',  label:'DÖ',  name:'Das Örtliche',  sub:'HTTP Scraper' },
+  ollama_ai:       { cls:'ollama', icon:'🤖',  label:'AI',  name:'Ollama KI',     sub:'Lokales Modell' },
+  claude_ai:       { cls:'claude', icon:'✦',   label:'CL',  name:'Claude KI',     sub:'Anthropic API' },
 };
 function _finder(key) {
   return FINDER[key] || { cls:'maps', icon:'?', label:'?', name: key || 'Unbekannt', sub:'' };
