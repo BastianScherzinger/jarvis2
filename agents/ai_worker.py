@@ -13,6 +13,7 @@ import itertools
 
 from agents.scorer import score as calc_score
 from scrapers.website_checker import check_website
+from scrapers.regions import get_bundesland
 import db
 
 _UA = (
@@ -237,7 +238,7 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
                 "name":           name,
                 "adresse":        (data.get("adresse") or "")[:200],
                 "stadt":          region,
-                "bundesland":     "Berlin" if "Berlin" in region else "Schleswig-Holstein",
+                "bundesland":     get_bundesland(region),
                 "branche":        branche,
                 "telefon":        (data.get("telefon") or "")[:50],
                 "website_url":    website_url[:300] if has_web else "",

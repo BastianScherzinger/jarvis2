@@ -27,6 +27,11 @@ def get_ai_mode() -> str:
     return "both" if _claude_enabled else "local"
 
 
+def get_combo_count() -> int:
+    """Anzahl aller Stadt×Branche-Kombinationen (Deutschland-weit)."""
+    return len(ALLE_REGIONEN) * len(BRANCHEN)
+
+
 def set_claude_enabled(enabled: bool) -> None:
     global _claude_enabled
     _claude_enabled = enabled
@@ -41,27 +46,29 @@ def start() -> None:
     _stop_event.clear()
     _active = True
 
+    # ~38.000 Combos (1000 Städte × 38 Branchen). Gemischt + in 4 Chunks
+    # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
+    # = kein doppeltes Scrapen, breite Deutschland-Abdeckung von Anfang an.
     combos = list(itertools.product(ALLE_REGIONEN, BRANCHEN))
+    random.shuffle(combos)
+
+    n  = len(combos)
+    c1 = combos[:n // 4]
+    c2 = combos[n // 4:n // 2]
+    c3 = combos[n // 2:3 * n // 4]
+    c4 = combos[3 * n // 4:]
 
     # Worker 1: Google Maps (persistenter Browser)
-    c1 = combos[:]
-    random.shuffle(c1)
-    _spawn("Maps",        maps.run_continuous,           c1, max_per=25)
+    _spawn("Maps",         maps.run_continuous,          c1, max_per=20)
 
     # Worker 2: Gelbe Seiten (versetzt 3s)
-    c2 = combos[:]
-    random.shuffle(c2)
-    _spawn("GelbeSeit",   gelbe_seiten.run_continuous,   c2, delay=3, max_per=25)
+    _spawn("GelbeSeit",    gelbe_seiten.run_continuous,  c2, delay=3,  max_per=20)
 
     # Worker 3: Das Örtliche (versetzt 6s)
-    c3 = combos[:]
-    random.shuffle(c3)
-    _spawn("DasOertliche",dasoertliche.run_continuous,   c3, delay=6, max_per=20)
+    _spawn("DasOertliche", dasoertliche.run_continuous,  c3, delay=6,  max_per=15)
 
     # Worker 4: AI (Ollama + optional Claude, versetzt 12s)
-    c4 = combos[:]
-    random.shuffle(c4)
-    _spawn("AI",          ai_worker.run_continuous,       c4, delay=12, max_per=10)
+    _spawn("AI",           ai_worker.run_continuous,     c4, delay=12, max_per=8)
 
 
 def stop() -> None:

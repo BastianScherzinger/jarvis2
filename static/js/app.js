@@ -179,6 +179,8 @@ function _applyStats(s){
   document.getElementById('s-tel').textContent = _allLeads.filter(l=>l.telefon).length;
   // Source Chart aus DB-Finder-Daten
   _renderChart(s.finders || {});
+  // Bundesland-Chart aus DB
+  if(s.bundeslaender) _renderBL(s.bundeslaender);
 }
 
 function _setNum(id, val){
@@ -210,6 +212,22 @@ function _renderChart(finders){
     </div>`;
   }).join('');
   el.innerHTML = rows || '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>';
+}
+
+// ── Bundesland-Chart ────────────────────────────────────────────────────────────
+function _renderBL(bl){
+  const el = document.getElementById('bl-chart');
+  if(!el) return;
+  const max = Math.max(1, ...Object.values(bl));
+  const rows = Object.entries(bl).slice(0, 10).map(([name, cnt]) => {
+    const pct = Math.round(cnt/max*100);
+    return `<div class="bl-row">
+      <span class="bl-name">${_e(name.substring(0,16))}</span>
+      <div class="bl-bar-wrap"><div class="bl-bar" style="width:${pct}%"></div></div>
+      <span class="bl-cnt">${cnt}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = rows || '';
 }
 
 // ── Lead empfangen ────────────────────────────────────────────────────────────

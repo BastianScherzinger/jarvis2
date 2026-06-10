@@ -10,6 +10,7 @@ import itertools
 
 from agents.scorer import score as calc_score
 from scrapers.website_checker import check_website
+from scrapers.regions import get_bundesland
 import db
 
 _HEADERS = {
@@ -117,7 +118,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             "name":           name[:120],
             "adresse":        adresse[:200],
             "stadt":          region,
-            "bundesland":     "Berlin" if "Berlin" in region else "Schleswig-Holstein",
+            "bundesland":     get_bundesland(region),
             "branche":        branche,
             "telefon":        telefon[:50],
             "website_url":    website_url[:300] if has_web else "",

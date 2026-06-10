@@ -77,12 +77,17 @@ def get_stats() -> dict:
         finders = c.execute(
             "SELECT finder, COUNT(*) as n FROM leads GROUP BY finder ORDER BY n DESC"
         ).fetchall()
+        bl_rows = c.execute(
+            "SELECT bundesland, COUNT(*) as n FROM leads "
+            "GROUP BY bundesland ORDER BY n DESC LIMIT 20"
+        ).fetchall()
     return {
         "total":   total,
         "hot":     hot,
         "warm":    warm,
         "cold":    total - hot - warm,
         "no_web":  no_web,
+        "bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
         "finders": {r["finder"]: r["n"] for r in finders},
     }
 
