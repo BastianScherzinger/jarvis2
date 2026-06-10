@@ -2,139 +2,184 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>JARVIS LeadHunter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="/static/css/style.css"/>
 </head>
 <body>
 
-<!-- ── Topbar ──────────────────────────────────────────────────────────────── -->
+<!-- ── Topbar ────────────────────────────────────────────────────────────── -->
 <header class="topbar">
-  <div class="topbar-brand">
-    <span class="brand-dot"></span>
-    <span class="brand-name">JARVIS</span>
-    <span class="brand-sub">LeadHunter</span>
+  <div class="brand">
+    <div class="brand-arc">
+      <svg width="28" height="28" viewBox="0 0 28 28">
+        <circle cx="14" cy="14" r="12" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity=".4"/>
+        <circle cx="14" cy="14" r="7"  fill="none" stroke="#00d4ff" stroke-width="1.5" opacity=".7"/>
+        <circle cx="14" cy="14" r="3"  fill="#00d4ff"/>
+        <circle cx="14" cy="14" r="3"  fill="#00d4ff" class="arc-pulse"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <span class="brand-jarvis">JARVIS</span>
+      <span class="brand-product">LeadHunter</span>
+    </div>
   </div>
 
-  <div class="topbar-controls">
-    <!-- KI-Auswahl -->
-    <div class="ctrl-group">
-      <span class="ctrl-label">KI</span>
-      <div class="toggle-row" id="ai-toggle">
-        <button class="tgl active" data-val="local">Lokal</button>
-        <button class="tgl" data-val="cloud">Claude</button>
-        <button class="tgl" data-val="both">Beides</button>
+  <nav class="top-nav">
+    <!-- KI -->
+    <div class="nav-group">
+      <span class="nav-label">KI-Modus</span>
+      <div class="pill-row" id="ai-toggle">
+        <button class="pill active" data-val="local">
+          <span class="pill-dot" style="background:#00ff88"></span>Lokal
+        </button>
+        <button class="pill" data-val="cloud">
+          <span class="pill-dot" style="background:#4488ff"></span>Claude
+        </button>
+        <button class="pill" data-val="both">
+          <span class="pill-dot" style="background:#aa44ff"></span>Beides
+        </button>
       </div>
     </div>
 
     <!-- Modus -->
-    <div class="ctrl-group">
-      <span class="ctrl-label">Modus</span>
-      <div class="toggle-row" id="mode-toggle">
-        <button class="tgl active" data-val="website">Webseiten</button>
-        <button class="tgl disabled" data-val="bilder" title="Bald verfügbar">Bilder</button>
-        <button class="tgl disabled" data-val="video"  title="Bald verfügbar">TikTok</button>
+    <div class="nav-group">
+      <span class="nav-label">Scan-Modus</span>
+      <div class="pill-row" id="mode-toggle">
+        <button class="pill active" data-val="website">🌐 Webseiten</button>
+        <button class="pill off" data-val="bilder"  title="Coming soon">🖼 Bilder</button>
+        <button class="pill off" data-val="video"   title="Coming soon">🎬 TikTok</button>
       </div>
     </div>
+  </nav>
 
-    <!-- Start / Stop -->
-    <button class="btn-start" id="btn-start" onclick="toggleScraper()">
-      <span class="btn-icon">▶</span>
-      <span class="btn-text">START</span>
+  <div class="top-right">
+    <div class="live-indicator" id="live-indicator">
+      <span class="live-ring"></span>
+      <span id="live-label">OFFLINE</span>
+    </div>
+    <button class="start-btn" id="start-btn" onclick="toggleScraper()">
+      <span id="start-icon">▶</span>
+      <span id="start-text">START</span>
     </button>
-  </div>
-
-  <div class="live-badge" id="live-badge">
-    <span class="live-dot"></span>
-    <span id="live-text">OFFLINE</span>
   </div>
 </header>
 
-<!-- ── Main Layout ─────────────────────────────────────────────────────────── -->
-<main class="layout">
+<!-- ── Layout ────────────────────────────────────────────────────────────── -->
+<main class="main-grid">
 
-  <!-- ── Linke Sidebar: Stats ────────────────────────────────────────── -->
-  <aside class="sidebar-left">
-    <div class="stat-card">
-      <div class="stat-val" id="s-total">0</div>
-      <div class="stat-lbl">Leads gefunden</div>
-    </div>
-    <div class="stat-card hot">
-      <div class="stat-val" id="s-hot">0</div>
-      <div class="stat-lbl">🔴 Hot Leads</div>
-    </div>
-    <div class="stat-card warm">
-      <div class="stat-val" id="s-warm">0</div>
-      <div class="stat-lbl">🟡 Warm Leads</div>
-    </div>
-    <div class="stat-card cold">
-      <div class="stat-val" id="s-cold">0</div>
-      <div class="stat-lbl">🔵 Cold Leads</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-val" id="s-noweb">0%</div>
-      <div class="stat-lbl">Ohne Website</div>
+  <!-- ═══ Linke Sidebar: Statistiken ═══════════════════════════════════ -->
+  <aside class="sidebar stats-sidebar">
+    <div class="sidebar-title">Statistiken</div>
+
+    <div class="big-stat">
+      <div class="big-stat-num" id="s-total">0</div>
+      <div class="big-stat-lbl">Leads gefunden</div>
+      <div class="big-stat-bar">
+        <div class="big-stat-fill" id="bar-total" style="width:0%"></div>
+      </div>
     </div>
 
-    <div class="finder-list" id="finder-list">
-      <div class="finder-title">Quellen</div>
+    <div class="mini-stats">
+      <div class="mini-stat hot">
+        <span class="mini-dot"></span>
+        <span class="mini-num" id="s-hot">0</span>
+        <span class="mini-lbl">Hot</span>
+      </div>
+      <div class="mini-stat warm">
+        <span class="mini-dot"></span>
+        <span class="mini-num" id="s-warm">0</span>
+        <span class="mini-lbl">Warm</span>
+      </div>
+      <div class="mini-stat cold">
+        <span class="mini-dot"></span>
+        <span class="mini-num" id="s-cold">0</span>
+        <span class="mini-lbl">Cold</span>
+      </div>
     </div>
 
-    <button class="btn-export" onclick="exportCSV()">↓ CSV Export</button>
+    <div class="metric-row">
+      <span class="metric-lbl">Ohne Website</span>
+      <span class="metric-val accent" id="s-noweb">0%</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-lbl">Mit Telefon</span>
+      <span class="metric-val" id="s-tel">0</span>
+    </div>
+
+    <div class="divider"></div>
+    <div class="sidebar-title" style="margin-top:0">Quellen</div>
+    <div id="source-list" class="source-list"></div>
+
+    <div class="divider"></div>
+    <div class="sidebar-title" style="margin-top:0">Filter</div>
+    <select class="flt" id="flt-typ" onchange="applyFilter()">
+      <option value="">Alle Typen</option>
+      <option value="Hot">🔴 Hot Leads</option>
+      <option value="Warm">🟡 Warm Leads</option>
+      <option value="Cold">🔵 Cold Leads</option>
+    </select>
+    <select class="flt" id="flt-web" onchange="applyFilter()">
+      <option value="">Website: alle</option>
+      <option value="0">✗ Kein Website</option>
+      <option value="1">✓ Hat Website</option>
+    </select>
+    <select class="flt" id="flt-bl" onchange="applyFilter()">
+      <option value="">Alle Regionen</option>
+      <option value="Berlin">Berlin</option>
+      <option value="Schleswig-Holstein">Schleswig-Holstein</option>
+    </select>
+
+    <button class="export-btn" onclick="exportCSV()">⬇ CSV Export</button>
+    <button class="clear-btn" onclick="clearFeed()">✕ Feed leeren</button>
   </aside>
 
-  <!-- ── Chat-Feed (Mitte) ─────────────────────────────────────────────── -->
-  <section class="feed-wrap">
-    <div class="feed-header">
+  <!-- ═══ Chat-Feed (Mitte) ════════════════════════════════════════════ -->
+  <section class="feed-section">
+    <div class="feed-topbar">
       <span class="feed-title">Live Feed</span>
-      <span class="feed-count" id="feed-count">0 Nachrichten</span>
-      <button class="btn-clear" onclick="clearFeed()">Leeren</button>
+      <div class="feed-badges">
+        <span class="feed-badge" id="feed-badge-hot" style="display:none">
+          <span class="dot hot"></span><span id="fb-hot">0</span> Hot
+        </span>
+        <span class="feed-badge" id="feed-badge-new">
+          <span class="dot pulse"></span><span id="fb-count">0</span> Nachrichten
+        </span>
+      </div>
     </div>
 
     <div class="chat-feed" id="chat-feed">
-      <div class="feed-empty" id="feed-empty">
-        <div class="empty-icon">◉</div>
-        <div class="empty-text">Scraper starten um Leads zu empfangen</div>
-        <div class="empty-sub">Wähle KI-Modus und drücke START</div>
+      <div class="empty-state" id="empty-state">
+        <div class="empty-arc">
+          <svg width="60" height="60" viewBox="0 0 60 60">
+            <circle cx="30" cy="30" r="26" fill="none" stroke="#1a2a3a" stroke-width="2"/>
+            <circle cx="30" cy="30" r="16" fill="none" stroke="#1a2a3a" stroke-width="2"/>
+            <circle cx="30" cy="30" r="6"  fill="#1a2a3a"/>
+          </svg>
+        </div>
+        <p class="empty-title">Bereit zum Scannen</p>
+        <p class="empty-sub">KI-Modus wählen → START drücken</p>
+        <p class="empty-sub">Berlin &amp; Schleswig-Holstein · 30+ Branchen</p>
       </div>
     </div>
   </section>
 
-  <!-- ── Rechte Sidebar ────────────────────────────────────────────────── -->
-  <aside class="sidebar-right">
-    <div class="filter-block">
-      <div class="filter-title">Filter</div>
-      <select class="flt-sel" id="flt-typ" onchange="applyFilter()">
-        <option value="">Alle Typen</option>
-        <option value="Hot">🔴 Hot</option>
-        <option value="Warm">🟡 Warm</option>
-        <option value="Cold">🔵 Cold</option>
-      </select>
-      <select class="flt-sel" id="flt-web" onchange="applyFilter()">
-        <option value="">Website: alle</option>
-        <option value="0">Kein Website</option>
-        <option value="1">Hat Website</option>
-      </select>
-      <select class="flt-sel" id="flt-bl" onchange="applyFilter()">
-        <option value="">Alle Regionen</option>
-        <option value="Berlin">Berlin</option>
-        <option value="Schleswig-Holstein">Schleswig-Holstein</option>
-      </select>
+  <!-- ═══ Rechte Sidebar: Hot Leads ════════════════════════════════════ -->
+  <aside class="sidebar hot-sidebar">
+    <div class="sidebar-title">🔴 Hot Leads</div>
+    <div class="hot-list" id="hot-list">
+      <div class="hot-empty">Noch keine Hot Leads gefunden</div>
     </div>
-
-    <div class="recent-title">Letzte Hot Leads</div>
-    <div class="recent-list" id="recent-hot"></div>
   </aside>
 
 </main>
 
-<!-- ── Lead Detail Modal ─────────────────────────────────────────────────── -->
-<div class="modal-backdrop" id="modal-bg" onclick="closeModal()"></div>
+<!-- ── Detail Modal ───────────────────────────────────────────────────────── -->
+<div class="modal-bg" id="modal-bg" onclick="closeModal()"></div>
 <div class="modal" id="modal">
-  <button class="modal-close" onclick="closeModal()">✕</button>
-  <div id="modal-content"></div>
+  <div class="modal-inner" id="modal-inner"></div>
 </div>
 
 <script src="/static/js/app.js"></script>

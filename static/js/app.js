@@ -1,380 +1,394 @@
 /* ── JARVIS LeadHunter — Frontend ─────────────────────────────────────────── */
+'use strict';
 
-let _running    = false;
-let _sse        = null;
-let _feedCount  = 0;
-let _allLeads   = [];   // lokaler Cache aller gesehenen Leads
-let _statsTimer = null;
+let _running   = false;
+let _sse       = null;
+let _msgCount  = 0;
+let _allLeads  = [];
+let _hotCount  = 0;
+let _statsTimer= null;
 
-// ── KI / Modus Toggle ─────────────────────────────────────────────────────────
-document.querySelectorAll("#ai-toggle .tgl").forEach(btn => {
-  btn.addEventListener("click", () => {
+// ── Finder-Metadaten ──────────────────────────────────────────────────────────
+const FINDER = {
+  maps_playwright: { cls:'maps',   icon:'🗺',  label:'M',   name:'Google Maps',  sub:'Playwright Scraper' },
+  gelbe_seiten:    { cls:'gelbe',  icon:'📒',  label:'GS',  name:'Gelbe Seiten', sub:'HTTP Scraper' },
+  ollama_ai:       { cls:'ollama', icon:'🤖',  label:'AI',  name:'Ollama KI',    sub:'Lokales Modell' },
+  claude_ai:       { cls:'claude', icon:'✦',   label:'CL',  name:'Claude KI',    sub:'Anthropic API' },
+};
+function _finder(key) {
+  return FINDER[key] || { cls:'maps', icon:'?', label:'?', name: key || 'Unbekannt', sub:'' };
+}
+
+// ── Toggle ────────────────────────────────────────────────────────────────────
+document.querySelectorAll('#ai-toggle .pill').forEach(btn => {
+  btn.addEventListener('click', () => {
     if (_running) return;
-    document.querySelectorAll("#ai-toggle .tgl").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
+    document.querySelectorAll('#ai-toggle .pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
   });
 });
-document.querySelectorAll("#mode-toggle .tgl").forEach(btn => {
-  btn.addEventListener("click", () => {
-    if (btn.classList.contains("disabled")) return;
-    document.querySelectorAll("#mode-toggle .tgl").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
+document.querySelectorAll('#mode-toggle .pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('off')) return;
+    document.querySelectorAll('#mode-toggle .pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
   });
 });
-
 function _getAiMode() {
-  return document.querySelector("#ai-toggle .tgl.active")?.dataset.val || "local";
+  return document.querySelector('#ai-toggle .pill.active')?.dataset.val || 'local';
 }
 
 // ── Start / Stop ──────────────────────────────────────────────────────────────
 function toggleScraper() {
-  if (_running) {
-    stopScraper();
-  } else {
-    startScraper();
-  }
+  _running ? stopScraper() : startScraper();
 }
 
 async function startScraper() {
   const ai_mode = _getAiMode();
-  const res = await fetch("/api/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const res  = await fetch('/api/start', {
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ ai_mode }),
   });
   const data = await res.json();
-  if (!data.ok && data.reason !== "already_running") {
-    console.error("Start fehlgeschlagen:", data);
-    return;
-  }
+  if (!data.ok && data.reason !== 'already_running') return;
 
   _running = true;
-  _updateRunningUI(true);
+  _setRunningUI(true);
   _connectSSE();
-  _statsTimer = setInterval(_fetchStats, 5000);
+  _statsTimer = setInterval(_fetchStats, 6000);
 }
 
 async function stopScraper() {
-  await fetch("/api/stop", { method: "POST" });
+  await fetch('/api/stop', { method:'POST' });
   _running = false;
-  _updateRunningUI(false);
+  _setRunningUI(false);
   if (_sse) { _sse.close(); _sse = null; }
-  if (_statsTimer) { clearInterval(_statsTimer); _statsTimer = null; }
+  clearInterval(_statsTimer);
 }
 
-function _updateRunningUI(on) {
-  const btn  = document.getElementById("btn-start");
-  const icon = btn.querySelector(".btn-icon");
-  const text = btn.querySelector(".btn-text");
-  const live = document.getElementById("live-badge");
-  const lbl  = document.getElementById("live-text");
+function _setRunningUI(on) {
+  const btn  = document.getElementById('start-btn');
+  const icon = document.getElementById('start-icon');
+  const text = document.getElementById('start-text');
+  const ind  = document.getElementById('live-indicator');
+  const lbl  = document.getElementById('live-label');
 
-  if (on) {
-    btn.classList.add("running");
-    icon.textContent = "■";
-    text.textContent = "STOP";
-    live.classList.add("on");
-    lbl.textContent = "LIVE";
-  } else {
-    btn.classList.remove("running");
-    icon.textContent = "▶";
-    text.textContent = "START";
-    live.classList.remove("on");
-    lbl.textContent = "OFFLINE";
-  }
+  btn.classList.toggle('running', on);
+  icon.textContent = on ? '■' : '▶';
+  text.textContent = on ? 'STOP' : 'START';
+  ind.classList.toggle('on', on);
+  lbl.textContent  = on ? 'LIVE' : 'OFFLINE';
 }
 
-// ── SSE Verbindung ─────────────────────────────────────────────────────────────
+// ── SSE ───────────────────────────────────────────────────────────────────────
 function _connectSSE() {
-  if (_sse) { _sse.close(); }
-  _sse = new EventSource("/api/stream");
-
-  _sse.onmessage = (e) => {
+  if (_sse) _sse.close();
+  _sse = new EventSource('/api/stream');
+  _sse.onmessage = e => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === "lead")  _onLead(msg.data);
-      if (msg.type === "error") _onError(msg.msg);
-    } catch (err) { /* ignore */ }
+      if (msg.type === 'lead')  _onLead(msg.data);
+      if (msg.type === 'error') _onError(msg.msg);
+    } catch {}
   };
-
-  _sse.onerror = () => {
-    if (_running) {
-      setTimeout(_connectSSE, 3000);   // Reconnect
-    }
-  };
+  _sse.onerror = () => { if (_running) setTimeout(_connectSSE, 3000); };
 }
 
-// ── Neuer Lead empfangen ───────────────────────────────────────────────────────
+// ── Lead ──────────────────────────────────────────────────────────────────────
 function _onLead(lead) {
   _allLeads.unshift(lead);
-  _feedCount++;
+  _msgCount++;
 
-  document.getElementById("feed-empty")?.remove();
-  document.getElementById("feed-count").textContent = `${_feedCount} Nachrichten`;
+  // Empty State entfernen
+  document.getElementById('empty-state')?.remove();
 
-  const feed = document.getElementById("chat-feed");
-  const msg  = _buildMsg(lead);
-  feed.insertBefore(msg, feed.firstChild);
+  // Feed-Zähler
+  document.getElementById('fb-count').textContent = _msgCount;
 
-  // Limitiere Chat-Bubble-Anzahl auf 200 (Performance)
-  const msgs = feed.querySelectorAll(".msg");
-  if (msgs.length > 200) msgs[msgs.length - 1].remove();
-
-  // Hot Leads in der Sidebar
-  if (lead.lead_typ === "Hot") {
-    _addRecentHot(lead);
+  // Hot-Badge
+  if (lead.lead_typ === 'Hot') {
+    _hotCount++;
+    const hb = document.getElementById('feed-badge-hot');
+    hb.style.display = 'flex';
+    document.getElementById('fb-hot').textContent = _hotCount;
+    _addHotCard(lead);
   }
+
+  // Message in Feed
+  const feed = document.getElementById('chat-feed');
+  const el   = _buildMessage(lead);
+  feed.insertBefore(el, feed.firstChild);
+
+  // Max 300 Bubbles
+  const msgs = feed.querySelectorAll('.msg-group');
+  if (msgs.length > 300) msgs[msgs.length - 1].remove();
 
   _updateStats();
 }
 
 function _onError(msg) {
-  const feed = document.getElementById("chat-feed");
-  const el   = document.createElement("div");
-  el.className   = "msg-error";
-  el.textContent = "⚠ " + msg;
+  const feed = document.getElementById('chat-feed');
+  document.getElementById('empty-state')?.remove();
+  const el = document.createElement('div');
+  el.className   = 'msg-error';
+  el.textContent = '⚠ ' + msg;
   feed.insertBefore(el, feed.firstChild);
 }
 
-// ── Chat-Bubble bauen ─────────────────────────────────────────────────────────
-function _buildMsg(lead) {
-  const wrap = document.createElement("div");
-  wrap.className = "msg";
+// ── Message bauen ─────────────────────────────────────────────────────────────
+function _buildMessage(lead) {
+  const f     = _finder(lead.finder);
+  const time  = new Date().toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const group = document.createElement('div');
+  group.className = 'msg-group';
 
-  const avatarCls = _avatarClass(lead.finder);
-  const avatarLbl = _avatarLabel(lead.finder);
+  // Web-Tag
+  let webTag = '';
+  if (!lead.has_website) {
+    webTag = `<span class="lc-tag web-no">✗ Kein Website</span>`;
+  } else if (lead.website_alter >= 0 && lead.website_alter < 3) {
+    webTag = `<span class="lc-tag web-old">⚠ Website ${lead.website_alter}j alt</span>`;
+  } else if (lead.website_alter >= 3) {
+    webTag = `<span class="lc-tag web-old">⚠ Website ${lead.website_alter}j alt</span>`;
+  }
 
-  const time = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const telTag    = lead.telefon ? `<span class="lc-tag tel">✓ Telefon</span>` : '';
+  const branchTag = lead.branche ? `<span class="lc-tag branch">${_esc(lead.branche)}</span>` : '';
+  const bildTag   = lead.bilder  ? `<span class="lc-tag">📷 Bilder</span>` : '';
 
-  const webTag    = lead.has_website
-    ? `<span class="mc-tag ylw">⚠ Website alt: ${lead.website_alter >= 0 ? lead.website_alter + "j" : "?"}</span>`
-    : `<span class="mc-tag red">✗ Kein Website</span>`;
-  const telTag    = lead.telefon ? `<span class="mc-tag grn">✓ Telefon</span>` : "";
-  const bildTag   = lead.bilder  ? `<span class="mc-tag">📷 Bilder</span>` : "";
-  const brancheTag= lead.branche ? `<span class="mc-tag">${lead.branche}</span>` : "";
-  const ratingTxt = lead.bewertung ? `⭐ ${lead.bewertung}` + (lead.anz_bewertungen ? ` (${lead.anz_bewertungen})` : "") : "";
+  const adrDetail = lead.adresse
+    ? `<div class="lc-detail"><span class="lc-detail-icon">📍</span>${_esc(lead.adresse.substring(0,35))}${lead.adresse.length>35?'…':''}</div>`
+    : '';
+  const telDetail = lead.telefon
+    ? `<div class="lc-detail"><span class="lc-detail-icon">📞</span>${_esc(lead.telefon)}</div>`
+    : '';
+  const ratDetail = lead.bewertung
+    ? `<div class="lc-detail"><span class="lc-detail-icon">⭐</span>${lead.bewertung}${lead.anz_bewertungen ? ` (${lead.anz_bewertungen})`:''}</div>`
+    : '';
 
-  wrap.innerHTML = `
-    <div class="msg-avatar ${avatarCls}">${avatarLbl}</div>
-    <div class="msg-body">
-      <div class="msg-meta">
-        <span class="msg-sender">${_senderName(lead.finder)}</span>
-        <span class="msg-time">${time}</span>
-        <span class="msg-score ${lead.lead_typ}">${lead.lead_typ} · ${lead.score}pt</span>
+  const leadJson = JSON.stringify(lead).replace(/"/g,'&quot;');
+
+  group.innerHTML = `
+    <div class="msg-header">
+      <div class="sender-badge ${f.cls}">
+        <div class="sender-avatar ${f.cls}">${f.label}</div>
+        <span class="sender-name ${f.cls}">${f.name}</span>
       </div>
-      <div class="msg-card ${lead.lead_typ}" data-id="${lead.id||0}" onclick="openModal(${JSON.stringify(lead).replace(/"/g,'&quot;')})">
-        <div class="mc-name">${_esc(lead.name)}</div>
-        <div class="mc-tags">
-          ${webTag}${telTag}${bildTag}${brancheTag}
+      <span class="msg-time">${time}</span>
+    </div>
+    <div class="lead-card ${lead.lead_typ}" data-id="${lead.id||0}" onclick='openModal(${leadJson})'>
+      <div class="lc-top">
+        <div class="lc-name">${_esc(lead.name)}</div>
+        <div class="lc-score-block">
+          <div class="lc-score-num ${lead.lead_typ}">${lead.score}</div>
+          <div class="lc-score-lbl">${lead.lead_typ.toUpperCase()} LEAD</div>
         </div>
-        <div class="mc-detail">
-          ${lead.adresse ? `<div class="mc-row"><span class="mc-icon">📍</span>${_esc(lead.adresse)}</div>` : ""}
-          ${lead.telefon ? `<div class="mc-row"><span class="mc-icon">📞</span>${_esc(lead.telefon)}</div>` : ""}
-          ${ratingTxt    ? `<div class="mc-row"><span class="mc-icon">★</span>${ratingTxt}</div>` : ""}
-        </div>
+      </div>
+      <div class="lc-tags">
+        ${webTag}${telTag}${branchTag}${bildTag}
+      </div>
+      <div class="lc-bottom">
+        ${adrDetail}${telDetail}${ratDetail}
       </div>
     </div>`;
 
-  return wrap;
+  return group;
 }
 
-function _avatarClass(finder) {
-  if (!finder) return "maps";
-  if (finder.includes("maps"))   return "maps";
-  if (finder.includes("gelbe"))  return "gelbe";
-  if (finder.includes("ollama")) return "ollama";
-  if (finder.includes("claude")) return "claude";
-  return "maps";
-}
-function _avatarLabel(finder) {
-  if (!finder) return "M";
-  if (finder.includes("maps"))   return "M";
-  if (finder.includes("gelbe"))  return "G";
-  if (finder.includes("ollama")) return "AI";
-  if (finder.includes("claude")) return "CL";
-  return "?";
-}
-function _senderName(finder) {
-  const map = {
-    maps_playwright: "Google Maps",
-    gelbe_seiten:    "Gelbe Seiten",
-    ollama_ai:       "Ollama KI",
-    claude_ai:       "Claude KI",
-  };
-  return map[finder] || finder || "Unbekannt";
-}
 function _esc(s) {
-  return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Sidebar: letzte Hot Leads ─────────────────────────────────────────────────
-function _addRecentHot(lead) {
-  const list = document.getElementById("recent-hot");
-  const card = document.createElement("div");
-  card.className = "recent-card";
+// ── Hot Sidebar ───────────────────────────────────────────────────────────────
+function _addHotCard(lead) {
+  const list = document.getElementById('hot-list');
+  list.querySelector('.hot-empty')?.remove();
+
+  const card = document.createElement('div');
+  card.className = 'hot-card';
   card.innerHTML = `
-    <div class="rc-name">${_esc(lead.name)}</div>
-    <div class="rc-info">${_esc(lead.stadt)} · ${lead.score}pt</div>`;
+    <div class="hot-card-name">${_esc(lead.name)}</div>
+    <div class="hot-card-meta">
+      ${lead.branche ? `<span class="hot-tag">${_esc(lead.branche)}</span>` : ''}
+      ${lead.stadt   ? `<span class="hot-tag">${_esc(lead.stadt)}</span>` : ''}
+      <span class="hot-score">${lead.score}pt</span>
+    </div>`;
   card.onclick = () => openModal(lead);
   list.insertBefore(card, list.firstChild);
-  // Max 30 Recent
-  const cards = list.querySelectorAll(".recent-card");
-  if (cards.length > 30) cards[cards.length - 1].remove();
+
+  const cards = list.querySelectorAll('.hot-card');
+  if (cards.length > 40) cards[cards.length - 1].remove();
 }
 
-// ── Stats aktualisieren ───────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 function _updateStats() {
   const leads  = _allLeads;
   const total  = leads.length;
-  const hot    = leads.filter(l => l.lead_typ === "Hot").length;
-  const warm   = leads.filter(l => l.lead_typ === "Warm").length;
+  const hot    = leads.filter(l => l.lead_typ === 'Hot').length;
+  const warm   = leads.filter(l => l.lead_typ === 'Warm').length;
   const cold   = total - hot - warm;
   const noWeb  = leads.filter(l => !l.has_website).length;
-  const noWebP = total ? Math.round(noWeb / total * 100) : 0;
+  const hasTel = leads.filter(l => l.telefon).length;
+  const pct    = total ? Math.round(noWeb / total * 100) : 0;
 
-  document.getElementById("s-total").textContent = total;
-  document.getElementById("s-hot").textContent   = hot;
-  document.getElementById("s-warm").textContent  = warm;
-  document.getElementById("s-cold").textContent  = cold;
-  document.getElementById("s-noweb").textContent = noWebP + "%";
+  document.getElementById('s-total').textContent = total;
+  document.getElementById('s-hot').textContent   = hot;
+  document.getElementById('s-warm').textContent  = warm;
+  document.getElementById('s-cold').textContent  = cold;
+  document.getElementById('s-noweb').textContent = pct + '%';
+  document.getElementById('s-tel').textContent   = hasTel;
+
+  // Fortschrittsbalken (visualisiert bis 500)
+  document.getElementById('bar-total').style.width = Math.min(100, total / 5) + '%';
 
   // Finder-Liste
   const finders = {};
-  leads.forEach(l => { if (l.finder) finders[l.finder] = (finders[l.finder] || 0) + 1; });
-  const fl = document.getElementById("finder-list");
-  const rows = Object.entries(finders).sort((a,b) => b[1]-a[1]).map(([k,v]) =>
-    `<div class="finder-row"><span class="finder-name">${_senderName(k)}</span><span class="finder-count">${v}</span></div>`
-  ).join("");
-  fl.innerHTML = `<div class="finder-title">Quellen</div>${rows}`;
+  leads.forEach(l => { if (l.finder) finders[l.finder] = (finders[l.finder]||0)+1; });
+  const sl = document.getElementById('source-list');
+  sl.innerHTML = Object.entries(finders).sort((a,b)=>b[1]-a[1]).map(([k,v]) => {
+    const f = _finder(k);
+    return `<div class="source-item">
+      <div class="source-icon ${f.cls}">${f.label}</div>
+      <div class="source-info">
+        <div class="source-name">${f.name}</div>
+        <div class="source-cnt">${v} Leads</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 async function _fetchStats() {
   try {
-    const res  = await fetch("/api/status");
-    const data = await res.json();
-    const s    = data.stats;
-    document.getElementById("s-total").textContent = s.total;
-    document.getElementById("s-hot").textContent   = s.hot;
-    document.getElementById("s-warm").textContent  = s.warm;
-    document.getElementById("s-cold").textContent  = s.cold;
-    const p = s.total ? Math.round(s.no_web / s.total * 100) : 0;
-    document.getElementById("s-noweb").textContent = p + "%";
-  } catch (e) { /* ignore */ }
+    const s = (await (await fetch('/api/status')).json()).stats;
+    document.getElementById('s-total').textContent = s.total;
+    document.getElementById('s-hot').textContent   = s.hot;
+    document.getElementById('s-warm').textContent  = s.warm;
+    document.getElementById('s-cold').textContent  = s.cold;
+    document.getElementById('bar-total').style.width = Math.min(100, s.total / 5) + '%';
+    const pct = s.total ? Math.round(s.no_web / s.total * 100) : 0;
+    document.getElementById('s-noweb').textContent = pct + '%';
+  } catch {}
 }
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 function applyFilter() {
-  const fTyp = document.getElementById("flt-typ").value;
-  const fWeb = document.getElementById("flt-web").value;
-  const fBl  = document.getElementById("flt-bl").value;
+  const fTyp = document.getElementById('flt-typ').value;
+  const fWeb = document.getElementById('flt-web').value;
+  const fBl  = document.getElementById('flt-bl').value;
 
-  document.querySelectorAll(".msg").forEach(msg => {
-    const card = msg.querySelector(".msg-card");
+  document.querySelectorAll('.msg-group').forEach(grp => {
+    const card = grp.querySelector('.lead-card');
     if (!card) return;
+    const id   = parseInt(card.dataset.id || '0');
+    const lead = _allLeads.find(l => l.id === id);
+    if (!lead) { grp.style.display = ''; return; }
 
-    // Typ
-    const typ     = card.classList.contains("Hot") ? "Hot" : card.classList.contains("Warm") ? "Warm" : "Cold";
-    const typOk   = !fTyp || typ === fTyp;
-
-    // Website — aus gespeichertem Datensatz (data-id attr)
-    const id      = parseInt(card.dataset.id || "0");
-    const lead    = _allLeads.find(l => l.id === id);
-    const webOk   = !fWeb  || (lead && String(lead.has_website) === fWeb);
-    const blOk    = !fBl   || (lead && lead.bundesland === fBl);
-
-    msg.style.display = (typOk && webOk && blOk) ? "" : "none";
+    const typOk = !fTyp || lead.lead_typ === fTyp;
+    const webOk = !fWeb || String(lead.has_website) === fWeb;
+    const blOk  = !fBl  || lead.bundesland === fBl;
+    grp.style.display = (typOk && webOk && blOk) ? '' : 'none';
   });
 }
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
 function openModal(lead) {
-  if (typeof lead === "string") {
-    try { lead = JSON.parse(lead); } catch { return; }
-  }
-  const c = document.getElementById("modal-content");
+  const f  = _finder(lead.finder);
+  const el = document.getElementById('modal-inner');
+
   const webRow = lead.has_website
-    ? `<div class="modal-row"><span class="modal-row-key">Website</span><span class="modal-row-val"><a href="${_esc(lead.website_url)}" target="_blank">${_esc(lead.website_url)}</a></span></div>
-       <div class="modal-row"><span class="modal-row-key">Website-Alter</span><span class="modal-row-val">${lead.website_alter >= 0 ? lead.website_alter + " Jahre" : "unbekannt"}</span></div>`
-    : `<div class="modal-row"><span class="modal-row-key">Website</span><span class="modal-row-val" style="color:var(--red)">❌ Kein Website</span></div>`;
+    ? `<div class="modal-row"><span class="mrow-key">Website</span><span class="mrow-val warn"><a href="${_esc(lead.website_url)}" target="_blank">${_esc(lead.website_url||'Link öffnen')} ↗</a></span></div>
+       <div class="modal-row"><span class="mrow-key">Website-Alter</span><span class="mrow-val ${lead.website_alter>4?'warn':''}">${lead.website_alter>=0 ? lead.website_alter+' Jahre' : 'unbekannt'}</span></div>`
+    : `<div class="modal-row"><span class="mrow-key">Website</span><span class="mrow-val no">❌ Kein Website vorhanden</span></div>`;
 
-  const mapsLink = lead.maps_url
-    ? `<div class="modal-row"><span class="modal-row-key">Google Maps</span><span class="modal-row-val"><a href="${_esc(lead.maps_url)}" target="_blank">Öffnen ↗</a></span></div>`
-    : "";
-
-  c.innerHTML = `
-    <div class="modal-name">${_esc(lead.name)}</div>
-    <div class="modal-tags">
-      <span class="mc-tag ${lead.lead_typ === 'Hot' ? 'red' : lead.lead_typ === 'Warm' ? 'ylw' : ''}">${lead.lead_typ} Lead · ${lead.score}pt</span>
-      ${lead.branche ? `<span class="mc-tag">${_esc(lead.branche)}</span>` : ""}
-      ${lead.bundesland ? `<span class="mc-tag">${_esc(lead.bundesland)}</span>` : ""}
+  el.innerHTML = `
+    <div class="modal-header">
+      <div class="modal-type-badge ${lead.lead_typ}">${lead.lead_typ} Lead</div>
+      <div class="modal-title">${_esc(lead.name)}</div>
+      <button class="modal-close-btn" onclick="closeModal()">✕</button>
     </div>
-    <div class="score-bar"><div class="score-fill ${lead.lead_typ}" style="width:${lead.score}%"></div></div>
 
-    <div class="modal-section" style="margin-top:16px">
-      <div class="modal-section-title">Kontakt</div>
-      <div class="modal-row"><span class="modal-row-key">Name</span><span class="modal-row-val">${_esc(lead.name)}</span></div>
-      ${lead.adresse  ? `<div class="modal-row"><span class="modal-row-key">Adresse</span><span class="modal-row-val">${_esc(lead.adresse)}</span></div>` : ""}
-      ${lead.telefon  ? `<div class="modal-row"><span class="modal-row-key">Telefon</span><span class="modal-row-val">${_esc(lead.telefon)}</span></div>` : ""}
-      ${lead.stadt    ? `<div class="modal-row"><span class="modal-row-key">Stadt</span><span class="modal-row-val">${_esc(lead.stadt)}</span></div>` : ""}
+    <div class="score-row">
+      <span class="score-label">Score</span>
+      <div class="score-bar"><div class="score-fill ${lead.lead_typ}" style="width:${lead.score}%"></div></div>
+      <span class="score-num ${lead.lead_typ}">${lead.score}/100</span>
     </div>
 
     <div class="modal-section">
-      <div class="modal-section-title">Online-Präsenz</div>
+      <div class="modal-sec-title">Kontakt</div>
+      ${lead.adresse  ? `<div class="modal-row"><span class="mrow-key">Adresse</span><span class="mrow-val">${_esc(lead.adresse)}</span></div>` : ''}
+      ${lead.telefon  ? `<div class="modal-row"><span class="mrow-key">Telefon</span><span class="mrow-val ok">${_esc(lead.telefon)}</span></div>` : ''}
+      <div class="modal-row"><span class="mrow-key">Stadt</span><span class="mrow-val">${_esc(lead.stadt||'')} · ${_esc(lead.bundesland||'')}</span></div>
+      <div class="modal-row"><span class="mrow-key">Branche</span><span class="mrow-val">${_esc(lead.branche||'—')}</span></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-sec-title">Online-Präsenz</div>
       ${webRow}
-      ${lead.bilder ? `<div class="modal-row"><span class="modal-row-key">Bilder</span><span class="modal-row-val" style="color:var(--green)">✓ vorhanden</span></div>` : ""}
+      <div class="modal-row"><span class="mrow-key">Bilder vorhanden</span><span class="mrow-val ${lead.bilder?'ok':'no'}">${lead.bilder?'✓ Ja':'✗ Nein'}</span></div>
     </div>
 
+    ${lead.bewertung ? `<div class="modal-section">
+      <div class="modal-sec-title">Bewertung</div>
+      <div class="modal-row"><span class="mrow-key">Sterne</span><span class="mrow-val">⭐ ${lead.bewertung}</span></div>
+      ${lead.anz_bewertungen ? `<div class="modal-row"><span class="mrow-key">Anzahl</span><span class="mrow-val">${lead.anz_bewertungen} Bewertungen</span></div>` : ''}
+      ${lead.maps_url ? `<div class="modal-row"><span class="mrow-key">Google Maps</span><span class="mrow-val"><a href="${_esc(lead.maps_url)}" target="_blank">Öffnen ↗</a></span></div>` : ''}
+    </div>` : ''}
+
     <div class="modal-section">
-      <div class="modal-section-title">Bewertung & Quelle</div>
-      ${lead.bewertung ? `<div class="modal-row"><span class="modal-row-key">Bewertung</span><span class="modal-row-val">⭐ ${lead.bewertung} (${lead.anz_bewertungen} Bewertungen)</span></div>` : ""}
-      <div class="modal-row"><span class="modal-row-key">Gefunden von</span><span class="modal-row-val">${_senderName(lead.finder)}</span></div>
-      <div class="modal-row"><span class="modal-row-key">Gefunden am</span><span class="modal-row-val">${lead.gefunden_am || "—"}</span></div>
-      ${mapsLink}
+      <div class="modal-sec-title">Gefunden von</div>
+      <div class="modal-finder ${f.cls}">
+        <span class="modal-finder-icon">${f.icon}</span>
+        <div class="modal-finder-info">
+          <span class="modal-finder-name">${f.name}</span>
+          <span class="modal-finder-sub">${f.sub} · ${lead.gefunden_am||'—'}</span>
+        </div>
+      </div>
     </div>`;
 
-  document.getElementById("modal-bg").classList.add("open");
-  document.getElementById("modal").classList.add("open");
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('modal').classList.add('open');
 }
 
 function closeModal() {
-  document.getElementById("modal-bg").classList.remove("open");
-  document.getElementById("modal").classList.remove("open");
+  document.getElementById('modal-bg').classList.remove('open');
+  document.getElementById('modal').classList.remove('open');
 }
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
 
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
-
-// ── Feed leeren ────────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 function clearFeed() {
-  const feed = document.getElementById("chat-feed");
-  feed.innerHTML = "";
-  _allLeads   = [];
-  _feedCount  = 0;
-  document.getElementById("feed-count").textContent = "0 Nachrichten";
+  document.getElementById('chat-feed').innerHTML = `
+    <div class="empty-state" id="empty-state">
+      <div class="empty-arc"><svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="26" fill="none" stroke="#182234" stroke-width="2"/><circle cx="30" cy="30" r="16" fill="none" stroke="#182234" stroke-width="2"/><circle cx="30" cy="30" r="6" fill="#182234"/></svg></div>
+      <p class="empty-title">Feed geleert</p>
+      <p class="empty-sub">Scraper läuft weiter im Hintergrund</p>
+    </div>`;
+  _allLeads = []; _msgCount = 0; _hotCount = 0;
+  document.getElementById('fb-count').textContent = '0';
+  document.getElementById('fb-hot').textContent   = '0';
+  document.getElementById('feed-badge-hot').style.display = 'none';
+  document.getElementById('hot-list').innerHTML = '<div class="hot-empty">Noch keine Hot Leads</div>';
   _updateStats();
 }
 
-// ── CSV Export ────────────────────────────────────────────────────────────────
-function exportCSV() {
-  window.location.href = "/api/export/csv";
-}
+function exportCSV() { window.location.href = '/api/export/csv'; }
 
-// ── Init: Status beim Laden prüfen ────────────────────────────────────────────
-(async function init() {
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
   try {
-    const res  = await fetch("/api/status");
-    const data = await res.json();
+    const data = await (await fetch('/api/status')).json();
     if (data.running) {
       _running = true;
-      _updateRunningUI(true);
+      _setRunningUI(true);
       _connectSSE();
-      _statsTimer = setInterval(_fetchStats, 5000);
+      _statsTimer = setInterval(_fetchStats, 6000);
     }
     if (data.stats) {
       const s = data.stats;
-      document.getElementById("s-total").textContent = s.total;
-      document.getElementById("s-hot").textContent   = s.hot;
-      document.getElementById("s-warm").textContent  = s.warm;
-      document.getElementById("s-cold").textContent  = s.cold;
+      document.getElementById('s-total').textContent = s.total;
+      document.getElementById('s-hot').textContent   = s.hot;
+      document.getElementById('s-warm').textContent  = s.warm;
+      document.getElementById('s-cold').textContent  = s.cold;
     }
-  } catch (e) { /* Server noch nicht bereit */ }
+  } catch {}
 })();

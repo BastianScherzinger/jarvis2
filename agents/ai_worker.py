@@ -32,11 +32,11 @@ def _ddg_search(query: str) -> list[dict]:
     if not html:
         return []
     results = []
-    for m in re.finditer(
+    for m in list(re.finditer(
         r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>'
         r'.*?<a[^>]+class="result__snippet"[^>]*>([^<]+)</a>',
         html, re.DOTALL
-    )[:8]:
+    ))[:8]:
         results.append({"url": m.group(1), "title": m.group(2).strip(), "snippet": m.group(3).strip()})
     return results
 
