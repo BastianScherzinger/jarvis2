@@ -1,6 +1,7 @@
 """
 JARVIS — CEO Agent. Einziger Ansprechpartner fuer den User.
-Koordiniert das Team via Anthropic tool-use und hat Zugriff auf den PC.
+Koordiniert das Team via Tool-Use und hat Zugriff auf den PC.
+Unterstützt JARVIS_MODE=cloud (Claude API) und JARVIS_MODE=local (Ollama).
 """
 import base64 as _b64
 import concurrent.futures as _cf
@@ -10,7 +11,8 @@ import re
 import time
 from pathlib import Path
 import anthropic
-from config import get_api_key
+from config import get_api_key, get_mode
+from agents.llm_adapter import get_adapter
 from agents.tools import TOOL_DEFINITIONS, execute_tool
 from agents.team import TEAM
 import jarvis_log as log
@@ -85,31 +87,24 @@ _SPOKEN_FILLER = re.compile(
 
 def _extract_spoken(text: str, max_chars: int = 300) -> str:
     text = _strip_emojis(text)
-    # Code-Blöcke → kurze Ansage
     text = re.sub(r'```[\s\S]*?```', 'Code-Beispiel anbei.', text)
     text = re.sub(r'`[^`\n]+`', '', text)
-    # URLs, HTML, Markdown-Syntax entfernen
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'^#{1,6}\s+.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
     text = re.sub(r'_{1,2}([^_\n]+)_{1,2}', r'\1', text)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    # Tabellen-Zeilen komplett raus
     text = re.sub(r'^\s*\|.*\|.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[-*+\d.]+\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'^[-=_]{3,}$', '', text, flags=re.MULTILINE)
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'[|~^\\]', '', text)
-    # Mehrfach-Zeilenumbrüche → Leerzeichen
     text = re.sub(r'\n+', ' ', text).strip()
     text = re.sub(r' {2,}', ' ', text)
-    # Klammern mit reinem Sonderzeichen-Inhalt weg
     text = re.sub(r'\([^a-zA-ZäöüÄÖÜß]*\)', '', text)
-    # Füllwörter am Satzanfang entfernen (klingt besser gesprochen)
     text = _SPOKEN_FILLER.sub('', text).strip()
     if not text:
         return ''
-    # Sätze aufteilen, sehr kurze (< 8 Zeichen) und reine Zahlenzeilen überspringen
     sentences = re.split(r'(?<=[.!?])\s+', text)
     sentences = [
         s.strip() for s in sentences
@@ -138,7 +133,7 @@ Du bist JARVIS — Just A Rather Very Intelligent System.
 Sprich den User als "Sir" an. Antworte kurz und präzise. Handle direkt.
 """
 
-# Kompaktes System-Prompt für lokale Ollama-Modelle (kleine Modelle brauchen kurze, klare Anweisungen)
+# System-Prompt für reinen Ollama-Text-Fallback (ohne Tool-Use)
 _OLLAMA_SYSTEM = """\
 Du bist JARVIS — Just A Rather Very Intelligent System. Tony Starks KI-Assistent.
 
@@ -153,21 +148,19 @@ ABSOLUTE REGELN:
 - Meinung haben: wenn etwas ineffizient ist, kurz sagen — dann trotzdem ausführen.
 
 KONTEXT: JARVIS ist ein Python-Flask-Dashboard (Port 5000) mit 10 Spezial-Agenten.
-Du bist gerade der OFFLINE-FALLBACK — Claude API nicht erreichbar, du übernimmst.
-Werkzeuge vorhanden (aber in diesem Modus nicht direkt aufrufbar): PC-Control, Browser, Web-Suche.
-Antworte im JARVIS-Stil mit dem Wissen das du hast. Kein Tool-Use im Fallback.
+Du bist gerade der TEXT-FALLBACK — Tool-Use nicht verfügbar in diesem Modus.
+Antworte im JARVIS-Stil mit dem Wissen das du hast.
 """
 
 
 def _ollama_token_stream(history: list[dict], system: str):
-    """Yields rohe Text-Chunks aus Ollama — Fallback wenn Claude nicht erreichbar."""
+    """Yields rohe Text-Chunks aus Ollama — Text-only (kein Tool-Use)."""
     import os as _os
     import urllib.request as _req
     import urllib.error as _uerr
 
     model = _os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
 
-    # Anthropic-Format → Ollama
     ollama_msgs = [{"role": "system", "content": system}]
     for m in history:
         content = m.get("content", "")
@@ -222,22 +215,28 @@ def _load_system_prompt() -> str:
         try:
             content = claude_md.read_text(encoding="utf-8").strip()
 
-            # Lokales Modell dynamisch einfügen (damit Claude davon weiß)
             local_model = _os.environ.get("JARVIS_LOCAL_MODEL", "")
+            mode        = _os.environ.get("JARVIS_MODE", "cloud").strip().lower()
             local_info  = ""
             if local_model:
-                local_info = (
-                    f"\n\n## Aktiver lokaler KI-Fallback\n"
-                    f"Konfiguriert: `{local_model}` via Ollama (Port 11434). "
-                    f"Übernimmt automatisch bei Claude-Ausfall (APIConnectionError, AuthenticationError, RateLimit). "
-                    f"Ollama versteht den gleichen Gesprächsverlauf, antwortet aber ohne Tool-Use."
-                )
+                if mode == "local":
+                    local_info = (
+                        f"\n\n## Aktiver Modus: LOCAL\n"
+                        f"JARVIS läuft vollständig lokal via Ollama. Modell: `{local_model}` (Port 11434). "
+                        f"Kein Cloud-API nötig. Tool-Use, Brain, Bilder, Videos — alles lokal."
+                    )
+                else:
+                    local_info = (
+                        f"\n\n## Aktiver lokaler KI-Fallback\n"
+                        f"Konfiguriert: `{local_model}` via Ollama (Port 11434). "
+                        f"Übernimmt automatisch bei Claude-Ausfall (APIConnectionError, AuthenticationError, RateLimit). "
+                        f"Ollama versteht den gleichen Gesprächsverlauf, antwortet aber ohne Tool-Use."
+                    )
 
-            # Media-Generierung Info
-            img_model = _os.environ.get("JARVIS_IMAGE_MODEL", "")
-            vid_model = _os.environ.get("JARVIS_VIDEO_MODEL", "")
-            media_info = ""
+            img_model      = _os.environ.get("JARVIS_IMAGE_MODEL", "")
+            vid_model      = _os.environ.get("JARVIS_VIDEO_MODEL", "")
             higgsfield_key = _os.environ.get("HIGGSFIELD_API_KEY", "")
+            media_info     = ""
             if img_model or vid_model or higgsfield_key:
                 media_info = "\n\n## Medien-Generierung — Bild & Video KI\n"
                 media_info += (
@@ -319,7 +318,7 @@ def _sse(data: dict) -> str:
 
 
 def _jarvis_ollama_fallback(ceo, messages: list[dict], user_message: str):
-    """Generator — übernimmt mit Ollama wenn Claude ausfällt. Liefert SSE-Strings."""
+    """Generator — Text-only Ollama-Fallback wenn Cloud nicht verfügbar. Kein Tool-Use."""
     fallback_text = ""
     for chunk in _ollama_token_stream(messages, _OLLAMA_SYSTEM):
         fallback_text += chunk
@@ -350,18 +349,18 @@ def _jarvis_ollama_fallback(ceo, messages: list[dict], user_message: str):
 
 class JarvisCEO:
     def __init__(self):
-        self._client = anthropic.Anthropic(api_key=get_api_key())
+        self._adapter  = get_adapter(cloud_model=CEO_MODEL)
+        self._is_local = get_mode() == "local"
         self.history: list[dict] = []
 
     def _trim_history(self) -> None:
-        """Hält die History unter 40 Einträgen — verhindert Context-Bloat bei Overnight-Sessions."""
+        """Hält die History unter 40 Einträgen — verhindert Context-Bloat."""
         if len(self.history) > 40:
-            # Behalte die letzten 30 Einträge (15 user-assistant Runden)
             self.history = self.history[-30:]
             log.warn("History getrimmt auf 30 Einträge (Overnight-Schutz)")
 
     def stream(self, user_message: str):
-        """Generator — yields SSE strings. Nutzt echtes Streaming fuer sofortige Token."""
+        """Generator — yields SSE strings. Unterstützt Cloud (Claude) und Local (Ollama)."""
         self._trim_history()
         self.history.append({"role": "user", "content": user_message})
         messages = list(self.history)
@@ -373,40 +372,46 @@ class JarvisCEO:
         stream_start     = time.time()
         token_count      = 0
         accumulated_resp = ""
-
-        _rate_retries = 0
+        _rate_retries    = 0
+        _tool_rounds     = 0
+        _MAX_TOOL_ROUNDS = 8   # Ollama-Schutz gegen Tool-Loop
 
         while True:
             round_text = ""
+            tool_calls = []
 
-            # ── Echter Anthropic-Stream ───────────────────────────────────
+            # ── LLM Stream via Adapter ────────────────────────────────────────
             try:
-                with self._client.messages.stream(
-                    model=CEO_MODEL,
-                    max_tokens=8192,
-                    system=CEO_SYSTEM,
-                    tools=TOOL_DEFINITIONS,
-                    messages=messages,
-                ) as s:
-                    for event in s:
-                        if event.type == "content_block_delta":
-                            delta = event.delta
-                            if delta.type == "text_delta":
-                                chunk        = delta.text
-                                round_text  += chunk
-                                token_count += 1
-                                yield _sse({"type": "token", "text": chunk})
+                for ev_type, ev_data in self._adapter.stream_round(
+                    messages, CEO_SYSTEM, TOOL_DEFINITIONS
+                ):
+                    if ev_type == "text":
+                        chunk        = ev_data
+                        round_text  += chunk
+                        token_count += 1
+                        yield _sse({"type": "token", "text": chunk})
 
-                    final_msg = s.get_final_message()
-                    if hasattr(final_msg, "usage") and final_msg.usage:
-                        _in = final_msg.usage.input_tokens or 0
-                        _usage["input"]    += _in
-                        _usage["output"]   += final_msg.usage.output_tokens or 0
-                        _usage["requests"] += 1
-                        _usage["last_ctx"]  = _in  # aktueller Kontext-Snapshot
+                    elif ev_type == "tool_call":
+                        tool_calls.append(ev_data)
+
+                    elif ev_type == "done":
+                        if ev_data:
+                            _in = ev_data.get("input_tokens", 0)
+                            _usage["input"]    += _in
+                            _usage["output"]   += ev_data.get("output_tokens", 0)
+                            _usage["requests"] += 1
+                            if _in:
+                                _usage["last_ctx"] = _in
+
                 _rate_retries = 0
 
+            # ── Fehlerbehandlung ──────────────────────────────────────────────
             except anthropic.RateLimitError as e:
+                if self._is_local:
+                    log.warn(f"Unerwarteter Fehler im Local Mode: {e}")
+                    yield _sse({"type": "token", "text": f"\n\n*Fehler: {e}*"})
+                    yield _sse({"type": "done", "usage": dict(_usage)})
+                    break
                 _rate_retries += 1
                 wait_s = 15 * _rate_retries
                 log.warn(f"Rate-Limit (429) — warte {wait_s}s (Versuch {_rate_retries}): {e}")
@@ -415,15 +420,21 @@ class JarvisCEO:
                 if _rate_retries <= 3:
                     time.sleep(wait_s)
                     continue
-                # Nach 3 Versuchen → Ollama Fallback
                 log.warn("Rate-Limit erschöpft — Ollama Fallback")
-                yield _sse({"type": "token", "text": "\n\n*Claude Rate-Limit — lokales Modell übernimmt.*\n\n"})
+                yield _sse({"type": "token",
+                            "text": "\n\n*Claude Rate-Limit — lokales Modell übernimmt.*\n\n"})
                 yield from _jarvis_ollama_fallback(self, messages, user_message)
                 break
 
             except (anthropic.APIConnectionError, anthropic.AuthenticationError) as e:
+                if self._is_local:
+                    log.warn(f"Unerwarteter Fehler im Local Mode: {e}")
+                    yield _sse({"type": "token", "text": f"\n\n*Fehler: {e}*"})
+                    yield _sse({"type": "done", "usage": dict(_usage)})
+                    break
                 log.warn(f"Claude nicht erreichbar ({type(e).__name__}) — Ollama Fallback")
-                yield _sse({"type": "token", "text": "*[Claude offline — lokales Modell aktiv]*\n\n"})
+                yield _sse({"type": "token",
+                            "text": "*[Claude offline — lokales Modell aktiv]*\n\n"})
                 yield from _jarvis_ollama_fallback(self, messages, user_message)
                 break
 
@@ -435,12 +446,22 @@ class JarvisCEO:
                 yield _sse({"type": "done", "usage": dict(_usage)})
                 break
 
+            except ConnectionError as e:
+                # Ollama nicht erreichbar (local mode)
+                log.warn(f"Ollama Verbindung fehlgeschlagen: {e}")
+                yield _sse({"type": "token", "text": f"\n\n*{e}*"})
+                yield _sse({"type": "done", "usage": dict(_usage)})
+                break
+
             except Exception as e:
                 log.warn(f"API-Fehler: {type(e).__name__}: {e}")
                 err_str = str(e).lower()
-                if any(kw in err_str for kw in ("connection", "timeout", "network", "ssl", "resolve", "unreachable")):
+                if (not self._is_local and
+                        any(kw in err_str for kw in
+                            ("connection", "timeout", "network", "ssl", "resolve", "unreachable"))):
                     log.warn("Verbindungsfehler — Ollama Fallback")
-                    yield _sse({"type": "token", "text": "*[Verbindungsfehler — lokales Modell]*\n\n"})
+                    yield _sse({"type": "token",
+                                "text": "*[Verbindungsfehler — lokales Modell]*\n\n"})
                     yield from _jarvis_ollama_fallback(self, messages, user_message)
                 else:
                     self.history.clear()
@@ -448,19 +469,18 @@ class JarvisCEO:
                     yield _sse({"type": "done", "usage": dict(_usage)})
                 break
 
-            # ── Tool-calls aus final_msg.content (autoritativ) ────────────
-            tool_calls = []
-            for block in (final_msg.content or []):
-                if getattr(block, "type", None) == "tool_use":
-                    tool_calls.append({
-                        "id":    block.id,
-                        "name":  block.name,
-                        "input": dict(block.input) if block.input else {},
-                    })
-
-            # ── Tool-use Round ────────────────────────────────────────────
+            # ── Tool-Use Round ────────────────────────────────────────────────
             if tool_calls:
-                messages.append({"role": "assistant", "content": final_msg.content})
+                # Schutz gegen endlose Tool-Loops (besonders bei Ollama)
+                _tool_rounds += 1
+                if _tool_rounds > _MAX_TOOL_ROUNDS:
+                    log.warn(f"Tool-Loop-Schutz: {_tool_rounds} Runden — stoppe")
+                    accumulated_resp += round_text + "\n\n*Maximale Tool-Runden erreicht.*"
+                    self.history.append({"role": "assistant", "content": accumulated_resp})
+                    yield _sse({"type": "done", "usage": dict(_usage)})
+                    break
+
+                self._adapter.append_assistant(messages, round_text, tool_calls)
 
                 if round_text.strip():
                     log.jarvis_thinking(round_text)
@@ -468,7 +488,8 @@ class JarvisCEO:
                     if spoken_inter and len(spoken_inter) > 3:
                         try:
                             audio_bytes, mime = _tts.speak(spoken_inter)
-                            log.tool_call("tts", f"→ {len(audio_bytes)//1024}KB (zwischendurch): {spoken_inter[:50]}")
+                            log.tool_call("tts",
+                                          f"→ {len(audio_bytes)//1024}KB (zwischendurch): {spoken_inter[:50]}")
                             yield _sse({
                                 "type":      "spoken",
                                 "text":      spoken_inter,
@@ -479,7 +500,8 @@ class JarvisCEO:
                         except Exception as e:
                             log.warn(f"TTS intermediate: {e}")
 
-                tool_results = []
+                tool_results_normalized: list[dict] = []
+
                 for tc in tool_calls:
                     tool_name  = tc["name"]
                     tool_input = tc["input"]
@@ -495,7 +517,9 @@ class JarvisCEO:
                             "agent_name": agent_obj.name if agent_obj else agent_key,
                             "agent_role": agent_obj.role if agent_obj else "",
                         }
-                        log.agent_start(agent_key, agent_obj.name if agent_obj else agent_key, task_text)
+                        log.agent_start(agent_key,
+                                        agent_obj.name if agent_obj else agent_key,
+                                        task_text)
                     else:
                         detail = (tool_input.get("path") or tool_input.get("command") or
                                   tool_input.get("pattern") or tool_input.get("url") or "")
@@ -511,12 +535,10 @@ class JarvisCEO:
 
                     t0 = time.time()
                     try:
-                        # Langsame Tools (local_ai_worker, Browser) im Thread —
-                        # so können SSE-Keepalives gesendet werden
                         with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
                             _fut = _pool.submit(execute_tool, tool_name, tool_input)
                             while not _fut.done():
-                                yield ": keepalive\n\n"   # SSE-Comment hält Verbindung offen
+                                yield ": keepalive\n\n"
                                 time.sleep(2)
                             result = _fut.result()
                     except Exception as exc:
@@ -531,7 +553,9 @@ class JarvisCEO:
                     if tool_name == "delegate_to_agent":
                         agent_key = tool_input.get("agent", "")
                         agent_obj = TEAM.get(agent_key)
-                        log.agent_done(agent_key, agent_obj.name if agent_obj else agent_key, elapsed_t)
+                        log.agent_done(agent_key,
+                                       agent_obj.name if agent_obj else agent_key,
+                                       elapsed_t)
                         task_snippet = tool_input.get("task", "")[:80]
                         _brain_entry(
                             f"Agent {agent_key}",
@@ -541,7 +565,8 @@ class JarvisCEO:
                         )
                         _ollama_enrich_brain(
                             f"Agent:{agent_key}",
-                            f"Agent {agent_obj.name if agent_obj else agent_key} löste: {task_snippet} → {str_result[:200]}"
+                            f"Agent {agent_obj.name if agent_obj else agent_key} "
+                            f"löste: {task_snippet} → {str_result[:200]}"
                         )
                     else:
                         log.tool_done(tool_name, len(str_result), elapsed_t)
@@ -566,19 +591,18 @@ class JarvisCEO:
                         "result":  str_result[:2000],
                     })
 
-                    # In History kürzen: max 5000 Zeichen pro Ergebnis → verhindert Rate-Limit
                     hist_content = (str_result if len(str_result) <= 5000
                                     else str_result[:5000] + "\n... [gekürzt]")
-                    tool_results.append({
-                        "type":        "tool_result",
-                        "tool_use_id": tool_id,
-                        "content":     hist_content,
+                    tool_results_normalized.append({
+                        "id":     tool_id,
+                        "name":   tool_name,
+                        "result": hist_content,
                     })
 
                 accumulated_resp += round_text
-                messages.append({"role": "user", "content": tool_results})
+                self._adapter.append_tool_results(messages, tool_results_normalized)
 
-            # ── Finale Antwort ─────────────────────────────────────────────
+            # ── Finale Antwort ────────────────────────────────────────────────
             else:
                 accumulated_resp += round_text
                 self.history.append({"role": "assistant", "content": accumulated_resp})
