@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-JARVIS Launcher
-Starten:  python start.py
+JARVIS LeadHunter — Launcher
+python start.py
 """
-
 import os
 import re
 import subprocess
@@ -13,22 +12,19 @@ import time
 import webbrowser
 from pathlib import Path
 
-# UTF-8 + ANSI aktivieren
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"]       = "1"
-os.system("")
+os.system("")   # ANSI auf Windows aktivieren
 
-
-# ── Farben ────────────────────────────────────────────────────────────────────
-C  = "\033[96m"   # cyan
-B  = "\033[1m"    # bold
-R  = "\033[0m"    # reset
-GR = "\033[92m"   # green
-YL = "\033[93m"   # yellow
-GY = "\033[90m"   # gray
-
+C  = "\033[96m"
+B  = "\033[1m"
+R  = "\033[0m"
+GR = "\033[92m"
+YL = "\033[93m"
+GY = "\033[90m"
+RD = "\033[91m"
 
 HERE = Path(__file__).parent
 
@@ -48,7 +44,6 @@ def _read_env() -> dict:
 
 
 def _set_env(key: str, value: str) -> None:
-    """Setzt einen Wert in .env (überschreibt falls vorhanden, hängt sonst an)."""
     p = HERE / ".env"
     if not p.exists():
         p.write_text(f"{key}={value}\n", encoding="utf-8")
@@ -61,114 +56,102 @@ def _set_env(key: str, value: str) -> None:
     p.write_text(txt, encoding="utf-8")
 
 
-def _is_first_run(cfg: dict) -> bool:
-    """True wenn Setup noch unvollständig ist."""
-    if not (HERE / ".env").exists():
-        return True
-    mode = cfg.get("JARVIS_MODE", "cloud").lower()
-    if mode == "local":
-        return not (cfg.get("JARVIS_TOOL_MODEL") or cfg.get("JARVIS_LOCAL_MODEL"))
-    key = cfg.get("ANTHROPIC_KEY") or cfg.get("ANTHROPIC_API_KEY", "")
-    return not key or "sk-ant-..." in key or "dein_api_key" in key
+def _install_deps() -> None:
+    """Stellt sicher dass Flask + Playwright + beautifulsoup4 installiert sind."""
+    pkgs = ["flask", "playwright", "beautifulsoup4", "requests"]
+    for pkg in pkgs:
+        try:
+            __import__(pkg.replace("-", "_"))
+        except ImportError:
+            print(f"  {YL}[+]{R}  Installiere {pkg}...")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", pkg, "-q"],
+                check=False
+            )
+    # Playwright Chromium
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            pw.chromium.executable_path  # prüft ob Browser da
+    except Exception:
+        print(f"  {YL}[+]{R}  Installiere Playwright Chromium...")
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"],
+            check=False
+        )
 
 
-def _boot_screen() -> None:
-    """Zeigt JARVIS-Banner und fragt nach dem KI-Modus."""
-    cfg   = _read_env()
-    mode  = cfg.get("JARVIS_MODE", "cloud").lower()
-    model = cfg.get("JARVIS_TOOL_MODEL") or cfg.get("JARVIS_LOCAL_MODEL") or "qwen2.5:7b"
-    key   = cfg.get("ANTHROPIC_KEY") or cfg.get("ANTHROPIC_API_KEY", "")
-    has_k = bool(key) and "sk-ant-..." not in key and "dein_api_key" not in key
+def _boot_screen(cfg: dict) -> str:
+    """Zeigt Boot-Banner, fragt nach KI-Modus. Gibt gewählten ai_mode zurück."""
+    mode      = cfg.get("JARVIS_AI_MODE", "local").lower()
+    local_mdl = cfg.get("JARVIS_TOOL_MODEL") or cfg.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    has_key   = bool(cfg.get("ANTHROPIC_KEY") or cfg.get("ANTHROPIC_API_KEY", ""))
 
-    W      = 54
-    border = "═" * W
-    title  = "J · A · R · V · I · S"
-    sub    = "Just A Rather Very Intelligent System"
+    W = 54
+    print()
+    print(f"  {C}╔{'═'*W}╗{R}")
+    print(f"  {C}║{' '*W}║{R}")
+    print(f"  {C}║{R}{B}{'J · A · R · V · I · S':^{W}}{R}{C}║{R}")
+    print(f"  {C}║{R}{GY}{'LeadHunter  ·  B2B Lead Generator':^{W}}{R}{C}║{R}")
+    print(f"  {C}║{' '*W}║{R}")
+    print(f"  {C}╚{'═'*W}╝{R}")
+    print()
+    print(f"  {B}LOKALES MODELL{R}  ›  {GY}{local_mdl}{R}")
+    print(f"  {B}CLAUDE{R}          ›  {(GR+'API-Key vorhanden'+R) if has_key else (YL+'kein API-Key'+R)}")
+    print(f"  {B}PORT{R}            ›  {GY}localhost:5000{R}")
+    print()
+    print(f"  {GY}{'─'*50}{R}")
+    print(f"  Welche KI soll scrapen?")
+    print()
+
+    opts = [
+        ("1", f"{GR}Lokal{R}  {GY}({local_mdl}){R}",           "local"),
+        ("2", f"{C}Claude{R} {GY}(Anthropic API){R}",           "cloud"),
+        ("3", f"{B}Beides{R} {GY}(Lokal + Claude parallel){R}", "both"),
+    ]
+    for key, label, _ in opts:
+        print(f"    [{C}{key}{R}]  {label}")
 
     print()
-    print(f"  {C}╔{border}╗{R}")
-    print(f"  {C}║{' ' * W}║{R}")
-    print(f"  {C}║{R}{B}{title:^{W}}{R}{C}║{R}")
-    print(f"  {C}║{R}{GY}{sub:^{W}}{R}{C}║{R}")
-    print(f"  {C}║{' ' * W}║{R}")
-    print(f"  {C}╚{border}╝{R}")
-    print()
-
-    # Status
-    if mode == "local":
-        mode_str = f"  {B}MODUS{R}    ›  {YL}LOCAL{R}   {GY}{model}{R}"
-    else:
-        warn = f"   {YL}⚠ kein API-Key{R}" if not has_k else ""
-        mode_str = f"  {B}MODUS{R}    ›  {GR}CLOUD{R}   {GY}claude-sonnet-4-6{R}{warn}"
-
-    print(mode_str)
-    if mode == "cloud" and model:
-        print(f"  {B}FALLBACK{R} ›  {GY}{model} (Ollama){R}")
-    print(f"  {B}PORT{R}     ›  {GY}localhost:5000{R}")
-    print()
-
-    # Modus-Auswahl
-    if mode == "local":
-        opt_c = f"{C}[c]{R} Cloud (Claude)"
-        opt_l = f"{GY}[l]{R} Lokal  ← aktiv"
-    else:
-        opt_c = f"{GY}[c]{R} Cloud  ← aktiv"
-        opt_l = f"{C}[l]{R} Lokal (Ollama)"
-
-    line = "─" * 50
-    print(f"  {GY}{line}{R}")
-    print(f"    {opt_c}    {opt_l}    {C}[Enter]{R} Weiter")
-    print(f"  {GY}{line}{R}")
+    print(f"  {GY}{'─'*50}{R}")
     print()
 
     try:
-        ch = input(f"  {C}›{R}  ").strip().lower()
+        ch = input(f"  {C}›{R}  Auswahl (1/2/3, Enter = Lokal): ").strip()
     except (EOFError, KeyboardInterrupt):
         ch = ""
 
-    if ch == "c" and mode != "cloud":
-        _set_env("JARVIS_MODE", "cloud")
-        os.environ["JARVIS_MODE"] = "cloud"
-        print(f"\n  {GR}Cloud-Modus aktiviert.{R}")
-        print()
-    elif ch == "l" and mode != "local":
-        _set_env("JARVIS_MODE", "local")
-        os.environ["JARVIS_MODE"] = "local"
-        print(f"\n  {YL}Local-Modus aktiviert.{R}  {GY}({model}){R}")
-        print()
+    chosen = "local"
+    for key, _, val in opts:
+        if ch == key:
+            chosen = val
+            break
 
-    return cfg
+    _set_env("JARVIS_AI_MODE", chosen)
+    os.environ["JARVIS_AI_MODE"] = chosen
+
+    labels = {"local": f"{GR}Lokal{R}", "cloud": f"{C}Claude{R}", "both": f"{B}Lokal + Claude{R}"}
+    print(f"\n  KI-Modus: {labels[chosen]}  {GY}— starte Server...{R}")
+    print()
+    return chosen
 
 
 def main():
-    if "--list" in sys.argv:
-        subprocess.run([sys.executable, "voice_agent.py", "--list"])
-        return
+    cfg     = _read_env()
+    ai_mode = _boot_screen(cfg)
 
-    if not (HERE / "app.py").exists():
-        print(f"  {YL}[!]{R}  app.py nicht gefunden — bitte aus dem jarvis-Ordner starten.")
-        sys.exit(1)
+    print(f"  {GY}[+]{R}  Prüfe Abhängigkeiten...")
+    _install_deps()
+    print(f"  {GR}[✓]{R}  Bereit.")
+    print()
 
-    # ── Boot-Screen & Modus-Auswahl ──────────────────────────────────
-    cfg       = _boot_screen()
-    first_run = _is_first_run(_read_env())   # nach möglichem Mode-Write neu lesen
-
-    # ── Setup (quiet wenn bereits konfiguriert) ──────────────────────
-    import install
-    all_ok = install.run(quiet=not first_run)
-
-    if not all_ok:
-        print(f"  {YL}[!]{R}  Setup unvollständig — JARVIS startet trotzdem.")
-        print()
-
-    # ── Browser öffnen ───────────────────────────────────────────────
+    # Browser nach kurzer Verzögerung öffnen
     def _open():
-        time.sleep(2.2)
+        time.sleep(2.5)
         webbrowser.open("http://localhost:5000")
     threading.Thread(target=_open, daemon=True).start()
 
-    # ── Flask starten ────────────────────────────────────────────────
-    print(f"  {C}[JARVIS]{R}  Starte Server auf {GY}http://localhost:5000{R} ...")
+    print(f"  {C}[JARVIS]{R}  LeadHunter läuft auf {GY}http://localhost:5000{R}")
     print()
 
     flask = subprocess.Popen(

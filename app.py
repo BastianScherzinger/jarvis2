@@ -1,240 +1,103 @@
-﻿import io
-import re
-import wave
-import struct
-import math
-import threading
-import subprocess
-import tempfile
+"""
+JARVIS LeadHunter — Flask Backend.
+SSE-Stream sendet jeden neuen Lead als Chat-Nachricht ans Dashboard.
+"""
+import json
 import os
-import logging
-import socket
-import time as _time
-
+import queue
+import time
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, send_from_directory
-from agents.ceo import JarvisCEO, get_usage
-from agents.tools import WORKSPACE_TASKS, WORKSPACE_RESULTS
-import jarvis_log as log
-import tts
 
-# Flask-Logs auf Minimum
-logging.getLogger("werkzeug").setLevel(logging.ERROR)
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
-log.banner()
+import db
+from scrapers import controller
 
-# ── Bekannte Ollama-Modell-Tiers ───────────────────────────────────
-_MODELS = [
-    # Tier 1 — Micro (<2 GB RAM)
-    {"id": "llama3.2:1b",        "key": "tiny",    "name": "Llama 3.2 1B",        "desc": "Jede Hardware",      "ram_gb": 1.5,  "vram": "~1 GB",   "tier": 1},
-    {"id": "qwen2.5-coder:1.5b", "key": "coder",   "name": "Qwen 2.5 Coder 1.5B", "desc": "Code-Spezialist",    "ram_gb": 1.5,  "vram": "~1 GB",   "tier": 1},
-    # Tier 2 — Small (3–5 GB RAM)
-    {"id": "gemma3:4b",          "key": "gemma4",  "name": "Gemma 3 4B",           "desc": "Google, multilingual","ram_gb": 4.0,  "vram": "~4 GB",   "tier": 2},
-    {"id": "qwen2.5:3b",         "key": "small",   "name": "Qwen 2.5 3B",          "desc": "Schnell & kompakt",   "ram_gb": 4.0,  "vram": "~4 GB",   "tier": 2},
-    # Tier 3 — Medium (6–9 GB RAM)
-    {"id": "llama3.1:8b",        "key": "llama8",  "name": "Llama 3.1 8B",         "desc": "Meta, universell",    "ram_gb": 6.0,  "vram": "~6 GB",   "tier": 3},
-    {"id": "mistral:7b",         "key": "mistral", "name": "Mistral 7B",            "desc": "Schnell & präzise",   "ram_gb": 5.0,  "vram": "~5 GB",   "tier": 3},
-    {"id": "deepseek-r1:7b",     "key": "reason",  "name": "DeepSeek R1 7B",        "desc": "Reasoning-Modell",    "ram_gb": 6.0,  "vram": "~6 GB",   "tier": 3},
-    {"id": "qwen2.5:7b",         "key": "laptop",  "name": "Qwen 2.5 7B",           "desc": "Laptop-Standard",     "ram_gb": 8.0,  "vram": "~8 GB",   "tier": 3},
-    # Tier 4 — Large (10–20 GB RAM)
-    {"id": "phi4:14b",           "key": "phi4",    "name": "Phi-4 14B",             "desc": "Microsoft, sehr klug","ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
-    {"id": "gemma3:12b",         "key": "gemma12", "name": "Gemma 3 12B",           "desc": "Google, ausgewogen",  "ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
-    {"id": "qwen2.5:14b",        "key": "medium",  "name": "Qwen 2.5 14B",          "desc": "Desktop 16 GB",       "ram_gb": 16.0, "vram": "~16 GB",  "tier": 4},
-    # Tier 5 — XL (32+ GB RAM)
-    {"id": "qwen2.5:32b",        "key": "large",   "name": "Qwen 2.5 32B",          "desc": "High-End Desktop",    "ram_gb": 32.0, "vram": "~32 GB",  "tier": 5},
-    {"id": "phi4-reasoning:14b", "key": "phi4r",   "name": "Phi-4 Reasoning 14B",   "desc": "Microsoft, Logik",    "ram_gb": 10.0, "vram": "~10 GB",  "tier": 4},
-    # Tier 6 — Server
-    {"id": "llama3.3:70b",       "key": "allware", "name": "Llama 3.3 70B",         "desc": "Server-Grade",        "ram_gb": 48.0, "vram": "~48 GB",  "tier": 6},
-]
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.urandom(24)
+
+# ── Init DB beim Start ────────────────────────────────────────────────────────
+db.init_db()
 
 
-def _get_ram_gb() -> tuple:
-    """Gibt (total_gb, free_gb) zurück. Nutzt Windows GlobalMemoryStatusEx via ctypes."""
-    try:
-        import ctypes
-        class _MS(ctypes.Structure):
-            _fields_ = [
-                ("dwLength",              ctypes.c_ulong),
-                ("dwMemoryLoad",          ctypes.c_ulong),
-                ("ullTotalPhys",          ctypes.c_ulonglong),
-                ("ullAvailPhys",          ctypes.c_ulonglong),
-                ("ullTotalPageFile",      ctypes.c_ulonglong),
-                ("ullAvailPageFile",      ctypes.c_ulonglong),
-                ("ullTotalVirtual",       ctypes.c_ulonglong),
-                ("ullAvailVirtual",       ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-            ]
-        ms = _MS(); ms.dwLength = ctypes.sizeof(ms)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
-        return round(ms.ullTotalPhys / 1e9, 1), round(ms.ullAvailPhys / 1e9, 1)
-    except Exception:
-        return 0.0, 0.0
+# ── SSE Helper ────────────────────────────────────────────────────────────────
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _check_ollama() -> None:
-    import shutil as _sh
-    local_model = os.environ.get("JARVIS_LOCAL_MODEL", "")
-    ollama_exe  = _sh.which("ollama")
-    GR = "\033[92m"; GY = "\033[90m"; R = "\033[0m"; YL = "\033[93m"
-    if ollama_exe and local_model:
-        try:
-            res = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, timeout=5,
-                encoding="utf-8", errors="replace",
-            )
-            if local_model.split(":")[0] in res.stdout:
-                print(f"  {GR}OK{R}  Ollama  {local_model}  {GY}(Fallback bereit){R}")
-            else:
-                log.warn(f"Ollama: '{local_model}' nicht gefunden — 'ollama pull {local_model}'")
-        except Exception as e:
-            log.warn(f"Ollama-Check fehlgeschlagen: {e}")
-    elif ollama_exe:
-        print(f"  {YL}!{R}   Ollama vorhanden — kein Modell gesetzt {GY}(JARVIS_LOCAL_MODEL fehlt){R}")
-    else:
-        print(f"  {GY}--  Ollama: nicht installiert — kein lokaler Fallback{R}")
-
-_check_ollama()
-
-app     = Flask(__name__)
-jarvis  = JarvisCEO()
-
-# â”€â”€ STT: faster-whisper (lokal) mit Google-Fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_whisper       = None
-_whisper_ready = False
-
-def _load_whisper() -> None:
-    global _whisper, _whisper_ready
-    try:
-        import os as _os
-        model_size = _os.getenv("JARVIS_STT_MODEL", "base")
-        from faster_whisper import WhisperModel
-        _whisper = WhisperModel(model_size, device="cpu", compute_type="int8")
-        _whisper_ready = True
-    except ImportError:
-        pass        # kein faster-whisper installiert â†’ Google-Fallback
-    except Exception as e:
-        log.warn(f"Whisper-Ladefehler: {e}")
-
-# Whisper im Hintergrund laden â€” blockiert den Start nicht
-threading.Thread(target=_load_whisper, daemon=True).start()
-
-# Google-Fallback
-import speech_recognition as sr
-_recognizer = sr.Recognizer()
-
-
-def _get_ffmpeg() -> str:
-    """Gibt ffmpeg-Pfad zurueck: erst System, dann imageio-ffmpeg-Bundle."""
-    import shutil
-    sys_ff = shutil.which("ffmpeg")
-    if sys_ff:
-        return sys_ff
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        raise FileNotFoundError("ffmpeg nicht gefunden â€” pip install imageio-ffmpeg")
-
-
-def _webm_to_wav(webm_bytes: bytes, rate: int = 16000) -> bytes:
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_in:
-        tmp_in.write(webm_bytes)
-        tmp_in_path = tmp_in.name
-    tmp_out_path = tmp_in_path.replace(".webm", ".wav")
-    try:
-        subprocess.run(
-            [_get_ffmpeg(), "-y", "-i", tmp_in_path,
-             "-ar", str(rate), "-ac", "1", "-f", "wav", tmp_out_path],
-            check=True, capture_output=True,
-        )
-        with open(tmp_out_path, "rb") as f:
-            return f.read()
-    finally:
-        for p in (tmp_in_path, tmp_out_path):
-            try: os.unlink(p)
-            except OSError: pass
-
-
-# Whisper-Halluzinationen die bei Musik/Stille auftreten
-_WHISPER_HALLUCINATIONS = re.compile(
-    r'^(Danke\.|Tschüss\.|Auf Wiedersehen\.|Vielen Dank\.|Bitte\.|Untertitel|'
-    r'Untertitelung|♪|www\.|Copyright|\(Musik\)|\[Musik\]|Thank you\.|'
-    r'Subtitles|Subscribe|Like and|Bye\.|Okay\.)$',
-    re.IGNORECASE,
-)
-
-
-def _transcribe_whisper(buf: io.BytesIO, lang: str) -> str:
-    """Lokale Transkription via faster-whisper — optimiert für Geschwindigkeit."""
-    import numpy as _np
-    buf.seek(0)
-    with wave.open(buf, "rb") as wf:
-        raw = wf.readframes(wf.getnframes())
-    samples = _np.frombuffer(raw, dtype=_np.int16).astype(_np.float32) / 32768.0
-
-    # Musik-Detektion: gleichmäßiger RMS → kein Sprach-Signal
-    if len(samples) > 3200:
-        chunk_size = 1600
-        rms_vals = [
-            float(_np.sqrt(_np.mean(samples[i:i+chunk_size] ** 2)))
-            for i in range(0, len(samples) - chunk_size, chunk_size)
-        ]
-        mean_rms = float(_np.mean(rms_vals))
-        std_rms  = float(_np.std(rms_vals))
-        if mean_rms > 0.003 and (std_rms / (mean_rms + 1e-9)) < 0.30:
-            log.warn("Whisper: gleichmäßiger Pegel → Musik/Hintergrund, ignoriert")
-            return ""
-
-    lang_code = lang.split("-")[0]
-    segments, info = _whisper.transcribe(
-        samples,
-        language=lang_code,
-        beam_size=3,            # 8 → 3: deutlich schneller, kaum Qualitätsverlust
-        best_of=1,              # 3 → 1: kein re-sampling nötig
-        temperature=0.0,
-        vad_filter=True,
-        condition_on_previous_text=False,  # verhindert Wiederholungs-Loops
-        initial_prompt="Kurzer Sprachbefehl auf Deutsch an JARVIS-Assistenten.",
-        vad_parameters={"min_silence_duration_ms": 600, "speech_pad_ms": 200, "threshold": 0.5},
-        no_speech_threshold=0.60,
-        compression_ratio_threshold=1.6,
-        log_prob_threshold=-0.5,
-    )
-    texts = []
-    for s in segments:
-        t = s.text.strip()
-        if s.no_speech_prob > 0.50:
-            continue
-        if _WHISPER_HALLUCINATIONS.match(t):
-            continue
-        if t:
-            texts.append(t)
-    result = " ".join(texts).strip()
-    if not result:
-        log.warn(f"Whisper: no_speech (lang_prob={info.language_probability:.2f})")
-    return result
-
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/api/maps-key")
-def maps_key():
-    key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
-    return jsonify({"key": key})
+
+@app.route("/api/start", methods=["POST"])
+def api_start():
+    body    = request.get_json(silent=True) or {}
+    ai_mode = body.get("ai_mode", "local")   # local | cloud | both
+    if not controller.is_running():
+        controller.start(ai_mode=ai_mode)
+        return jsonify({"ok": True, "ai_mode": ai_mode})
+    return jsonify({"ok": False, "reason": "already_running"})
 
 
-@app.route("/api/chat", methods=["POST"])
-def api_chat():
-    data    = request.get_json()
-    message = (data or {}).get("message", "").strip()
-    if not message:
-        return jsonify({"error": "message fehlt"}), 400
+@app.route("/api/stop", methods=["POST"])
+def api_stop():
+    controller.stop()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/status")
+def api_status():
+    return jsonify({
+        "running": controller.is_running(),
+        "ai_mode": controller.get_ai_mode(),
+        "stats":   db.get_stats(),
+    })
+
+
+@app.route("/api/leads")
+def api_leads():
+    limit  = int(request.args.get("limit", 200))
+    offset = int(request.args.get("offset", 0))
+    return jsonify(db.get_all(limit=limit, offset=offset))
+
+
+@app.route("/api/export/csv")
+def api_export_csv():
+    csv_text = db.export_csv()
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+    )
+
+
+@app.route("/api/stream")
+def api_stream():
+    """SSE-Endpoint — schickt neue Leads als Chat-Nachrichten."""
+    q = controller.get_queue()
+
+    def event_stream():
+        yield _sse({"type": "connected", "msg": "LeadHunter verbunden."})
+
+        while True:
+            try:
+                lead = q.get(timeout=20)
+            except queue.Empty:
+                yield _sse({"type": "ping"})
+                continue
+
+            if "_error" in lead:
+                yield _sse({"type": "error", "msg": lead["_error"]})
+                continue
+
+            yield _sse({"type": "lead", "data": lead})
 
     return Response(
-        stream_with_context(jarvis.stream(message)),
-        content_type="text/event-stream",
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
         headers={
             "Cache-Control":     "no-cache",
             "X-Accel-Buffering": "no",
@@ -243,404 +106,6 @@ def api_chat():
     )
 
 
-@app.route("/api/voice/transcribe", methods=["POST"])
-def voice_transcribe():
-    body         = request.data
-    lang         = request.headers.get("X-Lang", "de-DE")
-    content_type = request.content_type or ""
-
-    log.voice_received(len(body))
-
-    if not body or len(body) < 256:
-        log.voice_error(f"Zu wenig Audio ({len(body)} B)")
-        return jsonify({"text": "", "error": "Zu wenig Audio-Daten"}), 400
-
-    # â”€â”€ Audio in WAV umwandeln â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    if "webm" in content_type or "ogg" in content_type:
-        try:
-            wav_bytes = _webm_to_wav(body)
-            buf = io.BytesIO(wav_bytes)
-        except FileNotFoundError:
-            log.warn("ffmpeg nicht gefunden")
-            buf = io.BytesIO(body)
-        except Exception as e:
-            log.voice_error(f"ffmpeg: {e}")
-            return jsonify({"text": "", "error": f"Konvertierung fehlgeschlagen: {e}"}), 500
-    else:
-        rate = int(request.headers.get("X-Sample-Rate", "16000"))
-        buf  = io.BytesIO()
-        with wave.open(buf, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(rate)
-            wf.writeframes(body)
-        buf.seek(0)
-
-    # WAV-Diagnose (RMS/Laenge)
-    try:
-        buf.seek(0)
-        with wave.open(buf, "rb") as wf:
-            frames = wf.getnframes()
-            rate_w = wf.getframerate()
-            raw    = wf.readframes(frames)
-        samples = struct.unpack(f"<{len(raw)//2}h", raw)
-        rms      = math.sqrt(sum(s*s for s in samples) / len(samples)) if samples else 0
-        log.voice_wav(frames / rate_w, rms)
-        buf.seek(0)
-    except Exception:
-        buf.seek(0)
-
-    # â”€â”€ RMS-Mindestpegel: zu leise = kein Sprach-Signal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    duration_s = frames / rate_w if rate_w else 0
-    if rms < 400:
-        log.voice_nothing()
-        return jsonify({"text": "", "error": "Zu leise"})
-    # Lange + leise Aufnahme = sehr wahrscheinlich UmgebungslÃ¤rm (Whisper halluziniert)
-    if duration_s > 12.0 and rms < 1800:
-        log.voice_nothing()
-        return jsonify({"text": "", "error": "Zu lang + zu leise (Umgebung)"})
-
-    # â”€â”€ Transkription â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    try:
-        if _whisper_ready and _whisper is not None:
-            # Lokal â€” schnell, kein Netz
-            text = _transcribe_whisper(buf, lang)
-            backend = "lokal"
-        else:
-            # Google-Fallback
-            with sr.AudioFile(buf) as source:
-                audio = _recognizer.record(source)
-            text = _recognizer.recognize_google(audio, language=lang)
-            backend = lang.split("-")[0].upper()
-
-        if text:
-            log.voice_recognized(text, backend)
-            return jsonify({"text": text})
-        else:
-            log.voice_nothing()
-            return jsonify({"text": "", "error": "Nichts erkannt"})
-
-    except Exception as e:
-        if "UnknownValueError" in type(e).__name__:
-            log.voice_nothing()
-            return jsonify({"text": "", "error": "Nichts erkannt"})
-        if "RequestError" in type(e).__name__:
-            log.voice_error(f"Google API: {e}")
-            return jsonify({"text": "", "error": f"Google-Fehler: {e}"}), 502
-        log.err(str(e))
-        return jsonify({"text": "", "error": f"Fehler: {e}"}), 500
-
-
-@app.route("/api/knowledge")
-def api_knowledge():
-    """Jede Info aus .md-Dateien als eigener Node â€” fÃ¼r maximale Sphere-Dichte."""
-    import re as _re
-    nodes = []
-
-    def _clean(text: str) -> str:
-        text = _re.sub(r'\*{1,2}([^*\n]+)\*{1,2}', r'\1', text)
-        text = _re.sub(r'`([^`\n]+)`', r'\1', text)
-        text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        text = _re.sub(r'https?://\S+', '', text)
-        return text.strip()
-
-    def _parse_file(path: Path, file_type: str):
-        result = [{"name": path.stem.replace("_", " "), "type": file_type}]
-        try:
-            in_code = False
-            for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-                line = raw.strip()
-                if line.startswith("```"):
-                    in_code = not in_code
-                    continue
-                if in_code or not line or line.startswith("---"):
-                    continue
-
-                if line.startswith("## "):
-                    t = _clean(line[3:])
-                    if t: result.append({"name": t[:60], "type": "h2"})
-                elif line.startswith("### "):
-                    t = _clean(line[4:])
-                    if t: result.append({"name": t[:60], "type": "h3"})
-                elif line.startswith(("#", "#### ", "##### ")):
-                    t = _clean(line.lstrip("#").strip())
-                    if t and len(t) > 2: result.append({"name": t[:50], "type": "h3"})
-                elif line.startswith(("- ", "* ", "+ ")):
-                    t = _clean(line[2:])
-                    if t and len(t) > 3 and len(t) < 100:
-                        result.append({"name": t[:55], "type": "item"})
-                elif line.startswith("|") and not _re.match(r'^\|[-: |]+\|$', line):
-                    parts = [_clean(p) for p in line.split("|") if _clean(p) and len(_clean(p)) > 2]
-                    for p in parts[:3]:
-                        if len(p) > 3:
-                            result.append({"name": p[:45], "type": "item"})
-                elif _re.match(r'^\d+\.\s', line):
-                    t = _clean(_re.sub(r'^\d+\.\s*', '', line))
-                    if t and len(t) > 3 and len(t) < 100:
-                        result.append({"name": t[:55], "type": "item"})
-        except Exception:
-            pass
-        return result
-
-    here = Path(__file__).parent
-
-    # Alle .md im Projektordner
-    for md_file in sorted(here.glob("*.md")):
-        nodes.extend(_parse_file(md_file, "file"))
-
-    # Alle .md im obsidian_brain Unterordner (falls vorhanden)
-    brain_dir = here / "obsidian_brain"
-    if brain_dir.exists():
-        for md_file in sorted(brain_dir.glob("*.md")):
-            nodes.extend(_parse_file(md_file, "brain"))
-
-    # .claude Memory-Dateien
-    mem_dir = Path.home() / ".claude" / "projects" / "C--Users-basti-Desktop-jarvis" / "memory"
-    if mem_dir.exists():
-        for f in sorted(mem_dir.glob("*.md")):
-            if f.name == "MEMORY.md":
-                continue
-            nodes.extend(_parse_file(f, "memory"))
-
-    return jsonify(nodes)
-
-
-@app.route("/api/reset", methods=["POST"])
-def api_reset():
-    jarvis.reset()
-    log.reset_conversation()
-    return jsonify({"ok": True})
-
-
-@app.route("/api/workspace")
-def api_workspace():
-    def file_info(p):
-        return {"name": p.name, "size": p.stat().st_size, "mtime": p.stat().st_mtime}
-
-    tasks   = sorted(WORKSPACE_TASKS.glob("*.md"),   key=lambda x: x.stat().st_mtime, reverse=True)[:15]
-    results = sorted(WORKSPACE_RESULTS.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)[:15]
-    return jsonify({
-        "tasks":   [file_info(f) for f in tasks],
-        "results": [file_info(f) for f in results],
-    })
-
-
-@app.route("/workspace/media/<path:filename>")
-def serve_media(filename):
-    """Dient generierte Bilder/Videos aus workspace/media/ aus."""
-    media_dir = Path(__file__).parent / "workspace" / "media"
-    return send_from_directory(str(media_dir), filename)
-
-
-@app.route("/api/media/status")
-def api_media_status():
-    """Gibt Status der konfigurierten Bild/Video-Modelle zurück."""
-    try:
-        import media_engine as me
-        return jsonify(me.get_status())
-    except ImportError:
-        return jsonify({"diffusers_ok": False, "image_model": None, "video_model": None})
-
-
-@app.route("/api/workspace/<folder>/<path:filename>")
-def api_workspace_file(folder, filename):
-    if folder not in ("tasks", "results"):
-        return jsonify({"error": "UngÃ¼ltiger Ordner"}), 403
-    base = WORKSPACE_TASKS if folder == "tasks" else WORKSPACE_RESULTS
-    p = (base / filename).resolve()
-    if not p.exists() or not str(p).startswith(str(base.resolve())):
-        return jsonify({"error": "Datei nicht gefunden"}), 404
-    return p.read_text(encoding="utf-8")
-
-
-@app.route("/api/speak", methods=["POST"])
-def api_speak():
-    data = request.get_json() or {}
-    text = data.get("text", "").strip()
-    rid  = data.get("id",   "").strip()
-
-    if not text:
-        return jsonify({"error": "kein Text"}), 400
-
-    try:
-        cached = tts.get_cached(rid) if rid else None
-        if cached:
-            audio_bytes, mime = cached
-            log.tool_call("tts", f"cache-hit  {len(audio_bytes)//1024} KB")
-        else:
-            log.tool_call("tts", text[:60])
-            audio_bytes, mime = tts.speak(text)
-            log.tool_done("tts", len(audio_bytes))
-
-        return Response(
-            audio_bytes,
-            content_type=mime,
-            headers={"Cache-Control": "no-store"},
-        )
-    except RuntimeError as e:
-        log.warn(f"TTS fehlgeschlagen: {e}")
-        return jsonify({"error": str(e)}), 503
-    except Exception as e:
-        log.err(f"TTS: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-_net_cache: dict = {"ts": 0.0, "internet": False, "claude": False}
-_NET_TTL = 30.0
-
-
-def _tcp_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except Exception:
-        return False
-
-
-@app.route("/api/status")
-def api_status():
-    now = _time.time()
-    if now - _net_cache["ts"] > _NET_TTL:
-        internet = _tcp_reachable("1.1.1.1", 443)
-        _net_cache["internet"] = internet
-        _net_cache["claude"]   = _tcp_reachable("api.anthropic.com", 443) if internet else False
-        _net_cache["ts"]       = now
-    return jsonify({
-        "internet": _net_cache["internet"],
-        "claude":   _net_cache["claude"],
-        "tokens":   get_usage(),
-    })
-
-
-@app.route("/api/models")
-def api_models():
-    import shutil as _sh
-    ollama_ok      = _sh.which("ollama") is not None
-    active         = os.environ.get("JARVIS_LOCAL_MODEL", "")
-    installed_ids  = set()          # exakte IDs aus "ollama list"
-    ram_total, ram_free = _get_ram_gb()
-
-    if ollama_ok:
-        try:
-            res = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, timeout=6,
-                encoding="utf-8", errors="replace",
-            )
-            for line in res.stdout.splitlines():
-                parts = line.split()
-                if not parts or parts[0].lower() in ("name",): continue
-                installed_ids.add(parts[0])
-        except Exception:
-            pass
-
-    _known_ids = {m["id"] for m in _MODELS}
-    out = []
-    for m in _MODELS:
-        # Exakte ID oder "<name>:latest" als installiert werten
-        is_inst = m["id"] in installed_ids or (m["id"].split(":")[0] + ":latest") in installed_ids
-        out.append({**m, "installed": is_inst, "active": m["id"] == active, "ollama_ok": ollama_ok})
-
-    # Aktives Modell an erster Stelle einfügen, wenn nicht in Standardliste
-    if active and active not in _known_ids:
-        is_inst = active in installed_ids
-        out.insert(0, {
-            "id": active, "key": "custom", "name": active,
-            "desc": "Benutzerdefiniert (aktiv)", "ram_gb": 0, "vram": "?", "tier": 0,
-            "installed": is_inst, "active": True, "ollama_ok": ollama_ok,
-        })
-
-    return jsonify({
-        "models":    out,
-        "active":    active,
-        "ollama":    ollama_ok,
-        "ram_total": ram_total,
-        "ram_free":  ram_free,
-    })
-
-
-@app.route("/api/models/install", methods=["POST"])
-def api_models_install():
-    data     = request.get_json() or {}
-    model_id = data.get("model", "").strip()
-    if model_id not in {m["id"] for m in _MODELS}:
-        return jsonify({"error": "Unbekanntes Modell"}), 400
-
-    def _stream():
-        import shutil as _sh
-        if not _sh.which("ollama"):
-            yield f"data: {json.dumps({'error': 'Ollama nicht installiert — https://ollama.com'})}\n\n"
-            return
-        yield f"data: {json.dumps({'text': f'Starte Download: {model_id}'})}\n\n"
-        try:
-            proc = subprocess.Popen(
-                ["ollama", "pull", model_id],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace",
-            )
-            for line in (proc.stdout or []):
-                stripped = line.strip()
-                if stripped:
-                    yield f"data: {json.dumps({'text': stripped[:120]})}\n\n"
-            proc.wait()
-            if proc.returncode == 0:
-                log.warn(f"Ollama: '{model_id}' installiert")
-                yield f"data: {json.dumps({'done': True, 'model': model_id})}\n\n"
-            else:
-                yield f"data: {json.dumps({'error': 'Download fehlgeschlagen'})}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-
-    return Response(
-        stream_with_context(_stream()),
-        content_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
-    )
-
-
-@app.route("/api/models/select", methods=["POST"])
-def api_models_select():
-    import re as _re
-    import shutil as _sh
-    data     = request.get_json() or {}
-    model_id = data.get("model", "").strip()
-    known_ids = {m["id"] for m in _MODELS}
-
-    # Custom-Modelle erlauben wenn sie in Ollama installiert sind
-    if model_id not in known_ids:
-        installed_ok = False
-        if _sh.which("ollama"):
-            try:
-                res = subprocess.run(
-                    ["ollama", "list"], capture_output=True, text=True, timeout=6,
-                    encoding="utf-8", errors="replace",
-                )
-                installed_ok = any(
-                    line.split()[0] == model_id
-                    for line in res.stdout.splitlines()
-                    if line.split()
-                )
-            except Exception:
-                pass
-        if not installed_ok:
-            return jsonify({"error": "Modell nicht in Standardliste und nicht installiert"}), 400
-
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        content = env_path.read_text(encoding="utf-8")
-        if "JARVIS_LOCAL_MODEL=" in content:
-            content = _re.sub(r"JARVIS_LOCAL_MODEL=.*", f"JARVIS_LOCAL_MODEL={model_id}", content)
-        else:
-            content += f"\nJARVIS_LOCAL_MODEL={model_id}\n"
-        env_path.write_text(content, encoding="utf-8")
-
-    os.environ["JARVIS_LOCAL_MODEL"] = model_id
-    log.warn(f"Lokales Modell gewechselt → {model_id}")
-    return jsonify({"ok": True, "model": model_id})
-
-
+# ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    stt_label = "faster-whisper/base (wird geladen...)" if not _whisper_ready else f"faster-whisper/{os.getenv('JARVIS_STT_MODEL','base')}"
-    log.server_ready(5000)
-    print(f"  \033[90mTTS: {tts.backend_name()}  |  STT: {stt_label}\033[0m\n")
-    app.run(debug=False, port=5000, threaded=True)
-
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
