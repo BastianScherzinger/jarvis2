@@ -158,6 +158,7 @@ function _connectSSE(){
     try{
       const msg = JSON.parse(e.data);
       if(msg.type==='lead')       { _onLead(msg.data); _applyStats(msg.stats); }
+      if(msg.type==='verified')   { _onVerified(msg.data); _applyStats(msg.stats); }
       if(msg.type==='stats')      { _applyStats(msg.stats); }
       if(msg.type==='init_stats') { _applyStats(msg.stats); }
       if(msg.type==='error')      { _onErr(msg.msg); }
@@ -318,6 +319,64 @@ function _addHotCard(lead){
   if(list.querySelectorAll('.hot-card').length>40) list.lastChild?.remove();
 }
 
+// ── Top 10 Opportunities ────────────────────────────────────────────────────
+async function loadTop(){
+  let top = [];
+  try{ top = (await(await fetch('/api/top')).json()).top || []; }catch{ return; }
+  const el = document.getElementById('top-list');
+  if(!el) return;
+  if(!top.length){ el.innerHTML = '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>'; return; }
+  el.innerHTML = top.map((l,i) => {
+    const verified = l.verify_status === 'verified';
+    const sc   = (verified && l.end_score >= 0) ? l.end_score : l.score;
+    const badge = verified
+      ? '<span class="v-badge verified">✓ verified</span>'
+      : '<span class="v-badge pending">⏳ pending</span>';
+    const hook = l.pitch_hook ? `<div class="tc-hook">${_e(l.pitch_hook)}</div>` : '';
+    const jl   = JSON.stringify(l).replace(/"/g,'&quot;');
+    return `<div class="top-card ${l.lead_typ||''}" onclick='openModal(${jl})'>
+      <div class="tc-rank">${i+1}</div>
+      <div class="tc-body">
+        <div class="tc-top"><span class="tc-name">${_e(l.name)}</span><span class="tc-score">${sc}</span></div>
+        <div class="tc-meta">${badge}${l.branche?`<span class="tc-br">${_e(l.branche)}</span>`:''}</div>
+        ${hook}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _onVerified(lead){
+  if(!lead) return;
+  const i = _allLeads.findIndex(l => l.id === lead.id);
+  if(i >= 0) _allLeads[i] = Object.assign({}, _allLeads[i], lead);
+  loadTop();
+}
+
+// ── Verifier-Modell ─────────────────────────────────────────────────────────
+async function loadVerifierModel(){
+  let d;
+  try{ d = await(await fetch('/api/verifier/model')).json(); }catch{ return; }
+  const sel = document.getElementById('verifier-model');
+  if(!sel) return;
+  const avail = d.available || [];
+  const cur   = d.model || '';
+  const opts  = avail.length
+    ? avail.map(m => `<option value="${_e(m.name)}"${m.name===cur?' selected':''}>${_e(m.name)} (${m.size_gb}G)</option>`).join('')
+    : `<option value="${_e(cur)}" selected>${_e(cur||'kein Modell')}</option>`;
+  sel.innerHTML = opts;
+}
+
+async function setVerifierModel(){
+  const sel = document.getElementById('verifier-model');
+  if(!sel || !sel.value) return;
+  try{
+    await fetch('/api/verifier/model',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model: sel.value}),
+    });
+  }catch{}
+}
+
 // ── Filter ────────────────────────────────────────────────────────────────────
 function applyFilter(){
   const fT=document.getElementById('flt-typ').value;
@@ -418,4 +477,7 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
       document.getElementById('ct-state').textContent='ON';
     }
   }catch{}
+  loadTop();
+  loadVerifierModel();
+  setInterval(loadTop, 30000);
 })();

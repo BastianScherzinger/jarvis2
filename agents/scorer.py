@@ -62,3 +62,27 @@ def score(lead: dict) -> tuple[int, str]:
         typ = "Cold"
 
     return pts, typ
+
+
+# ── Score 2.0 — Heuristik + KI-Verifikation kombinieren ────────────────────────
+
+W_HEURISTIK = 0.35
+W_VERIFIED  = 0.65
+
+
+def combine_score(heuristik: int, verified: int) -> tuple[int, str]:
+    """
+    Endscore aus Heuristik (35%) + KI-verifiziertem Score (65%).
+    Gibt (end: int 0-100, typ: 'Hot'|'Warm'|'Cold') zurück.
+    """
+    end = round(W_HEURISTIK * heuristik + W_VERIFIED * verified)
+    end = max(0, min(100, int(end)))
+
+    if end >= 72:
+        typ = "Hot"
+    elif end >= 48:
+        typ = "Warm"
+    else:
+        typ = "Cold"
+
+    return end, typ

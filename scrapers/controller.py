@@ -10,8 +10,9 @@ import itertools
 import time
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN
-from scrapers import maps, gelbe_seiten, dasoertliche
+from scrapers import maps, gelbe_seiten, dasoertliche, verifier
 from agents import ai_worker
+import db
 
 _lead_queue     = queue.Queue()
 _stop_event     = threading.Event()
@@ -37,6 +38,15 @@ def set_claude_enabled(enabled: bool) -> None:
     _claude_enabled = enabled
     # Umgebungsvariable setzen — ai_worker liest diese dynamisch
     os.environ["JARVIS_CLAUDE_ENABLED"] = "1" if enabled else "0"
+
+
+def set_verifier_model(model: str) -> None:
+    os.environ["JARVIS_VERIFIER_MODEL"] = model
+
+
+def get_verifier_model() -> str:
+    return os.environ.get("JARVIS_VERIFIER_MODEL", "") or \
+        os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
 
 
 def start() -> None:
@@ -69,6 +79,14 @@ def start() -> None:
 
     # Worker 4: AI (Ollama + optional Claude, versetzt 12s)
     _spawn("AI",           ai_worker.run_continuous,     c4, delay=12, max_per=8)
+
+    # Verifier: prüft gefundene Leads per lokaler KI nach (eigene Thread-Gruppe)
+    db.reset_stale_running()
+    n_verifier = int(os.environ.get("JARVIS_VERIFIER_THREADS", "3"))
+    threading.Thread(
+        target=verifier.run_continuous, args=(_on_lead, _stop_event, n_verifier),
+        name="Worker-Verifier", daemon=True,
+    ).start()
 
 
 def stop() -> None:

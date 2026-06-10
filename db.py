@@ -2,6 +2,7 @@
 LeadHunter — SQLite Datenbank-Layer.
 Speichert gefundene Unternehmen dedupliziert, schnell, lokal.
 """
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -10,11 +11,26 @@ from datetime import datetime
 DB_PATH = Path(__file__).parent / "data" / "leads.db"
 _lock   = threading.Lock()
 
+# Neue Spalten (Phase 1 — KI-Verifikation). name → SQL-Definition.
+_VERIFY_COLUMNS = {
+    "verified_score":   "INTEGER DEFAULT -1",
+    "verify_status":    "TEXT DEFAULT 'pending'",
+    "pitch_hook":       "TEXT",
+    "verify_begruendung": "TEXT",
+    "website_issues":   "TEXT",
+    "social_media":     "TEXT",
+    "email_draft":      "TEXT",
+    "mockup_url":       "TEXT",
+    "end_score":        "INTEGER DEFAULT -1",
+    "verified_am":      "TEXT",
+}
+
 
 def _conn() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(exist_ok=True)
     c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
     return c
 
 
@@ -45,6 +61,21 @@ def init_db() -> None:
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_name_stadt ON leads(name, stadt)")
         c.commit()
+    migrate()
+
+
+def migrate() -> None:
+    """Fügt fehlende Verifikations-Spalten + Index hinzu (idempotent)."""
+    with _lock, _conn() as c:
+        have = {r["name"] for r in c.execute("PRAGMA table_info(leads)").fetchall()}
+        for col, ddl in _VERIFY_COLUMNS.items():
+            if col not in have:
+                c.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_verify "
+            "ON leads(verify_status, lead_typ, score DESC)"
+        )
+        c.commit()
 
 
 def exists(name: str, stadt: str) -> bool:
@@ -74,6 +105,8 @@ def get_stats() -> dict:
         hot     = c.execute("SELECT COUNT(*) FROM leads WHERE lead_typ='Hot'").fetchone()[0]
         warm    = c.execute("SELECT COUNT(*) FROM leads WHERE lead_typ='Warm'").fetchone()[0]
         no_web  = c.execute("SELECT COUNT(*) FROM leads WHERE has_website=0").fetchone()[0]
+        verified = c.execute("SELECT COUNT(*) FROM leads WHERE verify_status='verified'").fetchone()[0]
+        pending  = c.execute("SELECT COUNT(*) FROM leads WHERE verify_status='pending'").fetchone()[0]
         finders = c.execute(
             "SELECT finder, COUNT(*) as n FROM leads GROUP BY finder ORDER BY n DESC"
         ).fetchall()
@@ -87,6 +120,8 @@ def get_stats() -> dict:
         "warm":    warm,
         "cold":    total - hot - warm,
         "no_web":  no_web,
+        "verified": verified,
+        "pending":  pending,
         "bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
         "finders": {r["finder"]: r["n"] for r in finders},
     }
@@ -110,3 +145,110 @@ def export_csv() -> str:
     w.writeheader()
     w.writerows(rows)
     return buf.getvalue()
+
+
+# ── Verifikations-Pipeline ──────────────────────────────────────────────────
+
+def _table_columns() -> set:
+    with _lock, _conn() as c:
+        return {r["name"] for r in c.execute("PRAGMA table_info(leads)").fetchall()}
+
+
+def claim_next_pending() -> dict | None:
+    """
+    Holt ATOMAR den nächsten zu verifizierenden Lead und markiert ihn sofort
+    als 'running' — SELECT + UPDATE im selben Lock-Block (keine Doppel-Arbeit
+    bei mehreren Verifier-Threads). Hot zuerst, dann höchster Score.
+    """
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT * FROM leads WHERE verify_status='pending' "
+            "ORDER BY (lead_typ='Hot') DESC, score DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        lead = dict(row)
+        c.execute(
+            "UPDATE leads SET verify_status='running' WHERE id=?", (lead["id"],)
+        )
+        c.commit()
+        lead["verify_status"] = "running"
+        return lead
+
+
+def update_verification(lead_id: int, result: dict) -> None:
+    """Schreibt das Verifikations-Ergebnis zurück."""
+    status = result.get("verify_status", "verified")
+    with _lock, _conn() as c:
+        c.execute(
+            "UPDATE leads SET "
+            "verified_score=?, verify_status=?, pitch_hook=?, verify_begruendung=?, "
+            "website_issues=?, social_media=?, end_score=?, lead_typ=?, verified_am=? "
+            "WHERE id=?",
+            (
+                int(result.get("verified_score", -1)),
+                status,
+                result.get("pitch_hook", "") or "",
+                result.get("verify_begruendung", "") or "",
+                json.dumps(result.get("website_issues", []), ensure_ascii=False),
+                json.dumps(result.get("social_media", {}), ensure_ascii=False),
+                int(result.get("end_score", -1)),
+                result.get("lead_typ", "Cold"),
+                datetime.now().isoformat(timespec="seconds"),
+                lead_id,
+            ),
+        )
+        c.commit()
+
+
+def reset_stale_running() -> None:
+    """Setzt hängengebliebene 'running'-Leads (Crash/Neustart) auf 'pending'."""
+    with _lock, _conn() as c:
+        c.execute("UPDATE leads SET verify_status='pending' WHERE verify_status='running'")
+        c.commit()
+
+
+def get_top_opportunities(limit: int = 10) -> list[dict]:
+    """
+    Beste verifizierte Chancen. Falls weniger als `limit` verifiziert sind,
+    wird mit den besten unverifizierten aufgefüllt — Panel bleibt nie leer.
+    """
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM leads WHERE verify_status='verified' "
+            "ORDER BY end_score DESC, score DESC LIMIT ?", (limit,)
+        ).fetchall()
+        out = [dict(r) for r in rows]
+        if len(out) < limit:
+            seen = {r["id"] for r in out}
+            fill = c.execute(
+                "SELECT * FROM leads WHERE verify_status!='verified' "
+                "ORDER BY score DESC LIMIT ?", (limit,)
+            ).fetchall()
+            for r in fill:
+                if r["id"] not in seen:
+                    out.append(dict(r))
+                if len(out) >= limit:
+                    break
+    return out[:limit]
+
+
+def update_lead_status(lead_id: int, status: str) -> None:
+    with _lock, _conn() as c:
+        c.execute("UPDATE leads SET status=? WHERE id=?", (status, lead_id))
+        c.commit()
+
+
+def get_lead(lead_id: int) -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_lead_field(lead_id: int, field: str, value) -> None:
+    """Setzt ein einzelnes Feld — Spaltenname gegen Whitelist (SQL-Injection-Schutz)."""
+    if field not in _table_columns():
+        raise ValueError(f"Unbekannte Spalte: {field}")
+    with _lock, _conn() as c:
+        c.execute(f"UPDATE leads SET {field}=? WHERE id=?", (value, lead_id))
+        c.commit()

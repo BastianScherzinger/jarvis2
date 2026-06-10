@@ -8,7 +8,7 @@ import queue
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 import db
-from scrapers import controller
+from scrapers import controller, _http
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
@@ -65,6 +65,37 @@ def api_export_csv():
     )
 
 
+@app.route("/api/top")
+def api_top():
+    return jsonify({"top": db.get_top_opportunities(10)})
+
+
+@app.route("/api/lead/<int:lead_id>/status", methods=["POST"])
+def api_lead_status(lead_id):
+    body   = request.get_json(silent=True) or {}
+    status = body.get("status", "")
+    allowed = {"neu", "kontaktiert", "termin", "verkauft", "tot"}
+    if status not in allowed:
+        return jsonify({"ok": False, "reason": "invalid_status"}), 400
+    db.update_lead_status(lead_id, status)
+    return jsonify({"ok": True, "status": status})
+
+
+@app.route("/api/verifier/model", methods=["GET", "POST"])
+def api_verifier_model():
+    if request.method == "POST":
+        body  = request.get_json(silent=True) or {}
+        model = (body.get("model") or "").strip()
+        if not model:
+            return jsonify({"ok": False, "reason": "no_model"}), 400
+        controller.set_verifier_model(model)
+        return jsonify({"ok": True, "model": model})
+    return jsonify({
+        "model":     controller.get_verifier_model(),
+        "available": _http.ollama_models(),
+    })
+
+
 @app.route("/api/stream")
 def api_stream():
     q = controller.get_queue()
@@ -83,6 +114,15 @@ def api_stream():
 
             if "_error" in lead:
                 yield _sse({"type": "error", "msg": lead["_error"]})
+                continue
+
+            # Verifier-Events: Lead wurde nachverifiziert
+            if lead.get("type") == "verified":
+                yield _sse({
+                    "type":  "verified",
+                    "data":  lead["data"],
+                    "stats": db.get_stats(),
+                })
                 continue
 
             # Lead senden + gleichzeitig DB-Stats (single source of truth)

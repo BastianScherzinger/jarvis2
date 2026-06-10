@@ -31,6 +31,11 @@
       </div>
       <span class="ct-state" id="ct-state">OFF</span>
     </div>
+
+    <!-- Verifier-Modell -->
+    <select class="verifier-select" id="verifier-model" onchange="setVerifierModel()" title="Verifier-Modell">
+      <option value="">Verifier: ...</option>
+    </select>
   </div>
 
   <div class="topbar-right">
@@ -109,7 +114,10 @@
 
   <!-- ── RIGHT: Quellen-Diagramm ───────────────────────────────────────── -->
   <aside class="right-panel">
-    <div class="panel-title">Quellen</div>
+    <div class="panel-title">Top 10 Opportunities</div>
+    <div id="top-list" class="top-list"></div>
+
+    <div class="panel-title" style="margin-top:16px">Quellen</div>
     <div class="source-chart" id="source-chart">
       <!-- Dynamisch befüllt -->
     </div>

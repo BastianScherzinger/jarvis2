@@ -6,95 +6,25 @@ import json
 import os
 import re
 import time
-import urllib.request
-import urllib.parse
-import urllib.error
 import itertools
 
 from agents.scorer import score as calc_score
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
+from scrapers import _http
 import db
 
-_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
 
+# ── HTTP- & KI-Helfer (aus scrapers._http) ─────────────────────────────────────
 
-# ── HTTP-Helfer ───────────────────────────────────────────────────────────────
+_get        = _http.get
+_ddg_search = _http.ddg_search
+_extract_json = _http.extract_json
 
-def _get(url: str, timeout: int = 10) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read().decode("utf-8", errors="replace")
-    except Exception:
-        return ""
-
-
-def _ddg_search(query: str) -> list[dict]:
-    """DuckDuckGo Lite HTML-Suche — robusteres Parsing."""
-    q    = urllib.parse.quote_plus(query)
-    html = _get(f"https://lite.duckduckgo.com/lite/?q={q}", timeout=12)
-    if not html:
-        html = _get(f"https://html.duckduckgo.com/html/?q={q}", timeout=12)
-    if not html:
-        return []
-
-    results = []
-    # Lite DDG: Links in <a class="result-link">
-    for m in re.finditer(
-        r'<a[^>]+class="[^"]*result-link[^"]*"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>',
-        html, re.IGNORECASE
-    ):
-        url   = m.group(1).strip()
-        title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-        if url.startswith("http") and title:
-            results.append({"url": url, "title": title, "snippet": ""})
-            if len(results) >= 8:
-                break
-
-    # Fallback: Standard DDG
-    if not results:
-        for m in re.finditer(
-            r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-            html, re.IGNORECASE | re.DOTALL
-        ):
-            url   = m.group(1).strip()
-            title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-            if url.startswith("http") and title:
-                results.append({"url": url, "title": title, "snippet": ""})
-                if len(results) >= 8:
-                    break
-
-    return results
-
-
-# ── KI-Backends ───────────────────────────────────────────────────────────────
 
 def _ask_ollama(prompt: str, system: str = "") -> str:
-    model = os.environ.get("JARVIS_TOOL_MODEL") or os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
-    payload = json.dumps({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system or "Du bist ein präziser Daten-Extraktor. Antworte NUR mit JSON."},
-            {"role": "user",   "content": prompt},
-        ],
-        "stream": False,
-        "options": {"temperature": 0.1},
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "http://127.0.0.1:11434/api/chat",
-        data=payload, headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read())["message"]["content"]
-    except urllib.error.URLError:
-        return ""   # Ollama nicht erreichbar — kein Fehler-Spam
-    except Exception as e:
-        return f"FEHLER: {e}"
+    # Worker nutzt JARVIS_TOOL_MODEL falls gesetzt, sonst Standard-Modellwahl
+    return _http.ask_ollama(prompt, system, model=os.environ.get("JARVIS_TOOL_MODEL", ""))
 
 
 def _ask_claude(prompt: str) -> str:
@@ -113,18 +43,6 @@ def _ask_claude(prompt: str) -> str:
         return msg.content[0].text
     except Exception:
         return ""
-
-
-def _extract_json(text: str) -> dict:
-    if not text:
-        return {}
-    try:
-        m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
-        if m:
-            return json.loads(m.group(0))
-    except Exception:
-        pass
-    return {}
 
 
 # ── Hauptschleife ─────────────────────────────────────────────────────────────
