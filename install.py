@@ -15,7 +15,8 @@ GR = "\033[92m"; RD = "\033[91m"
 YL = "\033[93m"; CY = "\033[96m"
 GY = "\033[90m"
 
-HERE = Path(__file__).parent
+HERE   = Path(__file__).parent
+_QUIET = False   # wird von run(quiet=True) gesetzt
 
 
 def _pip(*args) -> bool:
@@ -33,6 +34,8 @@ def _can_import(module: str) -> bool:
 
 
 def _ok(label: str, detail: str = "") -> None:
+    if _QUIET:
+        return
     extra = f"  {GY}{detail}{R}" if detail else ""
     print(f"  {GR}OK{R}  {label}{extra}")
 
@@ -51,7 +54,19 @@ def _installing(label: str) -> None:
     print(f"  {CY}>{R}   {label} ...", end="", flush=True)
 
 
+def _section(title: str, sub: str = "") -> None:
+    """Sektionstitel — nur bei vollständigem Setup (nicht quiet)."""
+    if _QUIET:
+        return
+    print()
+    print(f"  {CY}{'─' * 56}{R}")
+    print(f"  {CY}{B}  {title}{R}" + (f"  {GY}{sub}{R}" if sub else ""))
+    print(f"  {CY}{'─' * 56}{R}")
+
+
 def _header() -> None:
+    if _QUIET:
+        return
     print()
     print(f"  {CY}{'─' * 50}{R}")
     print(f"  {CY}{B}  JARVIS  Setup{R}")
@@ -59,7 +74,10 @@ def _header() -> None:
     print()
 
 
-def run() -> bool:
+def run(quiet: bool = False) -> bool:
+    global _QUIET
+    _QUIET = quiet
+
     _header()
     all_ok = True
 
@@ -69,7 +87,8 @@ def run() -> bool:
     try:
         import system_profile as _sp
         _profile = _sp.analyze()
-        _sp.print_banner(_profile)
+        if not quiet:
+            _sp.print_banner(_profile)
         _recommended_model = _profile.get("local_model", "qwen2.5:7b")
     except Exception as _e:
         _warn("System-Analyse fehlgeschlagen", str(_e)[:60])
@@ -77,7 +96,8 @@ def run() -> bool:
     # ── Git Update ───────────────────────────────────────────────────
     import shutil
     if shutil.which("git") and (HERE / ".git").exists():
-        print(f"  {CY}>{R}   Git update ...", end="", flush=True)
+        if not quiet:
+            print(f"  {CY}>{R}   Git update ...", end="", flush=True)
         try:
             res = subprocess.run(
                 ["git", "pull", "--ff-only"],
@@ -86,15 +106,20 @@ def run() -> bool:
             )
             out = (res.stdout + res.stderr).strip().split("\n")[0][:60]
             if res.returncode == 0:
-                if "already up" in out.lower() or "bereits" in out.lower():
-                    print(f"\r  {GR}OK{R}  Git  {GY}bereits aktuell{R}          ")
-                else:
-                    print(f"\r  {GR}OK{R}  Git  {GY}{out}{R}          ")
+                already = "already up" in out.lower() or "bereits" in out.lower()
+                if not quiet:
+                    label = "bereits aktuell" if already else out
+                    print(f"\r  {GR}OK{R}  Git  {GY}{label}{R}          ")
+                elif not already:
+                    print(f"  {GR}Git{R}  {GY}{out}{R}")
             else:
-                print(f"\r  {YL}!{R}   Git pull  {GY}{out}{R}          ")
+                if not quiet:
+                    print(f"\r  {YL}!{R}   Git pull  {GY}{out}{R}          ")
+                else:
+                    _warn("Git pull", out)
         except Exception as e:
-            print(f"\r  {YL}!{R}   Git  {GY}({e}){R}          ")
-    # kein Git-Repo oder kein git → still überspringen
+            if not quiet:
+                print(f"\r  {YL}!{R}   Git  {GY}({e}){R}          ")
 
     # ── Python-Version ───────────────────────────────────────────────
     v = sys.version_info
@@ -242,10 +267,7 @@ def run() -> bool:
         }
 
         if not has_model:
-            print()
-            print(f"  {CY}{'─' * 56}{R}")
-            print(f"  {CY}{B}  Lokales KI-Modell{R}  {GY}(Empfehlung basiert auf Ihrer Hardware){R}")
-            print(f"  {CY}{'─' * 56}{R}")
+            _section("Lokales KI-Modell", "Empfehlung basiert auf Ihrer Hardware")
             for k, m in MODELS.items():
                 marker = f"  {GR}← empfohlen{R}" if m["name"] == _recommended_model else ""
                 print(f"  [{k}]  {B}{m['key'].upper():<10}{R}  {m['name']:<20}  {GY}{m['desc']}{R}{marker}")
@@ -373,10 +395,7 @@ def run() -> bool:
             pass
 
     # ── Media KI — Bild & Video Generierung ─────────────────────────
-    print()
-    print(f"  {CY}{'─' * 56}{R}")
-    print(f"  {CY}{B}  Media KI{R}  {GY}(Hugging Face Diffusers — Bild & Video lokal){R}")
-    print(f"  {CY}{'─' * 56}{R}")
+    _section("Media KI", "Hugging Face Diffusers — Bild & Video lokal")
 
     _diffusers_ok = _can_import("diffusers") and _can_import("torch")
 
@@ -474,10 +493,7 @@ def run() -> bool:
                 _ok(f"Videomodell: {_vi.group(1).strip()}", "bereits konfiguriert")
 
     # ── Higgsfield.ai API — Cloud Video-Generierung ──────────────────
-    print()
-    print(f"  {CY}{'─' * 56}{R}")
-    print(f"  {CY}{B}  Higgsfield.ai{R}  {GY}(Cloud Video-KI — cinematische Qualität){R}")
-    print(f"  {CY}{'─' * 56}{R}")
+    _section("Higgsfield.ai", "Cloud Video-KI — cinematische Qualität")
     _env_hf = (HERE / ".env").read_text(encoding="utf-8") if (HERE / ".env").exists() else ""
     _has_hf_key = "HIGGSFIELD_API_KEY=" in _env_hf and "HIGGSFIELD_API_KEY=\n" not in _env_hf
     _hf_placeholder = "dein_api_key" in _env_hf or "YOUR_KEY" in _env_hf.upper()
@@ -499,13 +515,20 @@ def run() -> bool:
             _warn("Higgsfield übersprungen", "HIGGSFIELD_API_KEY in .env eintragen um Cloud-Videos zu nutzen")
 
     # ── Abschluss ───────────────────────────────────────────────────
-    print()
-    if all_ok:
-        print(f"  {GR}{B}Alles bereit.{R}")
+    if quiet:
+        if all_ok:
+            print(f"  {GR}✓{R}  Alle Systeme bereit.")
+        else:
+            print(f"  {YL}!{R}  Setup-Probleme — siehe Hinweise oben.")
+        print()
     else:
-        print(f"  {YL}Setup unvollstaendig — pruefe die Eintraege oben.{R}")
-    print(f"  {CY}{'─' * 50}{R}")
-    print()
+        print()
+        if all_ok:
+            print(f"  {GR}{B}Alles bereit.{R}")
+        else:
+            print(f"  {YL}Setup unvollstaendig — pruefe die Eintraege oben.{R}")
+        print(f"  {CY}{'─' * 50}{R}")
+        print()
 
     return all_ok
 
