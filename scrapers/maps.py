@@ -8,6 +8,7 @@ import time
 import itertools
 
 from agents.scorer import score as calc_score
+from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
@@ -80,9 +81,13 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
         except Exception:
             pass
 
+        counter = 0
         for region, branche in itertools.cycle(all_combos):
             if stop_event.is_set():
                 break
+            counter += 1
+            if counter % 10 == 0:
+                on_lead({"_activity": f"Google Maps scannt {region}/{branche}"})
             try:
                 _scrape_query(page, region, branche, on_lead, stop_event, max_per)
             except Exception as e:
@@ -129,6 +134,9 @@ def _scrape_query(page, region: str, branche: str, on_lead, stop_event, max_per:
 
             lead = _extract_entry(page, entry, region, branche, stop_event)
             if lead:
+                ok, _grund = is_real_business(lead)
+                if not ok:
+                    continue
                 pts, typ         = calc_score(lead)
                 lead["score"]    = pts
                 lead["lead_typ"] = typ

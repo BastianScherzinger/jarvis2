@@ -245,6 +245,24 @@ def get_lead(lead_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def get_competition(stadt: str, branche: str) -> dict:
+    """
+    Konkurrenz-Analyse: wie viele Betriebe der gleichen Branche/Stadt
+    haben (k)eine Website. Verkaufsargument für Outreach.
+    """
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS gesamt, "
+            "SUM(CASE WHEN has_website=0 THEN 1 ELSE 0 END) AS ohne "
+            "FROM leads WHERE stadt=? AND branche=?",
+            (stadt, branche),
+        ).fetchone()
+    gesamt = int(row["gesamt"] or 0)
+    ohne   = int(row["ohne"] or 0)
+    prozent = round(ohne / gesamt * 100) if gesamt else 0
+    return {"gesamt": gesamt, "ohne_website": ohne, "prozent_ohne": prozent}
+
+
 def set_lead_field(lead_id: int, field: str, value) -> None:
     """Setzt ein einzelnes Feld — Spaltenname gegen Whitelist (SQL-Injection-Schutz)."""
     if field not in _table_columns():

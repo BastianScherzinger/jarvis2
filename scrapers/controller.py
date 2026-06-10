@@ -10,7 +10,7 @@ import itertools
 import time
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN
-from scrapers import maps, gelbe_seiten, dasoertliche, verifier
+from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal, verifier
 from agents import ai_worker
 import db
 
@@ -56,17 +56,20 @@ def start() -> None:
     _stop_event.clear()
     _active = True
 
-    # ~38.000 Combos (1000 Städte × 38 Branchen). Gemischt + in 4 Chunks
+    # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks
     # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
     # = kein doppeltes Scrapen, breite Deutschland-Abdeckung von Anfang an.
     combos = list(itertools.product(ALLE_REGIONEN, BRANCHEN))
     random.shuffle(combos)
 
     n  = len(combos)
-    c1 = combos[:n // 4]
-    c2 = combos[n // 4:n // 2]
-    c3 = combos[n // 2:3 * n // 4]
-    c4 = combos[3 * n // 4:]
+    k  = n // 6
+    c1 = combos[:k]
+    c2 = combos[k:2 * k]
+    c3 = combos[2 * k:3 * k]
+    c4 = combos[3 * k:4 * k]
+    c5 = combos[4 * k:5 * k]
+    c6 = combos[5 * k:]
 
     # Worker 1: Google Maps (persistenter Browser)
     _spawn("Maps",         maps.run_continuous,          c1, max_per=20)
@@ -77,8 +80,14 @@ def start() -> None:
     # Worker 3: Das Örtliche (versetzt 6s)
     _spawn("DasOertliche", dasoertliche.run_continuous,  c3, delay=6,  max_per=15)
 
-    # Worker 4: AI (Ollama + optional Claude, versetzt 12s)
-    _spawn("AI",           ai_worker.run_continuous,     c4, delay=12, max_per=8)
+    # Worker 4: 11880 (versetzt 9s)
+    _spawn("Elfacht",      elfacht.run_continuous,       c4, delay=9,  max_per=20)
+
+    # Worker 5: golocal (versetzt 12s)
+    _spawn("Golocal",      golocal.run_continuous,       c5, delay=12, max_per=20)
+
+    # Worker 6: AI (Ollama + optional Claude, versetzt 15s)
+    _spawn("AI",           ai_worker.run_continuous,     c6, delay=15, max_per=8)
 
     # Verifier: prüft gefundene Leads per lokaler KI nach (eigene Thread-Gruppe)
     db.reset_stale_running()

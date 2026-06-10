@@ -14,6 +14,8 @@ const F = {
   maps_playwright: { cls:'maps',   av:'M',  lbl:'Google Maps',   icon:'🗺',  sub:'Playwright'},
   gelbe_seiten:    { cls:'gelbe',  av:'GS', lbl:'Gelbe Seiten',  icon:'📒',  sub:'HTTP'},
   dasoertliche:    { cls:'oert',   av:'DÖ', lbl:'Das Örtliche',  icon:'📘',  sub:'HTTP'},
+  elfacht:         { cls:'elf',    av:'11', lbl:'11880',         icon:'📞',  sub:'HTTP'},
+  golocal:         { cls:'glc',    av:'GL', lbl:'golocal',       icon:'⭐',  sub:'HTTP'},
   ollama_ai:       { cls:'ollama', av:'AI', lbl:'Ollama KI',     icon:'🤖',  sub:'Lokal'},
   claude_ai:       { cls:'claude', av:'✦',  lbl:'Claude KI',     icon:'✦',   sub:'Anthropic'},
 };
@@ -161,6 +163,7 @@ function _connectSSE(){
       if(msg.type==='verified')   { _onVerified(msg.data); _applyStats(msg.stats); }
       if(msg.type==='stats')      { _applyStats(msg.stats); }
       if(msg.type==='init_stats') { _applyStats(msg.stats); }
+      if(msg.type==='activity')   { _onActivity(msg.msg); }
       if(msg.type==='error')      { _onErr(msg.msg); }
     }catch{}
   };
@@ -196,7 +199,7 @@ function _renderChart(finders){
   const el  = document.getElementById('source-chart');
   if(!el) return;
   const max = Math.max(1, ...Object.values(finders));
-  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','ollama_ai','claude_ai'];
+  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','elfacht','golocal','ollama_ai','claude_ai'];
   const rows  = ORDER.filter(k => finders[k] > 0).map(k => {
     const f   = fi(k);
     const cnt = finders[k] || 0;
@@ -256,6 +259,16 @@ function _onErr(msg){
   const el = document.createElement('div');
   el.className='msg-err';el.textContent='⚠ '+msg;
   document.getElementById('chat-feed').insertBefore(el,document.getElementById('chat-feed').firstChild);
+}
+
+// ── Activity-Ticker ────────────────────────────────────────────────────────────
+function _onActivity(msg){
+  const el = document.getElementById('ticker-text');
+  if(!el || !msg) return;
+  el.textContent = '▸ ' + msg;
+  el.classList.remove('tk-fade');
+  void el.offsetWidth;   // Reflow → Animation neu starten
+  el.classList.add('tk-fade');
 }
 
 // ── Message bauen ─────────────────────────────────────────────────────────────
@@ -394,7 +407,16 @@ function applyFilter(){
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
+let _modalLead = null;
+
+function _parseJSON(raw, fallback){
+  if(raw==null) return fallback;
+  if(typeof raw !== 'string') return raw;
+  try{ return JSON.parse(raw); }catch{ return fallback; }
+}
+
 function openModal(lead){
+  _modalLead = lead;
   const f=fi(lead.finder);
   const webRow=lead.has_website
     ?`<div class="m-row"><span class="m-k">Website</span><span class="m-v warn"><a href="${_e(lead.website_url)}" target="_blank">${_e(lead.website_url||'Link')} ↗</a></span></div>
@@ -439,9 +461,157 @@ function openModal(lead){
           <div class="m-finder-sub">${f.sub} · ${lead.gefunden_am||'—'}</div>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${_modalExtras(lead)}
+    ${_modalActions(lead)}`;
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
+  _loadCompetition(lead.id);
+}
+
+// ── Modal: optionale Sektionen ──────────────────────────────────────────────
+function _modalExtras(lead){
+  let html = '';
+
+  // Pitch-Hook
+  if(lead.pitch_hook){
+    html += `<div class="m-sec"><div class="m-sec-t">Pitch-Hook</div>
+      <div class="m-pitch">${_e(lead.pitch_hook)}</div></div>`;
+  }
+
+  // Website-Probleme
+  const issues = _parseJSON(lead.website_issues, []);
+  if(Array.isArray(issues) && issues.length){
+    html += `<div class="m-sec"><div class="m-sec-t">Website-Probleme</div>
+      <ul class="m-issues">${issues.map(i=>`<li>${_e(String(i))}</li>`).join('')}</ul></div>`;
+  }
+
+  // Social Media
+  const social = _parseJSON(lead.social_media, {});
+  if(social && typeof social === 'object' && Object.keys(social).length){
+    const pills = Object.entries(social).filter(([,v])=>v).map(([k,v])=>{
+      const url = String(v);
+      const href = url.startsWith('http') ? url : 'https://'+url;
+      return `<a class="m-social-pill" href="${_e(href)}" target="_blank">${_e(k)} ↗</a>`;
+    }).join('');
+    if(pills) html += `<div class="m-sec"><div class="m-sec-t">Social Media</div>
+      <div class="m-social">${pills}</div></div>`;
+  }
+
+  return html;
+}
+
+// ── Modal: Aktions-Leiste ───────────────────────────────────────────────────
+function _modalActions(lead){
+  const cur = lead.status || 'neu';
+  const opt = (v,l)=>`<option value="${v}"${cur===v?' selected':''}>${l}</option>`;
+  return `<div class="m-sec m-actions">
+    <div class="m-sec-t">Aktionen</div>
+    <div class="m-comp" id="m-comp">…</div>
+    <div class="m-act-row">
+      <select class="m-status-sel" id="m-status" onchange="setLeadStatus(${lead.id})">
+        ${opt('neu','● Neu')}${opt('kontaktiert','● Kontaktiert')}${opt('termin','● Termin')}${opt('verkauft','● Verkauft')}${opt('tot','● Tot')}
+      </select>
+    </div>
+    <div class="m-act-row">
+      <button class="m-act-btn" id="m-email-btn" onclick="genEmail(${lead.id})">✉ E-Mail-Entwurf</button>
+      <button class="m-act-btn" id="m-mockup-btn" onclick="genMockup(${lead.id})">🎨 Website-Mockup</button>
+    </div>
+    <div class="m-email-out" id="m-email-out" style="display:none"></div>
+    <div class="m-mockup-out" id="m-mockup-out" style="display:none"></div>
+  </div>`;
+}
+
+async function setLeadStatus(id){
+  const sel = document.getElementById('m-status');
+  if(!sel) return;
+  try{
+    await fetch(`/api/lead/${id}/status`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status: sel.value}),
+    });
+    const l = _allLeads.find(x=>x.id===id);
+    if(l) l.status = sel.value;
+  }catch{}
+}
+
+async function _loadCompetition(id){
+  const el = document.getElementById('m-comp');
+  if(!el || !id) return;
+  try{
+    const d = await(await fetch(`/api/lead/${id}/competition`)).json();
+    const l = _modalLead || {};
+    if(d.gesamt > 0){
+      el.innerHTML = `<span class="m-comp-badge">${d.ohne_website} von ${d.gesamt} ${_e(l.branche||'Betriebe')}-Betrieben in ${_e(l.stadt||'')} ohne Website (${d.prozent_ohne}%)</span>`;
+    }else{
+      el.style.display = 'none';
+    }
+  }catch{ el.style.display='none'; }
+}
+
+async function genEmail(id){
+  const btn = document.getElementById('m-email-btn');
+  const out = document.getElementById('m-email-out');
+  if(!btn || !out) return;
+  btn.disabled = true;
+  out.style.display = 'block';
+  out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>E-Mail wird generiert…</span></div>`;
+  try{
+    const d = await(await fetch(`/api/lead/${id}/email`, {method:'POST'})).json();
+    if(d.error || (!d.betreff && !d.text)){
+      out.innerHTML = `<div class="m-err-row">✕ ${_e(d.error||'Fehler')}</div>`;
+    }else{
+      const full = (d.betreff?('Betreff: '+d.betreff+'\n\n'):'') + (d.text||'');
+      out.innerHTML = `
+        <div class="m-email-sub">${_e(d.betreff||'')}</div>
+        <textarea class="m-email-txt" id="m-email-txt" readonly>${_e(d.text||'')}</textarea>
+        <button class="m-copy-btn" onclick="_copyEmail(this)" data-full="${_e(full)}">⧉ Kopieren</button>`;
+    }
+  }catch(e){ out.innerHTML = `<div class="m-err-row">✕ ${_e(String(e))}</div>`; }
+  finally{ btn.disabled = false; }
+}
+
+function _copyEmail(btn){
+  const txt = btn.getAttribute('data-full') || '';
+  navigator.clipboard.writeText(txt).then(()=>{
+    btn.textContent = '✓ Kopiert';
+    setTimeout(()=>{ btn.textContent = '⧉ Kopieren'; }, 2000);
+  }).catch(()=>{});
+}
+
+async function genMockup(id){
+  const btn = document.getElementById('m-mockup-btn');
+  const out = document.getElementById('m-mockup-out');
+  if(!btn || !out) return;
+  btn.disabled = true;
+  out.style.display = 'block';
+  out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Mockup wird generiert…</span></div>`;
+  try{
+    const d = await(await fetch(`/api/lead/${id}/mockup`, {method:'POST'})).json();
+    if(d.ok && d.job_id) _pollMockup(d.job_id, out, btn);
+    else { out.innerHTML = `<div class="m-err-row">✕ ${_e(d.reason||'Fehler')}</div>`; btn.disabled=false; }
+  }catch(e){ out.innerHTML = `<div class="m-err-row">✕ ${_e(String(e))}</div>`; btn.disabled=false; }
+}
+
+function _pollMockup(jobId, out, btn){
+  let elapsed = 0;
+  const iv = setInterval(async ()=>{
+    let job;
+    try{ job = await(await fetch('/api/media/job/'+jobId)).json(); }
+    catch{ return; }
+    if(job.status === 'done'){
+      clearInterval(iv);
+      out.innerHTML = `<img class="m-mockup-img" src="${_e(job.result_url)}" alt="Mockup"/>`;
+      btn.disabled = false;
+    }else if(job.status === 'error'){
+      clearInterval(iv);
+      out.innerHTML = `<div class="m-err-row">✕ ${_e(job.error||'Fehler')}</div>`;
+      btn.disabled = false;
+    }else{
+      elapsed += 1.5;
+      out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Mockup wird generiert… ${Math.round(elapsed)}s</span></div>`;
+    }
+  }, 1500);
 }
 function closeModal(){
   document.getElementById('modal-bg').classList.remove('open');

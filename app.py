@@ -93,6 +93,44 @@ def api_lead_status(lead_id):
     return jsonify({"ok": True, "status": status})
 
 
+@app.route("/api/lead/<int:lead_id>/email", methods=["POST"])
+def api_lead_email(lead_id):
+    """Generiert einen Outreach-E-Mail-Entwurf (synchron via Ollama, ~5-20s)."""
+    from agents import outreach
+    lead = db.get_lead(lead_id)
+    if not lead:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    result = outreach.generate_email(lead)
+    return jsonify(result)
+
+
+@app.route("/api/lead/<int:lead_id>/mockup", methods=["POST"])
+def api_lead_mockup(lead_id):
+    """Reiht einen Website-Mockup-Bild-Job für diesen Lead ein."""
+    lead = db.get_lead(lead_id)
+    if not lead:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    branche = (lead.get("branche") or "business").strip()
+    prompt = (
+        f"modern professional website hero image for a German {branche} business, "
+        f"clean corporate design, high quality, no text"
+    )
+    job_id = media_queue.submit("mockup", {
+        "prompt":    prompt,
+        "model_key": None,
+        "lead_id":   lead_id,
+    })
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/lead/<int:lead_id>/competition")
+def api_lead_competition(lead_id):
+    lead = db.get_lead(lead_id)
+    if not lead:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    return jsonify(db.get_competition(lead.get("stadt", ""), lead.get("branche", "")))
+
+
 @app.route("/api/verifier/model", methods=["GET", "POST"])
 def api_verifier_model():
     if request.method == "POST":
@@ -223,6 +261,10 @@ def api_stream():
 
             if "_error" in lead:
                 yield _sse({"type": "error", "msg": lead["_error"]})
+                continue
+
+            if "_activity" in lead:
+                yield _sse({"type": "activity", "msg": lead["_activity"]})
                 continue
 
             # Verifier-Events: Lead wurde nachverifiziert

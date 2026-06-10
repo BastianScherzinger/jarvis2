@@ -9,10 +9,27 @@ import time
 import itertools
 
 from agents.scorer import score as calc_score
+from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 from scrapers import _http
+from scrapers import synonyme
 import db
+
+# Synonym-Cache lazy laden (gecacht → kein Ollama-Spam pro Combo).
+# Erst beim ersten run_continuous-Aufruf, damit der Import (→ Flask-Start)
+# nicht durch eine evtl. Ollama-Generierung blockiert wird.
+_SYNONYME: dict[str, list[str]] = {}
+
+
+def _load_synonyme() -> None:
+    global _SYNONYME
+    if _SYNONYME:
+        return
+    try:
+        _SYNONYME = synonyme.get_expanded_branchen() or {}
+    except Exception:
+        _SYNONYME = {}
 
 
 # ── HTTP- & KI-Helfer (aus scrapers._http) ─────────────────────────────────────
@@ -57,6 +74,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event,
     Langlebiger Thread — prüft bei jeder Iteration ob Claude aktiviert ist.
     Claude kann jederzeit per API-Aufruf an/abgeschaltet werden.
     """
+    _load_synonyme()
     turn = 0
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
@@ -80,26 +98,29 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event,
 
 
 def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per):
-    # Schritt 1: KI generiert optimierte Suchanfragen
-    query_prompt = (
-        f"Erstelle 3 verschiedene Google-Suchanfragen auf Deutsch um lokale {branche}-Betriebe "
-        f"in {region} zu finden. Gib NUR ein JSON-Array zurück, keine Erklärung.\n"
-        f'Beispiel: ["Elektriker Berlin Mitte", "Elektrobetrieb Mitte Berlin Telefon", '
-        f'"Elektriker Berlin Mitte keine Webseite"]\n'
-        f"Ausgabe:"
-    )
+    # Schritt 1: Suchanfragen aus gecachten Branchen-Synonymen bauen
+    # (spart pro Combo einen Ollama-Call UND liefert bessere Begriffe).
+    synonyme_liste = _SYNONYME.get(branche) or []
+    queries: list[str] = [f"{syn} {region}" for syn in synonyme_liste[:3]]
 
-    queries_raw = ask(query_prompt) if ask else None
+    # Fallback: Ollama-Query-Generator wenn kein Synonym-Cache vorhanden
+    if not queries:
+        query_prompt = (
+            f"Erstelle 3 verschiedene Google-Suchanfragen auf Deutsch um lokale {branche}-Betriebe "
+            f"in {region} zu finden. Gib NUR ein JSON-Array zurück, keine Erklärung.\n"
+            f'Beispiel: ["Elektriker Berlin Mitte", "Elektrobetrieb Mitte Berlin Telefon", '
+            f'"Elektriker Berlin Mitte keine Webseite"]\n'
+            f"Ausgabe:"
+        )
 
-    # Parsen oder Fallback
-    queries: list[str] = []
-    if queries_raw:
-        try:
-            m = re.search(r"\[.*?\]", queries_raw, re.DOTALL)
-            if m:
-                queries = json.loads(m.group(0))[:3]
-        except Exception:
-            pass
+        queries_raw = ask(query_prompt) if ask else None
+        if queries_raw:
+            try:
+                m = re.search(r"\[.*?\]", queries_raw, re.DOTALL)
+                if m:
+                    queries = json.loads(m.group(0))[:3]
+            except Exception:
+                pass
 
     if not queries:
         queries = [f"{branche} {region}", f"{branche} {region} Telefon"]
@@ -140,12 +161,6 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             if not name or len(name.strip()) < 3:
                 continue
 
-            # Offensichtliche Nicht-Firmen filtern
-            skip_words = ["suche", "finden", "vergleich", "liste", "wikipedia", "facebook",
-                          "instagram", "youtube", "twitter", "yelp", "google"]
-            if any(w in name.lower() for w in skip_words):
-                continue
-
             website_url = (data.get("website_url") or "").strip()
             if not website_url or website_url == url:
                 website_url = ""
@@ -168,6 +183,10 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
                 "finder":         finder_key,
                 "maps_url":       "",
             }
+
+            ok, _grund = is_real_business(lead)
+            if not ok:
+                continue
 
             pts, typ         = calc_score(lead)
             lead["score"]    = pts

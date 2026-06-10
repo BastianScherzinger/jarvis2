@@ -1,6 +1,6 @@
 """
-Das Örtliche Scraper — einfaches deutsches Branchenbuch, sehr stabil.
-Gute Ergänzung zu Maps + Gelbe Seiten.
+golocal.de Scraper — deutsches Branchen- & Bewertungsportal.
+Liefert auch Bewertungen wenn vorhanden.
 """
 import re
 import time
@@ -12,13 +12,11 @@ from agents.scorer import score as calc_score
 from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
+from scrapers import _http
 import db
 
 _HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": _http.UA,
     "Accept-Language": "de-DE,de;q=0.9",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
@@ -41,8 +39,8 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
         on_lead({"_error": "beautifulsoup4 fehlt"})
         return
 
-    # Das Örtliche ist langsamer → leicht versetzt starten
-    time.sleep(5)
+    # golocal versetzt starten
+    time.sleep(9)
 
     counter = 0
     for region, branche in itertools.cycle(all_combos):
@@ -50,18 +48,19 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
             break
         counter += 1
         if counter % 10 == 0:
-            on_lead({"_activity": f"Das Örtliche scannt {region}/{branche}"})
+            on_lead({"_activity": f"golocal scannt {region}/{branche}"})
         try:
             _scrape_query(region, branche, on_lead, stop_event, max_per, BeautifulSoup)
         except Exception as e:
-            on_lead({"_error": f"DasÖrtliche ({region}/{branche}): {e}"})
+            on_lead({"_error": f"golocal ({region}/{branche}): {e}"})
         time.sleep(1.5)
 
 
 def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
-    kw   = urllib.parse.quote_plus(branche)
-    city = urllib.parse.quote_plus(region.replace("Berlin ", ""))
-    url  = f"https://www.dasoertliche.de/suche/?kw={kw}&ci={city}"
+    city = region.replace("Berlin ", "")
+    what = urllib.parse.quote_plus(branche)
+    where = urllib.parse.quote_plus(city)
+    url   = f"https://www.golocal.de/suchen/?what={what}&where={where}"
 
     html = _get(url)
     if not html:
@@ -69,10 +68,10 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
     soup    = BS4(html, "html.parser")
     entries = (
-        soup.select("article.hit") or
-        soup.select("li.entry") or
-        soup.select("[class*='result']") or
-        soup.select("div.hit")
+        soup.select("article") or
+        soup.select("div[class*='result-list-entry']") or
+        soup.select("li[class*='entry']") or
+        soup.select("[class*='result']")
     )
 
     found = 0
@@ -82,10 +81,9 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
         # Name
         name_el = (
-            art.select_one("span.hit-name") or
-            art.select_one("a.hit-link") or
-            art.select_one("[class*='name']") or
             art.select_one("h2") or
+            art.select_one("[class*='name']") or
+            art.select_one("a[class*='title']") or
             art.select_one("h3")
         )
         if not name_el:
@@ -96,25 +94,43 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
         # Adresse
         adr_el  = (
-            art.select_one("address") or
             art.select_one("[class*='address']") or
+            art.select_one("address") or
             art.select_one("[class*='adresse']")
         )
         adresse = adr_el.get_text(" ", strip=True) if adr_el else ""
 
         # Telefon
         telefon = ""
-        tel_el  = art.find("a", href=re.compile(r"^tel:"))
+        tel_el  = art.select_one("a[href^='tel:']") or art.select_one("[class*='phone']")
         if tel_el:
             telefon = tel_el.get_text(strip=True) or tel_el.get("href", "").replace("tel:", "")
 
         # Website
         website_url = ""
-        for a in art.find_all("a", href=True):
-            href = a["href"]
-            if href.startswith("http") and "dasoertliche" not in href and "google" not in href:
-                website_url = href
-                break
+        web_el = art.select_one("a[class*='website']")
+        if web_el and web_el.get("href", "").startswith("http"):
+            website_url = web_el["href"]
+        if not website_url:
+            for a in art.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("http") and "golocal" not in href and "google" not in href:
+                    website_url = href
+                    break
+
+        # Bewertung (falls vorhanden)
+        bewertung = 0.0
+        rate_el = art.select_one("[class*='rating']") or art.select_one("[class*='stars']")
+        if rate_el:
+            txt = rate_el.get_text(" ", strip=True)
+            m   = re.search(r"(\d[.,]?\d?)", txt)
+            if m:
+                try:
+                    bewertung = float(m.group(1).replace(",", "."))
+                    if bewertung > 5:
+                        bewertung = 0.0
+                except Exception:
+                    bewertung = 0.0
 
         has_web  = bool(website_url)
         web_info = check_website(website_url) if has_web else {}
@@ -129,10 +145,10 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             "website_url":    website_url[:300] if has_web else "",
             "has_website":    int(has_web),
             "website_alter":  web_info.get("alter_jahre", -1),
-            "bewertung":      0.0,
+            "bewertung":      bewertung,
             "anz_bewertungen": 0,
             "bilder":         0,
-            "finder":         "dasoertliche",
+            "finder":         "golocal",
             "maps_url":       "",
         }
 

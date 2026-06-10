@@ -8,6 +8,7 @@ import urllib.parse
 import itertools
 
 from agents.scorer import score as calc_score
+from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
@@ -39,9 +40,13 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
         on_lead({"_error": "beautifulsoup4 fehlt — pip install beautifulsoup4"})
         return
 
+    counter = 0
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
             break
+        counter += 1
+        if counter % 10 == 0:
+            on_lead({"_activity": f"Gelbe Seiten scannt {region}/{branche}"})
         try:
             _scrape_query(region, branche, on_lead, stop_event, max_per, BeautifulSoup)
         except Exception as e:
@@ -134,6 +139,10 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
                 "finder":         "gelbe_seiten",
                 "maps_url":       "",
             }
+
+            ok, _grund = is_real_business(lead)
+            if not ok:
+                continue
 
             pts, typ         = calc_score(lead)
             lead["score"]    = pts

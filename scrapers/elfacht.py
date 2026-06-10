@@ -1,6 +1,6 @@
 """
-Das Örtliche Scraper — einfaches deutsches Branchenbuch, sehr stabil.
-Gute Ergänzung zu Maps + Gelbe Seiten.
+11880.com Scraper — großes deutsches Branchenverzeichnis.
+Klon des dasoertliche-Patterns mit robusten Fallback-Selektor-Ketten.
 """
 import re
 import time
@@ -12,13 +12,11 @@ from agents.scorer import score as calc_score
 from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
+from scrapers import _http
 import db
 
 _HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": _http.UA,
     "Accept-Language": "de-DE,de;q=0.9",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
 }
@@ -33,6 +31,12 @@ def _get(url: str) -> str:
         return ""
 
 
+def _slug(text: str) -> str:
+    """Kleinschreibung, Leerzeichen → '-', URL-encoded."""
+    s = text.strip().lower().replace(" ", "-")
+    return urllib.parse.quote(s, safe="-")
+
+
 def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 20):
     """Läuft als langlebiger Thread durch alle Kombis."""
     try:
@@ -41,8 +45,8 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
         on_lead({"_error": "beautifulsoup4 fehlt"})
         return
 
-    # Das Örtliche ist langsamer → leicht versetzt starten
-    time.sleep(5)
+    # 11880 leicht versetzt starten
+    time.sleep(7)
 
     counter = 0
     for region, branche in itertools.cycle(all_combos):
@@ -50,18 +54,17 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
             break
         counter += 1
         if counter % 10 == 0:
-            on_lead({"_activity": f"Das Örtliche scannt {region}/{branche}"})
+            on_lead({"_activity": f"11880 scannt {region}/{branche}"})
         try:
             _scrape_query(region, branche, on_lead, stop_event, max_per, BeautifulSoup)
         except Exception as e:
-            on_lead({"_error": f"DasÖrtliche ({region}/{branche}): {e}"})
+            on_lead({"_error": f"11880 ({region}/{branche}): {e}"})
         time.sleep(1.5)
 
 
 def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
-    kw   = urllib.parse.quote_plus(branche)
-    city = urllib.parse.quote_plus(region.replace("Berlin ", ""))
-    url  = f"https://www.dasoertliche.de/suche/?kw={kw}&ci={city}"
+    city = region.replace("Berlin ", "")
+    url  = f"https://www.11880.com/suche/{_slug(branche)}/{_slug(city)}"
 
     html = _get(url)
     if not html:
@@ -69,10 +72,10 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
     soup    = BS4(html, "html.parser")
     entries = (
-        soup.select("article.hit") or
-        soup.select("li.entry") or
-        soup.select("[class*='result']") or
-        soup.select("div.hit")
+        soup.select("article") or
+        soup.select("div[class*='result-list-entry']") or
+        soup.select("li[class*='entry']") or
+        soup.select("[class*='result']")
     )
 
     found = 0
@@ -82,10 +85,9 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
         # Name
         name_el = (
-            art.select_one("span.hit-name") or
-            art.select_one("a.hit-link") or
-            art.select_one("[class*='name']") or
             art.select_one("h2") or
+            art.select_one("[class*='name']") or
+            art.select_one("a[class*='title']") or
             art.select_one("h3")
         )
         if not name_el:
@@ -96,25 +98,29 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
         # Adresse
         adr_el  = (
-            art.select_one("address") or
             art.select_one("[class*='address']") or
+            art.select_one("address") or
             art.select_one("[class*='adresse']")
         )
         adresse = adr_el.get_text(" ", strip=True) if adr_el else ""
 
         # Telefon
         telefon = ""
-        tel_el  = art.find("a", href=re.compile(r"^tel:"))
+        tel_el  = art.select_one("a[href^='tel:']") or art.select_one("[class*='phone']")
         if tel_el:
             telefon = tel_el.get_text(strip=True) or tel_el.get("href", "").replace("tel:", "")
 
         # Website
         website_url = ""
-        for a in art.find_all("a", href=True):
-            href = a["href"]
-            if href.startswith("http") and "dasoertliche" not in href and "google" not in href:
-                website_url = href
-                break
+        web_el = art.select_one("a[class*='website']")
+        if web_el and web_el.get("href", "").startswith("http"):
+            website_url = web_el["href"]
+        if not website_url:
+            for a in art.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("http") and "11880" not in href and "google" not in href:
+                    website_url = href
+                    break
 
         has_web  = bool(website_url)
         web_info = check_website(website_url) if has_web else {}
@@ -132,7 +138,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             "bewertung":      0.0,
             "anz_bewertungen": 0,
             "bilder":         0,
-            "finder":         "dasoertliche",
+            "finder":         "elfacht",
             "maps_url":       "",
         }
 

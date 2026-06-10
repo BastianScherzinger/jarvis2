@@ -347,6 +347,84 @@ body::after{
 .src-claude .src-name,.src-claude .src-cnt{color:var(--pu)}
 .src-claude .src-bar{background:var(--pu)}
 
+/* ── Neue Finder: 11880 (orange) + golocal (grün) ────────────────────────── */
+.av-elf {background:rgba(255,138,0,.12);border-color:rgba(255,138,0,.4);color:#ff8a00}
+.av-glc {background:rgba(64,196,99,.12);border-color:rgba(64,196,99,.4);color:#40c463}
+.from-elf{color:#ff8a00;border-color:rgba(255,138,0,.3);background:rgba(255,138,0,.06)}
+.from-glc{color:#40c463;border-color:rgba(64,196,99,.3);background:rgba(64,196,99,.06)}
+
+.src-elf .src-av{background:rgba(255,138,0,.1);border-color:rgba(255,138,0,.35);color:#ff8a00}
+.src-elf .src-name,.src-elf .src-cnt{color:#ff8a00}
+.src-elf .src-bar{background:#ff8a00}
+
+.src-glc .src-av{background:rgba(64,196,99,.1);border-color:rgba(64,196,99,.35);color:#40c463}
+.src-glc .src-name,.src-glc .src-cnt{color:#40c463}
+.src-glc .src-bar{background:#40c463}
+
+/* ── Activity-Ticker ─────────────────────────────────────────────────────── */
+.ticker{
+  height:22px;display:flex;align-items:center;padding:0 16px;
+  background:rgba(9,13,20,.92);border-bottom:1px solid var(--bdr2);
+  overflow:hidden;white-space:nowrap;
+}
+.ticker-text{
+  font-family:var(--fm);font-size:10.5px;color:var(--c);
+  letter-spacing:.03em;opacity:.85;text-overflow:ellipsis;overflow:hidden;
+}
+.ticker-text.tk-fade{animation:tkFade 2.2s ease}
+@keyframes tkFade{0%{opacity:0;transform:translateX(-6px)}18%{opacity:.95;transform:translateX(0)}100%{opacity:.85}}
+
+/* ── Modal: Pitch-Hook / Probleme / Social / Aktionen ────────────────────── */
+.m-pitch{
+  border-left:3px solid var(--c);background:rgba(0,212,255,.06);
+  padding:9px 12px;border-radius:0 6px 6px 0;font-size:12.5px;
+  color:var(--c);font-style:italic;line-height:1.5;
+}
+.m-issues{margin:0;padding:0 0 0 18px;list-style:none}
+.m-issues li{
+  position:relative;font-size:12px;color:#ff6b6b;padding:3px 0 3px 14px;line-height:1.4;
+}
+.m-issues li::before{content:'✗';position:absolute;left:0;color:#ff6b6b}
+.m-social{display:flex;flex-wrap:wrap;gap:6px}
+.m-social-pill{
+  font-size:11px;padding:4px 10px;border-radius:12px;text-decoration:none;
+  background:var(--bg3);border:1px solid var(--bdr2);color:var(--c);transition:all .15s;
+}
+.m-social-pill:hover{border-color:var(--c);background:rgba(0,212,255,.08)}
+
+.m-actions .m-sec-t{margin-bottom:8px}
+.m-comp{margin-bottom:10px}
+.m-comp-badge{
+  display:inline-block;font-size:11.5px;line-height:1.4;padding:6px 11px;border-radius:7px;
+  background:rgba(0,232,122,.08);border:1px solid rgba(0,232,122,.3);color:var(--g);font-weight:500;
+}
+.m-act-row{display:flex;gap:8px;margin-bottom:8px}
+.m-status-sel{
+  flex:1;background:var(--bg3);border:1px solid var(--bdr2);color:var(--tx);
+  border-radius:7px;padding:7px 10px;font-size:12px;font-family:var(--fu);cursor:pointer;
+}
+.m-act-btn{
+  flex:1;background:var(--bg3);border:1px solid var(--bdr2);color:var(--c);
+  border-radius:7px;padding:8px 10px;font-size:12px;cursor:pointer;transition:all .15s;
+}
+.m-act-btn:hover:not(:disabled){border-color:var(--c);background:rgba(0,212,255,.08)}
+.m-act-btn:disabled{opacity:.5;cursor:not-allowed}
+.m-email-out,.m-mockup-out{margin-top:8px}
+.m-email-sub{font-size:11px;color:var(--tx2);margin-bottom:5px;font-weight:600}
+.m-email-txt{
+  width:100%;min-height:130px;resize:vertical;background:var(--bg3);
+  border:1px solid var(--bdr2);border-radius:7px;color:var(--tx);
+  padding:9px 11px;font-size:12px;line-height:1.5;font-family:var(--fu);
+}
+.m-copy-btn{
+  margin-top:6px;background:transparent;border:1px solid var(--bdr2);color:var(--tx2);
+  border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;transition:all .15s;
+}
+.m-copy-btn:hover{border-color:var(--c);color:var(--c)}
+.m-mockup-img{width:100%;border-radius:8px;border:1px solid var(--bdr2);display:block}
+.m-spin-row,.m-err-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tx2);padding:4px 0}
+.m-err-row{color:#ff6b6b}
+
 /* Filter */
 .flt{
   width:100%;padding:7px 8px;
