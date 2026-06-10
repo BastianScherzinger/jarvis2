@@ -128,30 +128,27 @@ def _extract_json(text: str) -> dict:
 
 # ── Hauptschleife ─────────────────────────────────────────────────────────────
 
+def _is_claude_on() -> bool:
+    return os.environ.get("JARVIS_CLAUDE_ENABLED", "0") == "1"
+
+
 def run_continuous(all_combos: list[tuple], on_lead, stop_event,
-                   ai_mode: str = "local", max_per: int = 12):
+                   max_per: int = 12):
     """
-    Langlebiger Thread — KI generiert eigene Suchanfragen pro Region+Branche
-    und extrahiert Unternehmensdaten aus den Suchergebnissen.
+    Langlebiger Thread — prüft bei jeder Iteration ob Claude aktiviert ist.
+    Claude kann jederzeit per API-Aufruf an/abgeschaltet werden.
     """
-    # Leicht versetzt starten damit Maps schon läuft
-    time.sleep(10)
-
-    ask = _ask_ollama if ai_mode == "local" else (_ask_claude if ai_mode == "cloud" else None)
-
     turn = 0
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
             break
 
-        # Bei "both": abwechselnd Ollama und Claude
-        if ai_mode == "both":
-            ask = _ask_ollama if turn % 2 == 0 else _ask_claude
-            finder_key = "ollama_ai" if turn % 2 == 0 else "claude_ai"
-        elif ai_mode == "cloud":
-            finder_key = "claude_ai"
+        # Dynamisch: Claude-Status bei jeder Iteration neu lesen
+        claude_on = _is_claude_on()
+        if claude_on and turn % 2 == 1:
+            ask, finder_key = _ask_claude, "claude_ai"
         else:
-            finder_key = "ollama_ai"
+            ask, finder_key = _ask_ollama, "ollama_ai"
 
         turn += 1
 

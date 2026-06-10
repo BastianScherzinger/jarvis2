@@ -1,98 +1,67 @@
 """
 Scraper-Controller — 4 unabhängige Worker laufen parallel.
-
-Worker 1: Google Maps (1 persistenter Browser, durchläuft alle Kombis)
-Worker 2: Gelbe Seiten (HTTP, leicht)
-Worker 3: Das Örtliche (HTTP, leicht)
-Worker 4: AI Worker (Ollama/Claude)
-
-Jeder Worker läuft endlos in seinem eigenen Thread.
-Kein sequentielles Warten mehr — alle 4 finden gleichzeitig.
+Claude kann jederzeit per set_claude_enabled() an/abgeschaltet werden.
 """
+import os
 import queue
+import random
 import threading
 import itertools
-import random
 import time
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN
 from scrapers import maps, gelbe_seiten, dasoertliche
 from agents import ai_worker
 
-_lead_queue = queue.Queue()
-_stop_event = threading.Event()
-_active     = False
-_ai_mode    = "local"
-_workers: list[threading.Thread] = []
+_lead_queue     = queue.Queue()
+_stop_event     = threading.Event()
+_active         = False
+_claude_enabled = False   # aus/an per API-Aufruf
 
 
-def get_queue()  -> queue.Queue:   return _lead_queue
-def is_running() -> bool:          return _active
-def get_ai_mode() -> str:          return _ai_mode
+def get_queue()        -> queue.Queue: return _lead_queue
+def is_running()       -> bool:        return _active
+def is_claude_enabled()-> bool:        return _claude_enabled
+
+def get_ai_mode() -> str:
+    return "both" if _claude_enabled else "local"
 
 
-def start(ai_mode: str = "local") -> None:
-    global _active, _ai_mode, _workers
+def set_claude_enabled(enabled: bool) -> None:
+    global _claude_enabled
+    _claude_enabled = enabled
+    # Umgebungsvariable setzen — ai_worker liest diese dynamisch
+    os.environ["JARVIS_CLAUDE_ENABLED"] = "1" if enabled else "0"
+
+
+def start() -> None:
+    global _active
     if _active:
         return
-    _ai_mode = ai_mode
     _stop_event.clear()
-    _active   = True
-    _workers  = []
+    _active = True
 
-    # Alle Combis einmal mischen — verschiedene Einstiegspunkte pro Worker
     combos = list(itertools.product(ALLE_REGIONEN, BRANCHEN))
 
-    # Worker 1: Google Maps — persistenter Browser
-    combos_maps = combos[:]
-    random.shuffle(combos_maps)
-    t1 = threading.Thread(
-        target=maps.run_continuous,
-        args=(combos_maps, _on_lead, _stop_event),
-        kwargs={"max_per": 25},
-        name="Worker-Maps",
-        daemon=True,
-    )
-    _workers.append(t1)
+    # Worker 1: Google Maps (persistenter Browser)
+    c1 = combos[:]
+    random.shuffle(c1)
+    _spawn("Maps",        maps.run_continuous,           c1, max_per=25)
 
-    # Worker 2: Gelbe Seiten — versetzt starten
-    combos_gs = combos[:]
-    random.shuffle(combos_gs)
-    t2 = threading.Thread(
-        target=_delayed(gelbe_seiten.run_continuous, delay=3),
-        args=(combos_gs, _on_lead, _stop_event),
-        kwargs={"max_per": 25},
-        name="Worker-GelbeSeit",
-        daemon=True,
-    )
-    _workers.append(t2)
+    # Worker 2: Gelbe Seiten (versetzt 3s)
+    c2 = combos[:]
+    random.shuffle(c2)
+    _spawn("GelbeSeit",   gelbe_seiten.run_continuous,   c2, delay=3, max_per=25)
 
-    # Worker 3: Das Örtliche
-    combos_do = combos[:]
-    random.shuffle(combos_do)
-    t3 = threading.Thread(
-        target=_delayed(dasoertliche.run_continuous, delay=6),
-        args=(combos_do, _on_lead, _stop_event),
-        kwargs={"max_per": 20},
-        name="Worker-DasOertliche",
-        daemon=True,
-    )
-    _workers.append(t3)
+    # Worker 3: Das Örtliche (versetzt 6s)
+    c3 = combos[:]
+    random.shuffle(c3)
+    _spawn("DasOertliche",dasoertliche.run_continuous,   c3, delay=6, max_per=20)
 
-    # Worker 4: AI-Worker (Ollama/Claude)
-    combos_ai = combos[:]
-    random.shuffle(combos_ai)
-    t4 = threading.Thread(
-        target=_delayed(ai_worker.run_continuous, delay=12),
-        args=(combos_ai, _on_lead, _stop_event),
-        kwargs={"ai_mode": ai_mode, "max_per": 10},
-        name="Worker-AI",
-        daemon=True,
-    )
-    _workers.append(t4)
-
-    for t in _workers:
-        t.start()
+    # Worker 4: AI (Ollama + optional Claude, versetzt 12s)
+    c4 = combos[:]
+    random.shuffle(c4)
+    _spawn("AI",          ai_worker.run_continuous,       c4, delay=12, max_per=10)
 
 
 def stop() -> None:
@@ -105,9 +74,11 @@ def _on_lead(lead: dict) -> None:
     _lead_queue.put(lead)
 
 
-def _delayed(fn, delay: float):
-    """Wrapper der eine Funktion erst nach `delay` Sekunden startet."""
-    def wrapper(*args, **kwargs):
-        time.sleep(delay)
-        fn(*args, **kwargs)
-    return wrapper
+def _spawn(name: str, fn, combos, delay: float = 0, **kwargs):
+    def _run():
+        if delay:
+            time.sleep(delay)
+        fn(combos, _on_lead, _stop_event, **kwargs)
+
+    t = threading.Thread(target=_run, name=f"Worker-{name}", daemon=True)
+    t.start()

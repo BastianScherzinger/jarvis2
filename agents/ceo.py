@@ -313,6 +313,46 @@ def _load_system_prompt() -> str:
 CEO_SYSTEM = _load_system_prompt()
 
 
+def _inject_brain(base_system: str, max_chars: int = 3000) -> str:
+    """
+    Ergänzt den System-Prompt um aktuelles obsidian_brain-Wissen.
+    Wird bei jedem Local-Mode-Request frisch gelesen — immer aktuell.
+    """
+    try:
+        snippets: list[str] = []
+
+        # System-Profil (Hardware + KI-Tier)
+        sp = _BRAIN_DIR / "system_profile.md"
+        if sp.exists():
+            snippets.append(sp.read_text(encoding="utf-8", errors="replace")[:500])
+
+        # Heutiges + gestriges Session-Journal (letzte 25 Einträge)
+        for delta in (0, 1):
+            d    = (datetime.date.today() - datetime.timedelta(days=delta)).isoformat()
+            jour = _BRAIN_DIR / f"session_{d}.md"
+            if jour.exists():
+                lines = [l for l in jour.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines() if l.strip()]
+                snippets.append("\n".join(lines[-25:]))
+                break   # nur das aktuellste Journal
+
+        if not snippets:
+            return base_system
+
+        brain_block = (
+            "\n\n## JARVIS Gehirn — Aktives Wissen\n"
+            "Dies ist dein persönliches Wissens-Journal. "
+            "Nutze es als Kontext über vergangene Aktionen, den Systemzustand "
+            "und das was Sir zuletzt getan hat:\n\n"
+            + "\n\n".join(snippets)[:max_chars]
+        )
+        return base_system + brain_block
+
+    except Exception:
+        return base_system
+
+
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -376,6 +416,9 @@ class JarvisCEO:
         _tool_rounds     = 0
         _MAX_TOOL_ROUNDS = 8   # Ollama-Schutz gegen Tool-Loop
 
+        # Im Local-Mode: Brain-Kontext frisch injizieren — wer bin ich, was weiß ich?
+        active_system = _inject_brain(CEO_SYSTEM) if self._is_local else CEO_SYSTEM
+
         while True:
             round_text = ""
             tool_calls = []
@@ -383,7 +426,7 @@ class JarvisCEO:
             # ── LLM Stream via Adapter ────────────────────────────────────────
             try:
                 for ev_type, ev_data in self._adapter.stream_round(
-                    messages, CEO_SYSTEM, TOOL_DEFINITIONS
+                    messages, active_system, TOOL_DEFINITIONS
                 ):
                     if ev_type == "text":
                         chunk        = ev_data

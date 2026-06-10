@@ -1,12 +1,9 @@
 """
 JARVIS LeadHunter — Flask Backend.
-SSE-Stream sendet jeden neuen Lead als Chat-Nachricht ans Dashboard.
 """
 import json
 import os
 import queue
-import time
-from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
@@ -15,17 +12,12 @@ from scrapers import controller
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
-
-# ── Init DB beim Start ────────────────────────────────────────────────────────
 db.init_db()
 
 
-# ── SSE Helper ────────────────────────────────────────────────────────────────
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-
-# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -34,11 +26,9 @@ def index():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
-    body    = request.get_json(silent=True) or {}
-    ai_mode = body.get("ai_mode", "local")   # local | cloud | both
     if not controller.is_running():
-        controller.start(ai_mode=ai_mode)
-        return jsonify({"ok": True, "ai_mode": ai_mode})
+        controller.start()
+        return jsonify({"ok": True})
     return jsonify({"ok": False, "reason": "already_running"})
 
 
@@ -48,27 +38,28 @@ def api_stop():
     return jsonify({"ok": True})
 
 
+@app.route("/api/claude", methods=["POST"])
+def api_claude():
+    """Claude ein- oder ausschalten — auch während der Scraper läuft."""
+    body    = request.get_json(silent=True) or {}
+    enabled = bool(body.get("enabled", False))
+    controller.set_claude_enabled(enabled)
+    return jsonify({"ok": True, "claude_enabled": enabled})
+
+
 @app.route("/api/status")
 def api_status():
     return jsonify({
-        "running": controller.is_running(),
-        "ai_mode": controller.get_ai_mode(),
-        "stats":   db.get_stats(),
+        "running":        controller.is_running(),
+        "claude_enabled": controller.is_claude_enabled(),
+        "stats":          db.get_stats(),
     })
-
-
-@app.route("/api/leads")
-def api_leads():
-    limit  = int(request.args.get("limit", 200))
-    offset = int(request.args.get("offset", 0))
-    return jsonify(db.get_all(limit=limit, offset=offset))
 
 
 @app.route("/api/export/csv")
 def api_export_csv():
-    csv_text = db.export_csv()
     return Response(
-        csv_text,
+        db.export_csv(),
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=leads.csv"},
     )
@@ -76,24 +67,26 @@ def api_export_csv():
 
 @app.route("/api/stream")
 def api_stream():
-    """SSE-Endpoint — schickt neue Leads als Chat-Nachrichten."""
     q = controller.get_queue()
 
     def event_stream():
-        yield _sse({"type": "connected", "msg": "LeadHunter verbunden."})
+        # Beim Verbinden: aktuelle DB-Stats schicken (verhindert Flickern)
+        yield _sse({"type": "init_stats", "stats": db.get_stats()})
 
         while True:
             try:
                 lead = q.get(timeout=20)
             except queue.Empty:
-                yield _sse({"type": "ping"})
+                # Keepalive + aktualisierte Stats alle 20s
+                yield _sse({"type": "stats", "stats": db.get_stats()})
                 continue
 
             if "_error" in lead:
                 yield _sse({"type": "error", "msg": lead["_error"]})
                 continue
 
-            yield _sse({"type": "lead", "data": lead})
+            # Lead senden + gleichzeitig DB-Stats (single source of truth)
+            yield _sse({"type": "lead", "data": lead, "stats": db.get_stats()})
 
     return Response(
         stream_with_context(event_stream()),
@@ -106,6 +99,5 @@ def api_stream():
     )
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

@@ -1,395 +1,403 @@
-/* ── JARVIS LeadHunter — Frontend ─────────────────────────────────────────── */
 'use strict';
+/* ── JARVIS LeadHunter ─────────────────────────────────────────────────────── */
 
-let _running   = false;
-let _sse       = null;
-let _msgCount  = 0;
-let _allLeads  = [];
-let _hotCount  = 0;
-let _statsTimer= null;
+// ── State ─────────────────────────────────────────────────────────────────────
+let _running       = false;
+let _claudeOn      = false;
+let _sse           = null;
+let _feedCount     = 0;
+let _allLeads      = [];   // Session-Cache für Sphere + Filter
+let _sessionFinder = {};   // {finder: count} nur Session
 
-// ── Finder-Metadaten ──────────────────────────────────────────────────────────
-const FINDER = {
-  maps_playwright: { cls:'maps',   icon:'🗺',  label:'M',   name:'Google Maps',   sub:'Playwright Scraper' },
-  gelbe_seiten:    { cls:'gelbe',  icon:'📒',  label:'GS',  name:'Gelbe Seiten',  sub:'HTTP Scraper' },
-  dasoertliche:    { cls:'gelbe',  icon:'📘',  label:'DÖ',  name:'Das Örtliche',  sub:'HTTP Scraper' },
-  ollama_ai:       { cls:'ollama', icon:'🤖',  label:'AI',  name:'Ollama KI',     sub:'Lokales Modell' },
-  claude_ai:       { cls:'claude', icon:'✦',   label:'CL',  name:'Claude KI',     sub:'Anthropic API' },
+// ── Finder-Registry ───────────────────────────────────────────────────────────
+const F = {
+  maps_playwright: { cls:'maps',   av:'M',  lbl:'Google Maps',   icon:'🗺',  sub:'Playwright'},
+  gelbe_seiten:    { cls:'gelbe',  av:'GS', lbl:'Gelbe Seiten',  icon:'📒',  sub:'HTTP'},
+  dasoertliche:    { cls:'oert',   av:'DÖ', lbl:'Das Örtliche',  icon:'📘',  sub:'HTTP'},
+  ollama_ai:       { cls:'ollama', av:'AI', lbl:'Ollama KI',     icon:'🤖',  sub:'Lokal'},
+  claude_ai:       { cls:'claude', av:'✦',  lbl:'Claude KI',     icon:'✦',   sub:'Anthropic'},
 };
-function _finder(key) {
-  return FINDER[key] || { cls:'maps', icon:'?', label:'?', name: key || 'Unbekannt', sub:'' };
-}
+function fi(key){ return F[key] || {cls:'maps',av:'?',lbl:key||'?',icon:'?',sub:''}; }
 
-// ── Toggle ────────────────────────────────────────────────────────────────────
-document.querySelectorAll('#ai-toggle .pill').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (_running) return;
-    document.querySelectorAll('#ai-toggle .pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+// ── Arc-Reactor Animation (Topbar) ─────────────────────────────────────────
+(function initArc(){
+  const cv = document.getElementById('arc-canvas');
+  if(!cv) return;
+  const cx = cv.getContext('2d');
+  let angle = 0;
+  function draw(){
+    cx.clearRect(0,0,32,32);
+    const x=16,y=16;
+    // Outer ring
+    cx.strokeStyle='rgba(0,212,255,.25)';cx.lineWidth=1.5;
+    cx.beginPath();cx.arc(x,y,13,0,Math.PI*2);cx.stroke();
+    // Middle ring
+    cx.strokeStyle='rgba(0,212,255,.5)';cx.lineWidth=1.2;
+    cx.beginPath();cx.arc(x,y,8,0,Math.PI*2);cx.stroke();
+    // Rotating arc
+    cx.strokeStyle='#00d4ff';cx.lineWidth=2;
+    cx.beginPath();cx.arc(x,y,11,angle,angle+1.2);cx.stroke();
+    // Core
+    cx.fillStyle='#00d4ff';cx.beginPath();cx.arc(x,y,3,0,Math.PI*2);cx.fill();
+    cx.fillStyle='rgba(0,212,255,.3)';cx.beginPath();cx.arc(x,y,5,0,Math.PI*2);cx.fill();
+    angle += 0.05;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Three.js Lead-Sphäre ──────────────────────────────────────────────────────
+let _sphere = null;
+(function initSphere(){
+  const cv = document.getElementById('sphere-canvas');
+  if(!cv || typeof THREE === 'undefined') return;
+
+  const wrap = cv.parentElement;
+  const W = wrap.clientWidth  || 196;
+  const H = wrap.clientHeight || 196;
+
+  const scene    = new THREE.Scene();
+  const camera   = new THREE.PerspectiveCamera(55, W/H, 0.1, 100);
+  camera.position.z = 5.5;
+
+  const renderer = new THREE.WebGLRenderer({canvas:cv, alpha:true, antialias:true});
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // Sphere wireframe
+  const wfGeo = new THREE.SphereGeometry(3, 18, 14);
+  const wfMat = new THREE.MeshBasicMaterial({color:0x1a2d40,wireframe:true,transparent:true,opacity:.12});
+  scene.add(new THREE.Mesh(wfGeo, wfMat));
+
+  // Points
+  const posArr = [], colArr = [];
+  const geo = new THREE.BufferGeometry();
+  const mat = new THREE.PointsMaterial({size:.1, vertexColors:true, transparent:true, opacity:.95});
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+
+  let n = 0;
+  const PHI = Math.PI * (1 + Math.sqrt(5));
+
+  function addPoint(type){
+    const i   = n++;
+    // Fibonacci sphere distribution
+    const phi   = Math.acos(1 - 2*(i+0.5)/2000);
+    const theta = PHI * i;
+    const R     = 2.8 + (Math.random()-.5)*.2;
+    posArr.push(R*Math.sin(phi)*Math.cos(theta), R*Math.cos(phi), R*Math.sin(phi)*Math.sin(theta));
+    const C = type==='Hot'  ? [1,.23,.31]
+             : type==='Warm' ? [1,.79,.24]
+             :                 [.23,.51,.96];
+    colArr.push(...C);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([...posArr],3));
+    geo.setAttribute('color',    new THREE.Float32BufferAttribute([...colArr],3));
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate    = true;
+    document.getElementById('sphere-count').textContent = n;
+  }
+
+  let rx=0, ry=0;
+  function animate(){
+    requestAnimationFrame(animate);
+    pts.rotation.y += .004;
+    pts.rotation.x += .001;
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  _sphere = { addPoint };
+})();
+
+// ── Claude Toggle ─────────────────────────────────────────────────────────────
+async function toggleClaude(){
+  _claudeOn = !_claudeOn;
+  const tog = document.getElementById('claude-toggle');
+  const sw  = document.getElementById('ct-state');
+  tog.classList.toggle('on', _claudeOn);
+  sw.textContent = _claudeOn ? 'ON' : 'OFF';
+  await fetch('/api/claude',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({enabled: _claudeOn}),
   });
-});
-document.querySelectorAll('#mode-toggle .pill').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (btn.classList.contains('off')) return;
-    document.querySelectorAll('#mode-toggle .pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  });
-});
-function _getAiMode() {
-  return document.querySelector('#ai-toggle .pill.active')?.dataset.val || 'local';
 }
 
 // ── Start / Stop ──────────────────────────────────────────────────────────────
-function toggleScraper() {
-  _running ? stopScraper() : startScraper();
-}
+function toggleScraper(){ _running ? stopScraper() : startScraper(); }
 
-async function startScraper() {
-  const ai_mode = _getAiMode();
-  const res  = await fetch('/api/start', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ai_mode }),
-  });
+async function startScraper(){
+  const res  = await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const data = await res.json();
-  if (!data.ok && data.reason !== 'already_running') return;
-
+  if(!data.ok && data.reason !== 'already_running') return;
   _running = true;
-  _setRunningUI(true);
+  _setUI(true);
   _connectSSE();
-  _statsTimer = setInterval(_fetchStats, 6000);
 }
 
-async function stopScraper() {
-  await fetch('/api/stop', { method:'POST' });
+async function stopScraper(){
+  await fetch('/api/stop',{method:'POST'});
   _running = false;
-  _setRunningUI(false);
-  if (_sse) { _sse.close(); _sse = null; }
-  clearInterval(_statsTimer);
+  _setUI(false);
+  if(_sse){_sse.close();_sse=null;}
 }
 
-function _setRunningUI(on) {
-  const btn  = document.getElementById('start-btn');
-  const icon = document.getElementById('start-icon');
-  const text = document.getElementById('start-text');
-  const ind  = document.getElementById('live-indicator');
-  const lbl  = document.getElementById('live-label');
-
-  btn.classList.toggle('running', on);
-  icon.textContent = on ? '■' : '▶';
-  text.textContent = on ? 'STOP' : 'START';
+function _setUI(on){
+  document.getElementById('start-btn').className = 'start-btn' + (on?' run':'');
+  document.getElementById('si').textContent       = on ? '■' : '▶';
+  document.getElementById('st').textContent       = on ? 'STOP' : 'START';
+  const ind = document.getElementById('live-ind');
   ind.classList.toggle('on', on);
-  lbl.textContent  = on ? 'LIVE' : 'OFFLINE';
+  document.getElementById('live-lbl').textContent = on ? 'LIVE' : 'OFFLINE';
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
-function _connectSSE() {
-  if (_sse) _sse.close();
+function _connectSSE(){
+  if(_sse) _sse.close();
   _sse = new EventSource('/api/stream');
   _sse.onmessage = e => {
-    try {
+    try{
       const msg = JSON.parse(e.data);
-      if (msg.type === 'lead')  _onLead(msg.data);
-      if (msg.type === 'error') _onError(msg.msg);
-    } catch {}
+      if(msg.type==='lead')       { _onLead(msg.data); _applyStats(msg.stats); }
+      if(msg.type==='stats')      { _applyStats(msg.stats); }
+      if(msg.type==='init_stats') { _applyStats(msg.stats); }
+      if(msg.type==='error')      { _onErr(msg.msg); }
+    }catch{}
   };
-  _sse.onerror = () => { if (_running) setTimeout(_connectSSE, 3000); };
+  _sse.onerror = () => { if(_running) setTimeout(_connectSSE,3000); };
 }
 
-// ── Lead ──────────────────────────────────────────────────────────────────────
-function _onLead(lead) {
-  _allLeads.unshift(lead);
-  _msgCount++;
-
-  // Empty State entfernen
-  document.getElementById('empty-state')?.remove();
-
-  // Feed-Zähler
-  document.getElementById('fb-count').textContent = _msgCount;
-
-  // Hot-Badge
-  if (lead.lead_typ === 'Hot') {
-    _hotCount++;
-    const hb = document.getElementById('feed-badge-hot');
-    hb.style.display = 'flex';
-    document.getElementById('fb-hot').textContent = _hotCount;
-    _addHotCard(lead);
-  }
-
-  // Message in Feed
-  const feed = document.getElementById('chat-feed');
-  const el   = _buildMessage(lead);
-  feed.insertBefore(el, feed.firstChild);
-
-  // Max 300 Bubbles
-  const msgs = feed.querySelectorAll('.msg-group');
-  if (msgs.length > 300) msgs[msgs.length - 1].remove();
-
-  _updateStats();
+// ── Stats (DB ist einzige Quelle der Wahrheit) ────────────────────────────────
+function _applyStats(s){
+  if(!s) return;
+  _setNum('s-total', s.total);
+  _setNum('s-hot',   s.hot);
+  _setNum('s-warm',  s.warm);
+  _setNum('s-cold',  s.cold);
+  const pct = s.total ? Math.round(s.no_web/s.total*100) : 0;
+  document.getElementById('s-noweb').textContent = pct+'%';
+  // Telefon aus Session zählen
+  document.getElementById('s-tel').textContent = _allLeads.filter(l=>l.telefon).length;
+  // Source Chart aus DB-Finder-Daten
+  _renderChart(s.finders || {});
 }
 
-function _onError(msg) {
-  const feed = document.getElementById('chat-feed');
-  document.getElementById('empty-state')?.remove();
-  const el = document.createElement('div');
-  el.className   = 'msg-error';
-  el.textContent = '⚠ ' + msg;
-  feed.insertBefore(el, feed.firstChild);
+function _setNum(id, val){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const old = parseInt(el.textContent)||0;
+  if(old !== val) el.textContent = val;
 }
 
-// ── Message bauen ─────────────────────────────────────────────────────────────
-function _buildMessage(lead) {
-  const f     = _finder(lead.finder);
-  const time  = new Date().toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const group = document.createElement('div');
-  group.className = 'msg-group';
-
-  // Web-Tag
-  let webTag = '';
-  if (!lead.has_website) {
-    webTag = `<span class="lc-tag web-no">✗ Kein Website</span>`;
-  } else if (lead.website_alter >= 0 && lead.website_alter < 3) {
-    webTag = `<span class="lc-tag web-old">⚠ Website ${lead.website_alter}j alt</span>`;
-  } else if (lead.website_alter >= 3) {
-    webTag = `<span class="lc-tag web-old">⚠ Website ${lead.website_alter}j alt</span>`;
-  }
-
-  const telTag    = lead.telefon ? `<span class="lc-tag tel">✓ Telefon</span>` : '';
-  const branchTag = lead.branche ? `<span class="lc-tag branch">${_esc(lead.branche)}</span>` : '';
-  const bildTag   = lead.bilder  ? `<span class="lc-tag">📷 Bilder</span>` : '';
-
-  const adrDetail = lead.adresse
-    ? `<div class="lc-detail"><span class="lc-detail-icon">📍</span>${_esc(lead.adresse.substring(0,35))}${lead.adresse.length>35?'…':''}</div>`
-    : '';
-  const telDetail = lead.telefon
-    ? `<div class="lc-detail"><span class="lc-detail-icon">📞</span>${_esc(lead.telefon)}</div>`
-    : '';
-  const ratDetail = lead.bewertung
-    ? `<div class="lc-detail"><span class="lc-detail-icon">⭐</span>${lead.bewertung}${lead.anz_bewertungen ? ` (${lead.anz_bewertungen})`:''}</div>`
-    : '';
-
-  const leadJson = JSON.stringify(lead).replace(/"/g,'&quot;');
-
-  group.innerHTML = `
-    <div class="msg-header">
-      <div class="sender-badge ${f.cls}">
-        <div class="sender-avatar ${f.cls}">${f.label}</div>
-        <span class="sender-name ${f.cls}">${f.name}</span>
+// ── Source Chart ──────────────────────────────────────────────────────────────
+function _renderChart(finders){
+  const el  = document.getElementById('source-chart');
+  if(!el) return;
+  const max = Math.max(1, ...Object.values(finders));
+  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','ollama_ai','claude_ai'];
+  const rows  = ORDER.filter(k => finders[k] > 0).map(k => {
+    const f   = fi(k);
+    const cnt = finders[k] || 0;
+    const pct = Math.round(cnt/max*100);
+    return `<div class="src-row src-${f.cls}">
+      <div class="src-head">
+        <div class="src-av">${f.av}</div>
+        <span class="src-name">${f.lbl}</span>
+        <span class="src-cnt">${cnt}</span>
       </div>
-      <span class="msg-time">${time}</span>
-    </div>
-    <div class="lead-card ${lead.lead_typ}" data-id="${lead.id||0}" onclick='openModal(${leadJson})'>
-      <div class="lc-top">
-        <div class="lc-name">${_esc(lead.name)}</div>
-        <div class="lc-score-block">
-          <div class="lc-score-num ${lead.lead_typ}">${lead.score}</div>
-          <div class="lc-score-lbl">${lead.lead_typ.toUpperCase()} LEAD</div>
-        </div>
-      </div>
-      <div class="lc-tags">
-        ${webTag}${telTag}${branchTag}${bildTag}
-      </div>
-      <div class="lc-bottom">
-        ${adrDetail}${telDetail}${ratDetail}
-      </div>
-    </div>`;
-
-  return group;
-}
-
-function _esc(s) {
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Hot Sidebar ───────────────────────────────────────────────────────────────
-function _addHotCard(lead) {
-  const list = document.getElementById('hot-list');
-  list.querySelector('.hot-empty')?.remove();
-
-  const card = document.createElement('div');
-  card.className = 'hot-card';
-  card.innerHTML = `
-    <div class="hot-card-name">${_esc(lead.name)}</div>
-    <div class="hot-card-meta">
-      ${lead.branche ? `<span class="hot-tag">${_esc(lead.branche)}</span>` : ''}
-      ${lead.stadt   ? `<span class="hot-tag">${_esc(lead.stadt)}</span>` : ''}
-      <span class="hot-score">${lead.score}pt</span>
-    </div>`;
-  card.onclick = () => openModal(lead);
-  list.insertBefore(card, list.firstChild);
-
-  const cards = list.querySelectorAll('.hot-card');
-  if (cards.length > 40) cards[cards.length - 1].remove();
-}
-
-// ── Stats ─────────────────────────────────────────────────────────────────────
-function _updateStats() {
-  const leads  = _allLeads;
-  const total  = leads.length;
-  const hot    = leads.filter(l => l.lead_typ === 'Hot').length;
-  const warm   = leads.filter(l => l.lead_typ === 'Warm').length;
-  const cold   = total - hot - warm;
-  const noWeb  = leads.filter(l => !l.has_website).length;
-  const hasTel = leads.filter(l => l.telefon).length;
-  const pct    = total ? Math.round(noWeb / total * 100) : 0;
-
-  document.getElementById('s-total').textContent = total;
-  document.getElementById('s-hot').textContent   = hot;
-  document.getElementById('s-warm').textContent  = warm;
-  document.getElementById('s-cold').textContent  = cold;
-  document.getElementById('s-noweb').textContent = pct + '%';
-  document.getElementById('s-tel').textContent   = hasTel;
-
-  // Fortschrittsbalken (visualisiert bis 500)
-  document.getElementById('bar-total').style.width = Math.min(100, total / 5) + '%';
-
-  // Finder-Liste
-  const finders = {};
-  leads.forEach(l => { if (l.finder) finders[l.finder] = (finders[l.finder]||0)+1; });
-  const sl = document.getElementById('source-list');
-  sl.innerHTML = Object.entries(finders).sort((a,b)=>b[1]-a[1]).map(([k,v]) => {
-    const f = _finder(k);
-    return `<div class="source-item">
-      <div class="source-icon ${f.cls}">${f.label}</div>
-      <div class="source-info">
-        <div class="source-name">${f.name}</div>
-        <div class="source-cnt">${v} Leads</div>
+      <div class="src-bar-wrap">
+        <div class="src-bar" style="width:${pct}%"></div>
       </div>
     </div>`;
   }).join('');
+  el.innerHTML = rows || '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>';
 }
 
-async function _fetchStats() {
-  try {
-    const s = (await (await fetch('/api/status')).json()).stats;
-    document.getElementById('s-total').textContent = s.total;
-    document.getElementById('s-hot').textContent   = s.hot;
-    document.getElementById('s-warm').textContent  = s.warm;
-    document.getElementById('s-cold').textContent  = s.cold;
-    document.getElementById('bar-total').style.width = Math.min(100, s.total / 5) + '%';
-    const pct = s.total ? Math.round(s.no_web / s.total * 100) : 0;
-    document.getElementById('s-noweb').textContent = pct + '%';
-  } catch {}
+// ── Lead empfangen ────────────────────────────────────────────────────────────
+function _onLead(lead){
+  _allLeads.unshift(lead);
+  _feedCount++;
+  _sessionFinder[lead.finder] = (_sessionFinder[lead.finder]||0) + 1;
+
+  document.getElementById('empty-state')?.remove();
+  document.getElementById('feed-cnt').textContent = _feedCount;
+
+  const feed = document.getElementById('chat-feed');
+  feed.insertBefore(_buildMsg(lead), feed.firstChild);
+  if(feed.children.length > 300) feed.lastChild?.remove();
+
+  // Sphere Punkt
+  _sphere?.addPoint(lead.lead_typ);
+
+  // Hot Sidebar
+  if(lead.lead_typ==='Hot') _addHotCard(lead);
+}
+
+function _onErr(msg){
+  document.getElementById('empty-state')?.remove();
+  const el = document.createElement('div');
+  el.className='msg-err';el.textContent='⚠ '+msg;
+  document.getElementById('chat-feed').insertBefore(el,document.getElementById('chat-feed').firstChild);
+}
+
+// ── Message bauen ─────────────────────────────────────────────────────────────
+function _buildMsg(lead){
+  const f    = fi(lead.finder);
+  const t    = new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const wrap = document.createElement('div');
+  wrap.className = 'msg';
+
+  const webTag = !lead.has_website
+    ? `<span class="tag no-web">✗ Kein Website</span>`
+    : lead.website_alter >= 0
+      ? `<span class="tag">${lead.website_alter}j alt</span>` : '';
+  const telTag = lead.telefon ? `<span class="tag tel">✓ Tel</span>` : '';
+  const brTag  = lead.branche ? `<span class="tag br">${_e(lead.branche)}</span>` : '';
+
+  const foot = [
+    lead.adresse ? `<div class="lc-ft"><span class="lc-ft-i">📍</span>${_e(lead.adresse.substring(0,30))}${lead.adresse.length>30?'…':''}</div>` : '',
+    lead.telefon ? `<div class="lc-ft"><span class="lc-ft-i">📞</span>${_e(lead.telefon)}</div>` : '',
+    lead.bewertung ? `<div class="lc-ft"><span class="lc-ft-i">⭐</span>${lead.bewertung}${lead.anz_bewertungen?' ('+lead.anz_bewertungen+')':''}</div>` : '',
+  ].filter(Boolean).join('');
+
+  const jl = JSON.stringify(lead).replace(/"/g,'&quot;');
+
+  wrap.innerHTML = `
+    <div class="msg-av av-${f.cls}">${f.av}</div>
+    <div class="msg-body">
+      <div class="msg-meta">
+        <span class="msg-from from-${f.cls}">${f.lbl}</span>
+        <span class="msg-badge badge-${lead.lead_typ}">${lead.lead_typ}</span>
+        <span class="msg-time">${t}</span>
+      </div>
+      <div class="lead-card ${lead.lead_typ}" data-id="${lead.id||0}" onclick='openModal(${jl})'>
+        <div class="lc-main">
+          <div class="lc-name">${_e(lead.name)}</div>
+          <div class="lc-score ${lead.lead_typ}">${lead.score}</div>
+        </div>
+        <div class="lc-tags">${webTag}${telTag}${brTag}</div>
+        ${foot ? `<div class="lc-foot">${foot}</div>` : ''}
+      </div>
+    </div>`;
+  return wrap;
+}
+
+function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Hot Sidebar ───────────────────────────────────────────────────────────────
+function _addHotCard(lead){
+  const list = document.getElementById('hot-list');
+  list.querySelector('.hot-empty')?.remove();
+  const card = document.createElement('div');
+  card.className='hot-card';
+  card.innerHTML=`<div class="hc-name">${_e(lead.name)}</div>
+    <div class="hc-meta">
+      ${lead.branche?`<span class="hc-tag">${_e(lead.branche)}</span>`:''}
+      ${lead.stadt?`<span class="hc-tag">${_e(lead.stadt)}</span>`:''}
+      <span class="hc-score">${lead.score}pt</span>
+    </div>`;
+  card.onclick=()=>openModal(lead);
+  list.insertBefore(card,list.firstChild);
+  if(list.querySelectorAll('.hot-card').length>40) list.lastChild?.remove();
 }
 
 // ── Filter ────────────────────────────────────────────────────────────────────
-function applyFilter() {
-  const fTyp = document.getElementById('flt-typ').value;
-  const fWeb = document.getElementById('flt-web').value;
-  const fBl  = document.getElementById('flt-bl').value;
-
-  document.querySelectorAll('.msg-group').forEach(grp => {
-    const card = grp.querySelector('.lead-card');
-    if (!card) return;
-    const id   = parseInt(card.dataset.id || '0');
-    const lead = _allLeads.find(l => l.id === id);
-    if (!lead) { grp.style.display = ''; return; }
-
-    const typOk = !fTyp || lead.lead_typ === fTyp;
-    const webOk = !fWeb || String(lead.has_website) === fWeb;
-    const blOk  = !fBl  || lead.bundesland === fBl;
-    grp.style.display = (typOk && webOk && blOk) ? '' : 'none';
+function applyFilter(){
+  const fT=document.getElementById('flt-typ').value;
+  const fW=document.getElementById('flt-web').value;
+  const fB=document.getElementById('flt-bl').value;
+  document.querySelectorAll('.msg').forEach(g=>{
+    const card=g.querySelector('.lead-card');
+    if(!card){g.style.display='';return;}
+    const id  =parseInt(card.dataset.id||'0');
+    const lead=_allLeads.find(l=>l.id===id);
+    if(!lead){g.style.display='';return;}
+    const ok=((!fT||lead.lead_typ===fT)&&(!fW||String(lead.has_website)===fW)&&(!fB||lead.bundesland===fB));
+    g.style.display=ok?'':'none';
   });
 }
 
-// ── Modal ──────────────────────────────────────────────────────────────────────
-function openModal(lead) {
-  const f  = _finder(lead.finder);
-  const el = document.getElementById('modal-inner');
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(lead){
+  const f=fi(lead.finder);
+  const webRow=lead.has_website
+    ?`<div class="m-row"><span class="m-k">Website</span><span class="m-v warn"><a href="${_e(lead.website_url)}" target="_blank">${_e(lead.website_url||'Link')} ↗</a></span></div>
+      <div class="m-row"><span class="m-k">Alter</span><span class="m-v ${lead.website_alter>5?'warn':''}">${lead.website_alter>=0?lead.website_alter+' Jahre':'unbekannt'}</span></div>`
+    :`<div class="m-row"><span class="m-k">Website</span><span class="m-v no">❌ Kein Website</span></div>`;
 
-  const webRow = lead.has_website
-    ? `<div class="modal-row"><span class="mrow-key">Website</span><span class="mrow-val warn"><a href="${_esc(lead.website_url)}" target="_blank">${_esc(lead.website_url||'Link öffnen')} ↗</a></span></div>
-       <div class="modal-row"><span class="mrow-key">Website-Alter</span><span class="mrow-val ${lead.website_alter>4?'warn':''}">${lead.website_alter>=0 ? lead.website_alter+' Jahre' : 'unbekannt'}</span></div>`
-    : `<div class="modal-row"><span class="mrow-key">Website</span><span class="mrow-val no">❌ Kein Website vorhanden</span></div>`;
-
-  el.innerHTML = `
-    <div class="modal-header">
-      <div class="modal-type-badge ${lead.lead_typ}">${lead.lead_typ} Lead</div>
-      <div class="modal-title">${_esc(lead.name)}</div>
-      <button class="modal-close-btn" onclick="closeModal()">✕</button>
+  document.getElementById('modal-inner').innerHTML=`
+    <div class="m-hdr">
+      <div class="m-badge ${lead.lead_typ}">${lead.lead_typ}</div>
+      <div class="m-title">${_e(lead.name)}</div>
+      <button class="m-close" onclick="closeModal()">✕</button>
     </div>
-
-    <div class="score-row">
-      <span class="score-label">Score</span>
-      <div class="score-bar"><div class="score-fill ${lead.lead_typ}" style="width:${lead.score}%"></div></div>
-      <span class="score-num ${lead.lead_typ}">${lead.score}/100</span>
+    <div class="m-score-row">
+      <span style="font-size:10px;color:var(--tx2)">Score</span>
+      <div class="m-bar"><div class="m-fill ${lead.lead_typ}" style="width:${lead.score}%"></div></div>
+      <span class="m-score-num ${lead.lead_typ}">${lead.score}</span>
     </div>
-
-    <div class="modal-section">
-      <div class="modal-sec-title">Kontakt</div>
-      ${lead.adresse  ? `<div class="modal-row"><span class="mrow-key">Adresse</span><span class="mrow-val">${_esc(lead.adresse)}</span></div>` : ''}
-      ${lead.telefon  ? `<div class="modal-row"><span class="mrow-key">Telefon</span><span class="mrow-val ok">${_esc(lead.telefon)}</span></div>` : ''}
-      <div class="modal-row"><span class="mrow-key">Stadt</span><span class="mrow-val">${_esc(lead.stadt||'')} · ${_esc(lead.bundesland||'')}</span></div>
-      <div class="modal-row"><span class="mrow-key">Branche</span><span class="mrow-val">${_esc(lead.branche||'—')}</span></div>
+    <div class="m-sec">
+      <div class="m-sec-t">Kontakt</div>
+      ${lead.adresse?`<div class="m-row"><span class="m-k">Adresse</span><span class="m-v">${_e(lead.adresse)}</span></div>`:''}
+      ${lead.telefon?`<div class="m-row"><span class="m-k">Telefon</span><span class="m-v ok">${_e(lead.telefon)}</span></div>`:''}
+      <div class="m-row"><span class="m-k">Stadt</span><span class="m-v">${_e(lead.stadt||'')} · ${_e(lead.bundesland||'')}</span></div>
+      <div class="m-row"><span class="m-k">Branche</span><span class="m-v">${_e(lead.branche||'—')}</span></div>
     </div>
-
-    <div class="modal-section">
-      <div class="modal-sec-title">Online-Präsenz</div>
+    <div class="m-sec">
+      <div class="m-sec-t">Online-Präsenz</div>
       ${webRow}
-      <div class="modal-row"><span class="mrow-key">Bilder vorhanden</span><span class="mrow-val ${lead.bilder?'ok':'no'}">${lead.bilder?'✓ Ja':'✗ Nein'}</span></div>
+      <div class="m-row"><span class="m-k">Bilder</span><span class="m-v ${lead.bilder?'ok':'no'}">${lead.bilder?'✓ Ja':'✗ Nein'}</span></div>
     </div>
-
-    ${lead.bewertung ? `<div class="modal-section">
-      <div class="modal-sec-title">Bewertung</div>
-      <div class="modal-row"><span class="mrow-key">Sterne</span><span class="mrow-val">⭐ ${lead.bewertung}</span></div>
-      ${lead.anz_bewertungen ? `<div class="modal-row"><span class="mrow-key">Anzahl</span><span class="mrow-val">${lead.anz_bewertungen} Bewertungen</span></div>` : ''}
-      ${lead.maps_url ? `<div class="modal-row"><span class="mrow-key">Google Maps</span><span class="mrow-val"><a href="${_esc(lead.maps_url)}" target="_blank">Öffnen ↗</a></span></div>` : ''}
-    </div>` : ''}
-
-    <div class="modal-section">
-      <div class="modal-sec-title">Gefunden von</div>
-      <div class="modal-finder ${f.cls}">
-        <span class="modal-finder-icon">${f.icon}</span>
-        <div class="modal-finder-info">
-          <span class="modal-finder-name">${f.name}</span>
-          <span class="modal-finder-sub">${f.sub} · ${lead.gefunden_am||'—'}</span>
+    ${lead.bewertung?`<div class="m-sec">
+      <div class="m-sec-t">Bewertung</div>
+      <div class="m-row"><span class="m-k">Sterne</span><span class="m-v">⭐ ${lead.bewertung}</span></div>
+      ${lead.anz_bewertungen?`<div class="m-row"><span class="m-k">Anzahl</span><span class="m-v">${lead.anz_bewertungen}</span></div>`:''}
+      ${lead.maps_url?`<div class="m-row"><span class="m-k">Maps</span><span class="m-v"><a href="${_e(lead.maps_url)}" target="_blank">Öffnen ↗</a></span></div>`:''}
+    </div>`:''}
+    <div class="m-sec">
+      <div class="m-sec-t">Quelle</div>
+      <div class="m-finder src-${f.cls}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr2);background:var(--bg3)">
+        <span style="font-size:20px">${f.icon}</span>
+        <div>
+          <div class="m-finder-name src-${f.cls}" style="font-size:12px;font-weight:600">${f.lbl}</div>
+          <div class="m-finder-sub">${f.sub} · ${lead.gefunden_am||'—'}</div>
         </div>
       </div>
     </div>`;
-
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
 }
-
-function closeModal() {
+function closeModal(){
   document.getElementById('modal-bg').classList.remove('open');
   document.getElementById('modal').classList.remove('open');
 }
-document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
-function clearFeed() {
-  document.getElementById('chat-feed').innerHTML = `
-    <div class="empty-state" id="empty-state">
-      <div class="empty-arc"><svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="26" fill="none" stroke="#182234" stroke-width="2"/><circle cx="30" cy="30" r="16" fill="none" stroke="#182234" stroke-width="2"/><circle cx="30" cy="30" r="6" fill="#182234"/></svg></div>
-      <p class="empty-title">Feed geleert</p>
-      <p class="empty-sub">Scraper läuft weiter im Hintergrund</p>
-    </div>`;
-  _allLeads = []; _msgCount = 0; _hotCount = 0;
-  document.getElementById('fb-count').textContent = '0';
-  document.getElementById('fb-hot').textContent   = '0';
-  document.getElementById('feed-badge-hot').style.display = 'none';
-  document.getElementById('hot-list').innerHTML = '<div class="hot-empty">Noch keine Hot Leads</div>';
-  _updateStats();
+function clearFeed(){
+  const feed=document.getElementById('chat-feed');
+  feed.innerHTML=`<div class="empty-state" id="empty-state">
+    <div class="empty-icon">◎</div>
+    <div class="empty-title">Feed geleert</div>
+    <div class="empty-sub">Scraper läuft weiter im Hintergrund</div>
+  </div>`;
+  _allLeads=[];_feedCount=0;_sessionFinder={};
+  document.getElementById('feed-cnt').textContent='0';
+  document.getElementById('hot-list').innerHTML='<div class="hot-empty">Noch keine Hot Leads</div>';
+  document.getElementById('s-tel').textContent='0';
 }
 
-function exportCSV() { window.location.href = '/api/export/csv'; }
+function exportCSV(){ window.location.href='/api/export/csv'; }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-(async () => {
-  try {
-    const data = await (await fetch('/api/status')).json();
-    if (data.running) {
-      _running = true;
-      _setRunningUI(true);
-      _connectSSE();
-      _statsTimer = setInterval(_fetchStats, 6000);
+(async()=>{
+  try{
+    const d=await(await fetch('/api/status')).json();
+    if(d.stats) _applyStats(d.stats);
+    if(d.running){_running=true;_setUI(true);_connectSSE();}
+    if(d.claude_enabled){
+      _claudeOn=true;
+      document.getElementById('claude-toggle').classList.add('on');
+      document.getElementById('ct-state').textContent='ON';
     }
-    if (data.stats) {
-      const s = data.stats;
-      document.getElementById('s-total').textContent = s.total;
-      document.getElementById('s-hot').textContent   = s.hot;
-      document.getElementById('s-warm').textContent  = s.warm;
-      document.getElementById('s-cold').textContent  = s.cold;
-    }
-  } catch {}
+  }catch{}
 })();
