@@ -252,6 +252,9 @@ function _onLead(lead){
 
   // Hot Sidebar
   if(lead.lead_typ==='Hot') _addHotCard(lead);
+
+  // Graph Live-Update
+  if(typeof graphOnNewLead === 'function') graphOnNewLead(lead);
 }
 
 function _onErr(msg){
@@ -657,7 +660,7 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['leads', 'images', 'videos'];
+const _PAGES = ['leads', 'images', 'videos', 'graph'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -667,6 +670,7 @@ function showPage(name){
     b.classList.toggle('active', b.dataset.page === name));
   location.hash = name;
   if(name === 'images' || name === 'videos') loadGallery();
+  if(name === 'graph' && typeof initGraph === 'function') initGraph();
 }
 
 function _initPageFromHash(){

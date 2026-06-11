@@ -25,6 +25,7 @@
     <button class="topnav-btn active" data-page="leads"  onclick="showPage('leads')">Leads</button>
     <button class="topnav-btn"        data-page="images" onclick="showPage('images')">Bilder</button>
     <button class="topnav-btn"        data-page="videos" onclick="showPage('videos')">Videos</button>
+    <button class="topnav-btn"        data-page="graph"  onclick="showPage('graph')">Graph</button>
   </nav>
 
   <div class="topbar-center">
@@ -201,6 +202,48 @@
   <div class="media-grid" id="vid-gallery"></div>
 </main>
 
+<!-- ══════════════════════════ GRAPH-SEITE ══════════════════════════════════ -->
+<main class="graph-page page" data-page="graph">
+
+  <!-- Sortier-Controls -->
+  <div class="graph-controls">
+    <span class="gc-label">Gruppieren nach:</span>
+    <button class="gc-btn active" data-group="branche" onclick="setGrouping('branche')">Branche</button>
+    <button class="gc-btn" data-group="bundesland" onclick="setGrouping('bundesland')">Bundesland</button>
+    <button class="gc-btn" data-group="lead_typ" onclick="setGrouping('lead_typ')">Typ</button>
+    <button class="gc-btn" data-group="potenzial" onclick="setGrouping('potenzial')">Potenzial</button>
+    <span class="gc-sep">|</span>
+    <span class="gc-count" id="graph-node-count">0 Leads</span>
+    <button class="gc-btn" style="margin-left:auto" onclick="refreshGraph()">↺ Aktualisieren</button>
+  </div>
+
+  <!-- VIZ 1: Force-Graph -->
+  <div class="viz-section">
+    <div class="viz-title">Lead-Netzwerk <span class="viz-sub">Obsidian-Stil — Knoten = Leads, Gruppen = Branchen/Orte</span></div>
+    <div class="graph-wrap" id="graph-wrap">
+      <svg id="graph-svg"></svg>
+      <div class="graph-tooltip" id="graph-tooltip" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- VIZ 2: Bubble-Chart -->
+  <div class="viz-section">
+    <div class="viz-title">Potenzial vs. Score <span class="viz-sub">Blasengröße = Anzahl Bewertungen</span></div>
+    <div class="bubble-wrap" id="bubble-wrap">
+      <svg id="bubble-svg"></svg>
+    </div>
+  </div>
+
+  <!-- VIZ 3: Treemap -->
+  <div class="viz-section">
+    <div class="viz-title">Lead-Verteilung <span class="viz-sub">Fläche = Anzahl Leads — Bundesland › Branche › Typ</span></div>
+    <div class="treemap-wrap" id="treemap-wrap">
+      <svg id="treemap-svg"></svg>
+    </div>
+  </div>
+
+</main>
+
 <!-- ══════════════════════════ MODAL ════════════════════════════════════════ -->
 <div class="modal-bg" id="modal-bg" onclick="closeModal()"></div>
 <div class="modal" id="modal">
@@ -208,5 +251,7 @@
 </div>
 
 <script src="/static/js/app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="/static/js/graph.js"></script>
 </body>
 </html>

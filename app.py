@@ -17,12 +17,16 @@ from flask import (
 )
 
 import db
+import db_raw
+import db_evaluated
 import media_queue
 from scrapers import controller, _http
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
 db.init_db()
+db_raw.init_db()
+db_evaluated.init_db()
 
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
@@ -144,6 +148,50 @@ def api_verifier_model():
         "model":     controller.get_verifier_model(),
         "available": _http.ollama_models(),
     })
+
+
+# ── Evaluator-DB (DB2: leads_evaluated) ──────────────────────────────────────
+
+@app.route("/api/evaluated/top")
+def api_eval_top():
+    return jsonify({"top": db_evaluated.get_top(10)})
+
+
+@app.route("/api/evaluated/all")
+def api_eval_all():
+    limit      = int(request.args.get("limit", 200))
+    offset     = int(request.args.get("offset", 0))
+    branche    = request.args.get("branche")
+    bundesland = request.args.get("bundesland")
+    lead_typ   = request.args.get("lead_typ")
+    return jsonify(db_evaluated.get_all(limit, offset, branche, bundesland, lead_typ))
+
+
+@app.route("/api/evaluated/stats")
+def api_eval_stats():
+    return jsonify(db_evaluated.get_stats())
+
+
+@app.route("/api/evaluated/<int:eval_id>/status", methods=["POST"])
+def api_eval_status(eval_id):
+    body   = request.get_json(silent=True) or {}
+    status = body.get("status", "")
+    VALID  = {"neu", "kontaktiert", "termin", "verkauft", "tot"}
+    if status not in VALID:
+        return jsonify({"error": f"Ungültig. Erlaubt: {VALID}"}), 400
+    db_evaluated.update_status(eval_id, status)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/graph/nodes")
+def api_graph_nodes():
+    limit = min(int(request.args.get("limit", 2000)), 2000)
+    return jsonify({"nodes": db_evaluated.get_for_graph(limit)})
+
+
+@app.route("/api/graph/stats")
+def api_graph_stats():
+    return jsonify(db_evaluated.get_graph_stats())
 
 
 # ── Media: Bild/Video-Generierung ────────────────────────────────────────────
@@ -274,6 +322,11 @@ def api_stream():
                     "data":  lead["data"],
                     "stats": db.get_stats(),
                 })
+                continue
+
+            # Evaluator-Events: Roh-Lead wurde KI-bewertet (DB2)
+            if lead.get("type") == "evaluated":
+                yield _sse({"type": "evaluated", "data": lead["data"]})
                 continue
 
             # Lead senden + gleichzeitig DB-Stats (single source of truth)

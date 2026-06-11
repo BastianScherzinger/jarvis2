@@ -12,6 +12,7 @@ from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
+import db_raw as _db_raw
 
 _HEADERS = {
     "User-Agent": (
@@ -149,6 +150,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             lead["lead_typ"] = typ
 
             lead_id = db.insert(lead)
+            _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
             if lead_id:
                 lead["id"] = lead_id
                 on_lead(lead)

@@ -12,7 +12,9 @@ import time
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN
 from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal, verifier
 from agents import ai_worker
+from agents.evaluator import pipeline as evaluator_pipeline
 import db
+import db_raw
 
 _lead_queue     = queue.Queue()
 _stop_event     = threading.Event()
@@ -95,6 +97,17 @@ def start() -> None:
     threading.Thread(
         target=verifier.run_continuous, args=(_on_lead, _stop_event, n_verifier),
         name="Worker-Verifier", daemon=True,
+    ).start()
+
+    # Evaluator-Team: liest aus DB1 (leads_raw), schreibt nach DB2 (leads_evaluated)
+    db_raw.init_db()
+    db_raw.reset_stale()
+    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "3"))
+    threading.Thread(
+        target=evaluator_pipeline.run_continuous,
+        args=(_on_lead, _stop_event, n_eval),
+        name="Worker-Evaluator",
+        daemon=True,
     ).start()
 
 
