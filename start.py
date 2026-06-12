@@ -133,6 +133,7 @@ def _boot_screen(cfg: dict) -> str:
     print()
 
     # ── Profil-Auswahl ──────────────────────────────────────────────────────
+    cap    = hw.get("kapazitaet_gb", 0) if hw else 0
     chosen = rec
     if profs:
         print(f"  {GY}Wähle das lokale KI-Profil:{R}")
@@ -140,6 +141,9 @@ def _boot_screen(cfg: dict) -> str:
         for i, p in enumerate(profs, 1):
             mark = f"{GR}● installiert{R}" if p["model"] in installed else f"{GY}↓ Download{R}"
             star = f" {C}◄ empfohlen{R}" if rec and p["key"] == rec["key"] else ""
+            # Profil größer als der (V)RAM → würde auslagern und ausbremsen
+            if cap and p["size_gb"] > cap * 1.05:
+                star = f" {RD}✗ zu groß für deine Hardware{R}"
             print(f"    [{C}{i}{R}]  {B}{p['name']:<12}{R} {GY}{p['model']:<18}{R} {mark}{star}")
             print(f"          {GY}{p['desc']}{R}")
         print()

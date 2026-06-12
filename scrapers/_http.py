@@ -169,28 +169,53 @@ _BEST_MODEL: list = [None]
 
 
 def best_chat_model() -> str:
-    """Bestes installiertes CHAT-Modell für die Lead-Bewertung.
+    """Bestes installiertes CHAT-Modell für die Lead-Bewertung — VRAM-bewusst.
 
-    Code-Modelle (z.B. qwen2.5-coder) sind für deutsche Vertriebstexte
-    ungeeignet (halluzinieren) — daher bevorzugt: explizites JARVIS_EVAL_MODEL,
-    sonst das größte installierte Nicht-Coder-Modell, sonst Fallback.
-    Ergebnis wird gecacht.
+    Auswahl:
+      1. explizites JARVIS_EVAL_MODEL — ABER nur wenn es in den Speicher passt
+         (sonst würde z.B. 32B auf 16 GB VRAM auslagern und alles ausbremsen).
+      2. Hardware-Empfehlung (z.B. qwen2.5:14b auf 16 GB VRAM), wenn installiert.
+      3. größtes installiertes Nicht-Coder-Modell, das in den Speicher passt.
+    Code-Modelle (qwen2.5-coder) werden gemieden (halluzinieren). Ergebnis gecacht.
     """
-    env = os.environ.get("JARVIS_EVAL_MODEL", "").strip()
-    if env:
-        return env
     if _BEST_MODEL[0]:
         return _BEST_MODEL[0]
-    models = ollama_models()
-    chat   = [m for m in models if "coder" not in m["name"].lower()
-              and "embed" not in m["name"].lower()]
-    pool   = chat or models
-    if pool:
-        best = max(pool, key=lambda m: m.get("size_gb", 0))["name"]
-    else:
-        best = os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
-    _BEST_MODEL[0] = best
-    return best
+
+    models  = ollama_models()
+    by_name = {m["name"]: m.get("size_gb", 0) for m in models}
+
+    # Hardware-Kapazität (VRAM bei GPU, sonst RAM) + Empfehlung
+    rec, cap = "", 0.0
+    try:
+        import hardware
+        hw  = hardware.detect()
+        cap = hw["vram_gb"] if hw["has_gpu"] else hw["ram_gb"]
+        rec = hardware.recommend(hw)["model"]
+    except Exception:
+        pass
+
+    def _passt(name: str) -> bool:
+        s = by_name.get(name, 0)
+        return cap <= 0 or s <= 0 or s <= cap * 1.05   # passt in den Speicher?
+
+    env = os.environ.get("JARVIS_EVAL_MODEL", "").strip()
+    chosen = ""
+    if env and _passt(env):
+        chosen = env                                   # explizit + passt
+    elif rec and rec in by_name and _passt(rec):
+        chosen = rec                                   # Empfehlung (z.B. 14b/16GB)
+    if not chosen:
+        chat = [m for m in models
+                if "coder" not in m["name"].lower() and "embed" not in m["name"].lower()
+                and _passt(m["name"])]
+        pool = chat or [m for m in models if _passt(m["name"])] or models
+        if pool:
+            chosen = max(pool, key=lambda m: m.get("size_gb", 0))["name"]
+        else:
+            chosen = env or rec or os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+
+    _BEST_MODEL[0] = chosen
+    return chosen
 
 
 def warmup_ollama() -> bool:
