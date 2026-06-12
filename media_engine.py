@@ -9,6 +9,13 @@ import re
 import time
 from pathlib import Path
 
+# Saubere Logs: HF/Diffusers/Transformers-Fortschrittsbalken + Hinweise aus.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+os.environ.setdefault("DIFFUSERS_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 _BASE = Path(__file__).parent
 WORKSPACE_IMAGES = _BASE / "workspace" / "media" / "images"
 WORKSPACE_VIDEOS = _BASE / "workspace" / "media" / "videos"
@@ -29,6 +36,7 @@ IMAGE_MODELS: dict[str, dict] = {
         "default_h": 1024,
         "supports_neg": True,
         "gated":     False,
+        "default_steps": 25,
         "desc":      "Empfohlen: hohe Qualität, 1024×1024, offen (kein Token nötig)",
     },
     "sd21": {
@@ -41,6 +49,7 @@ IMAGE_MODELS: dict[str, dict] = {
         "default_h": 768,
         "supports_neg": True,
         "gated":     False,
+        "default_steps": 25,
         "desc":      "Leicht & schnell, ab 4 GB — gut für schwächere Hardware, offen",
     },
     "flux-schnell": {
@@ -53,6 +62,7 @@ IMAGE_MODELS: dict[str, dict] = {
         "default_h": 1024,
         "supports_neg": False,
         "gated":     True,
+        "default_steps": 4,
         "desc":      "Beste Qualität — GESPERRT: Lizenz auf huggingface.co akzeptieren + HF_TOKEN in .env",
     },
 }
@@ -76,10 +86,16 @@ ALL_MODELS: dict[str, dict] = {**IMAGE_MODELS, **VIDEO_MODELS}
 # ── Konfiguration aus .env ───────────────────────────────────────────────────
 
 def get_active_image_model() -> str:
-    """Liest JARVIS_IMAGE_MODEL aus .env. Default: sd21."""
+    """Liest JARVIS_IMAGE_MODEL aus .env. Default: sdxl.
+    Ein gesperrtes Modell (FLUX) ohne HF_TOKEN wird auf ein offenes umgebogen —
+    so läuft die Generierung schnell statt am 12B-FLUX zu hängen."""
     content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
     m = re.search(r"JARVIS_IMAGE_MODEL=(.+)", content)
-    return m.group(1).strip() if m else "sd21"
+    key = m.group(1).strip() if m else "sdxl"
+    mc = IMAGE_MODELS.get(key)
+    if mc and mc.get("gated") and not _hf_token():
+        return _open_image_model()
+    return key if key in IMAGE_MODELS else "sdxl"
 
 
 def get_active_video_model() -> str:
@@ -163,6 +179,10 @@ def _load_image_pipe(model_key: str):
         raise
     pipe = pipe.to(dev)
 
+    # Diffusers-Fortschrittsbalken (tqdm) abschalten — saubere Logs.
+    try: pipe.set_progress_bar_config(disable=True)
+    except Exception: pass
+
     # Schnellerer Scheduler (DPM++ 2M Karras): gleiche Qualität bei ~20-25 Steps
     # statt 30-50 → deutlich schneller, besonders auf GPU.
     try:
@@ -228,7 +248,7 @@ def generate_image(
     prompt: str,
     model_key: str | None = None,
     negative_prompt: str = "blurry, low quality, watermark, text, deformed, ugly, bad anatomy",
-    steps: int = 25,
+    steps: int = 0,
     width: int | None = None,
     height: int | None = None,
 ) -> dict:
@@ -251,6 +271,9 @@ def generate_image(
 
     w    = width  or m["default_w"]
     h    = height or m["default_h"]
+    # Schritte: explizit übergeben > Modell-Default (FLUX nur 4!, SDXL 25)
+    if not steps or steps <= 0:
+        steps = m.get("default_steps", 25)
     t0   = time.time()
     pipe = _load_image_pipe(key)
 

@@ -110,16 +110,20 @@ def _worker() -> None:
             if kind == "asset_set":
                 # 5 feste Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social),
                 # jedes mit eigenem Prompt + Format. Seriell, Fortschritt live.
+                import logger as _lg
                 assets = params.get("assets") or []
                 tot    = len(assets) or 1
+                _lg.info("Bilder", f"Generiere Werbe-Set ({tot} Assets)…")
                 urls, items = [], []
                 for i, a in enumerate(assets):
+                    ta = time.time()
+                    _lg.info("Bilder", f"→ {a.get('label','')} ({i+1}/{tot})…")
                     res = media_engine.generate_image(
                         a.get("prompt", ""),
                         params.get("model_key") or None,
                         negative_prompt=a.get("negative_prompt")
                             or "blurry, low quality, watermark, text, deformed",
-                        steps=int(params.get("steps", 24)),
+                        steps=int(params.get("steps", 0)),
                         width=a.get("width"),
                         height=a.get("height"),
                     )
@@ -127,6 +131,7 @@ def _worker() -> None:
                     if u:
                         urls.append(u)
                         items.append({"label": a.get("label", ""), "url": u, "asset": a.get("asset", "")})
+                        _lg.success("Bilder", f"✓ {a.get('label','')} fertig ({round(time.time()-ta,1)}s)")
                     _set(
                         job_id, status="running",
                         done_count=len(urls), total=tot,
@@ -137,6 +142,7 @@ def _worker() -> None:
                     )
                 if not urls:
                     raise RuntimeError("Keine Assets erzeugt")
+                _lg.success("Bilder", f"Werbe-Set fertig — {len(urls)} Assets in {round(time.time()-t0,1)}s")
                 _set(job_id, status="done", progress=100,
                      result_urls=list(urls), result_items=list(items),
                      result_url=urls[0], elapsed=round(time.time() - t0, 1))

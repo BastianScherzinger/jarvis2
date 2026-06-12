@@ -297,7 +297,7 @@ def api_media_generate_set():
     params  = {
         "assets":    assets,
         "model_key": (body.get("model_key") or "").strip(),
-        "steps":     int(body.get("steps", 24)),
+        "steps":     int(body.get("steps", 0)),   # 0 = Modell entscheidet (FLUX 4, SDXL 25)
         "summary":   summary,
         "lead_id":   body.get("lead_id"),
     }

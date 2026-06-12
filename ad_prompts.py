@@ -107,48 +107,52 @@ def _branche_kontext(branche: str, motiv: str) -> str:
 
 
 # ── Asset-Set: 5 feste Werbe-Assets pro Erstellung ───────────────────────────
-# Jedes Asset hat eigenen Prompt-Zusatz + Format (Vielfache von 8).
+# Kurze Prompt-Bausteine — CLIP (SD/SDXL) verarbeitet nur 77 Tokens, daher knapp.
 ASSET_TYPES = [
-    {"key": "logo",   "label": "Logo",
-     "frag": "minimalist modern logo design, clean simple vector emblem, memorable brand icon, "
-             "centered on plain solid background, flat design, professional brand identity",
+    {"key": "logo",   "label": "Logo",   "frag": "minimalist flat logo icon, plain background",
      "w": 1024, "h": 1024, "logo": True},
-    {"key": "hero",   "label": "Website Hero-Banner",
-     "frag": "website hero banner, wide cinematic header image, spacious professional composition",
+    {"key": "hero",   "label": "Website Hero-Banner", "frag": "website hero banner, wide",
      "w": 1024, "h": 576, "logo": False},
-    {"key": "flyer",  "label": "Flyer",
-     "frag": "promotional flyer visual, portrait poster layout, eye-catching marketing flyer background",
+    {"key": "flyer",  "label": "Flyer",  "frag": "promotional flyer background, portrait poster",
      "w": 768, "h": 1024, "logo": False},
-    {"key": "ad",     "label": "Werbeanzeige",
-     "frag": "advertising creative, bold marketing campaign visual, professional ad poster",
+    {"key": "ad",     "label": "Werbeanzeige", "frag": "advertising poster, marketing visual",
      "w": 1024, "h": 1024, "logo": False},
-    {"key": "social", "label": "Social-Media-Post",
-     "frag": "instagram social media post, scroll-stopping modern square creative",
+    {"key": "social", "label": "Social-Media-Post", "frag": "instagram post, square creative",
      "w": 1024, "h": 1024, "logo": False},
 ]
 
+# Kurzfassungen für knappe Prompts (Token-Budget 77).
+_STIL_SHORT = {
+    "fotorealistisch": "professional photo, photorealistic, natural light",
+    "modern_clean":    "modern clean commercial style, bright",
+    "cinematisch":     "cinematic, dramatic lighting",
+    "illustrativ":     "flat vector illustration, clean",
+    "minimalistisch":  "minimalist, lots of space",
+}
+_STIMMUNG_SHORT = {
+    "professionell": "professional blue tones, corporate",
+    "warm":          "warm inviting tones",
+    "edel":          "dark elegant premium tones",
+    "frisch":        "fresh natural light tones",
+    "kraftvoll":     "bold strong colors",
+}
+
 
 def build_asset_set(brief: dict) -> list[dict]:
-    """5 Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social) je mit eigenem
-    Prompt + Format. Rückgabe: Liste von {asset, label, prompt, negative_prompt,
-    width, height}."""
-    stil_f     = _STIL.get(brief.get("stil", ""), _STIL["fotorealistisch"])
-    stimmung_f = _STIMMUNG.get(brief.get("stimmung", ""), _STIMMUNG["professionell"])
-    subject    = _branche_kontext(brief.get("branche", ""), brief.get("motiv", ""))
-    text_frag  = ", clean uncluttered area with empty copy space for headline and logo" \
-                 if brief.get("text_platz", True) else ""
+    """5 Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social) je mit eigenem,
+    KURZEM Prompt (≤77 Tokens) + Format."""
+    stil_f     = _STIL_SHORT.get(brief.get("stil", ""), _STIL_SHORT["fotorealistisch"])
+    stimmung_f = _STIMMUNG_SHORT.get(brief.get("stimmung", ""), _STIMMUNG_SHORT["professionell"])
+    subject    = _branche_kontext(brief.get("branche", ""), brief.get("motiv", ""))[:80]
+    cs         = ", copy space for text" if brief.get("text_platz", True) else ""
 
     out: list[dict] = []
     for a in ASSET_TYPES:
         if a.get("logo"):
-            # Logo: kein Foto-Stil, klare Marke, garantiert ohne Text
-            prompt = (f"{a['frag']}, theme: {subject}, {stimmung_f}, "
-                      f"high quality, no text, no words, no letters")
-            neg = _NEGATIV + ", photo, photograph, realistic scene, busy background, cluttered"
+            prompt = f"{a['frag']}, {subject}, {stimmung_f}, no text"
+            neg = _NEGATIV + ", photo, busy background"
         else:
-            prompt = (f"{stil_f}, {a['frag']}, {subject}, {stimmung_f}, "
-                      f"professional marketing image, advertising quality, high resolution, "
-                      f"sharp focus, well composed{text_frag}")
+            prompt = f"{stil_f}, {a['frag']}, {subject}, {stimmung_f}, advertising, high quality{cs}"
             neg = _NEGATIV
         out.append({
             "asset": a["key"], "label": a["label"],

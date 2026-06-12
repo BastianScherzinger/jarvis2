@@ -66,7 +66,9 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event,
         except Exception as e:
             on_lead({"_error": f"AI ({region}/{branche}): {e}"})
 
-        time.sleep(2.0)
+        # Bewusst langsamer: der AI-Worker findet wenig, soll dem Evaluator das
+        # globale Such-Budget (Website-Findung) überlassen.
+        time.sleep(5.0)
 
 
 def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per):
