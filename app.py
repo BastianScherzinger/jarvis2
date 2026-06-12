@@ -55,21 +55,11 @@ def api_stop():
     return jsonify({"ok": True})
 
 
-@app.route("/api/claude", methods=["POST"])
-def api_claude():
-    """Claude ein- oder ausschalten — auch während der Scraper läuft."""
-    body    = request.get_json(silent=True) or {}
-    enabled = bool(body.get("enabled", False))
-    controller.set_claude_enabled(enabled)
-    return jsonify({"ok": True, "claude_enabled": enabled})
-
-
 @app.route("/api/status")
 def api_status():
     return jsonify({
-        "running":        controller.is_running(),
-        "claude_enabled": controller.is_claude_enabled(),
-        "stats":          db.get_stats(),
+        "running": controller.is_running(),
+        "stats":   db.get_stats(),
     })
 
 

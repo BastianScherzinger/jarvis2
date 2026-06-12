@@ -1,6 +1,7 @@
 """
-AI-gestützter Scraper — Ollama und/oder Claude suchen selbstständig nach Leads.
-Ollama generiert Suchanfragen + extrahiert Daten aus Webseiten-Text.
+AI-gestützter Scraper — lokale KI (Ollama) sucht selbstständig im Internet nach Leads.
+Ollama generiert Suchanfragen, recherchiert via DuckDuckGo + extrahiert Daten aus Webseiten-Text.
+Vollständig lokal — kein externer API-Dienst nötig.
 """
 import json
 import os
@@ -46,53 +47,22 @@ def _ask_ollama(prompt: str, system: str = "") -> str:
     return _http.ask_ollama(prompt, system, model=os.environ.get("JARVIS_TOOL_MODEL", ""))
 
 
-def _ask_claude(prompt: str) -> str:
-    try:
-        import anthropic
-        from config import get_api_key
-        key = get_api_key()
-        if not key:
-            return ""
-        client = anthropic.Anthropic(api_key=key)
-        msg    = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text
-    except Exception:
-        return ""
-
-
 # ── Hauptschleife ─────────────────────────────────────────────────────────────
-
-def _is_claude_on() -> bool:
-    return os.environ.get("JARVIS_CLAUDE_ENABLED", "0") == "1"
-
 
 def run_continuous(all_combos: list[tuple], on_lead, stop_event,
                    max_per: int = 12):
     """
-    Langlebiger Thread — prüft bei jeder Iteration ob Claude aktiviert ist.
-    Claude kann jederzeit per API-Aufruf an/abgeschaltet werden.
+    Langlebiger Thread — lokale KI (Ollama) recherchiert eigenständig im Internet
+    (DuckDuckGo) nach Betrieben und extrahiert deren Daten. Vollständig lokal.
     """
     _load_synonyme()
-    turn = 0
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
             break
 
-        # Dynamisch: Claude-Status bei jeder Iteration neu lesen
-        claude_on = _is_claude_on()
-        if claude_on and turn % 2 == 1:
-            ask, finder_key = _ask_claude, "claude_ai"
-        else:
-            ask, finder_key = _ask_ollama, "ollama_ai"
-
-        turn += 1
-
         try:
-            _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per)
+            _run_one_combo(region, branche, on_lead, stop_event,
+                           _ask_ollama, "ollama_ai", max_per)
         except Exception as e:
             on_lead({"_error": f"AI ({region}/{branche}): {e}"})
 

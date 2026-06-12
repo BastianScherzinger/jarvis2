@@ -50,33 +50,14 @@ body::after{
 
 .topbar-center{flex:1;display:flex;align-items:center;justify-content:center}
 
-/* Claude Toggle */
-.claude-toggle{
-  display:flex;align-items:center;gap:8px;
-  padding:6px 14px;border-radius:24px;
-  background:var(--bg3);border:1px solid var(--bdr2);
-  cursor:pointer;transition:all .2s;user-select:none;
+/* Lokal-Badge (ersetzt frühere Claude-Option — System ist vollständig lokal) */
+.local-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 14px;border-radius:24px;
+  background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.35);
+  color:#00e676;font-family:var(--fh);font-size:10px;font-weight:700;
+  letter-spacing:.12em;user-select:none;
 }
-.claude-toggle:hover{border-color:var(--bdr);background:var(--bg4)}
-.claude-toggle.on{border-color:rgba(155,93,229,.5);background:rgba(155,93,229,.08)}
-.ct-icon{font-size:14px;color:var(--tx3);transition:color .2s}
-.claude-toggle.on .ct-icon{color:var(--pu)}
-.ct-label{font-size:12px;font-weight:600;color:var(--tx2);letter-spacing:.04em}
-.claude-toggle.on .ct-label{color:var(--pu)}
-.ct-switch{
-  width:32px;height:18px;border-radius:9px;
-  background:var(--bdr);border:1px solid var(--bdr2);
-  position:relative;transition:background .2s;
-}
-.claude-toggle.on .ct-switch{background:rgba(155,93,229,.4);border-color:var(--pu)}
-.ct-knob{
-  position:absolute;top:2px;left:2px;
-  width:12px;height:12px;border-radius:50%;
-  background:var(--tx3);transition:transform .2s,background .2s;
-}
-.claude-toggle.on .ct-knob{transform:translateX(14px);background:var(--pu)}
-.ct-state{font-family:var(--fh);font-size:9px;letter-spacing:.1em;color:var(--tx3);transition:color .2s}
-.claude-toggle.on .ct-state{color:var(--pu)}
 
 .topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto}
 
@@ -641,15 +622,15 @@ body::after{
 .graph-page {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 20px 28px 48px;
-  max-width: 1300px;
-  margin: 0 auto;
+  gap: 20px;
+  padding: 14px 28px 60px;
+  max-width: 1500px;
+  margin: 52px auto 0;
   width: 100%;
   box-sizing: border-box;
   overflow-y: auto;
   height: calc(100vh - 52px);
-  margin-top: 52px;
+  scroll-snap-type: y proximity;
 }
 
 .graph-controls {
@@ -711,7 +692,7 @@ body::after{
 .gsb-warm  { color: #ffca28; }
 .gsb-cold  { color: #3d82f5; }
 
-.viz-section { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+.viz-section { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; scroll-snap-align: start; }
 .viz-title {
   font-family: 'Orbitron', sans-serif;
   font-size: 11px;
@@ -731,7 +712,9 @@ body::after{
 .graph-wrap {
   position: relative;
   width: 100%;
-  height: 540px;
+  /* Display-groß: füllt nahezu den ganzen Viewport, passt sich automatisch an */
+  height: calc(100vh - 210px);
+  min-height: 420px;
   background: var(--bg2);
   border: 1px solid var(--bdr);
   border-radius: 10px;
@@ -772,11 +755,38 @@ body::after{
   50%      { opacity: 1; text-shadow: 0 0 8px #00e676; }
 }
 
-.bubble-wrap { width:100%; height:400px; background:var(--bg2); border:1px solid var(--bdr); border-radius:10px; overflow:hidden; }
-.bubble-wrap svg { width:100%; height:100%; display:block; }
+/* Balken-Diagramm (umschaltbare Kategorie) */
+.bar-cats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.bar-cat-btn {
+  background: transparent;
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  letter-spacing: .05em;
+  padding: 4px 11px;
+  text-transform: uppercase;
+  transition: border-color .15s, color .15s, box-shadow .15s, background .15s;
+}
+.bar-cat-btn:hover { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,.06); }
+.bar-cat-btn.active { border-color: #00d4ff; color: #00d4ff; box-shadow: 0 0 10px rgba(0,212,255,.3); background: rgba(0,212,255,.08); }
 
-.treemap-wrap { width:100%; height:440px; background:var(--bg2); border:1px solid var(--bdr); border-radius:10px; overflow:hidden; }
-.treemap-wrap svg { width:100%; height:100%; display:block; }
+.bar-wrap {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 8px 0;
+}
+.bar-wrap svg { width: 100%; display: block; }
 
 .graph-tooltip {
   position: fixed;

@@ -82,10 +82,8 @@ def _install_deps() -> None:
 
 
 def _boot_screen(cfg: dict) -> str:
-    """Zeigt Boot-Banner, fragt nach KI-Modus. Gibt gewählten ai_mode zurück."""
-    mode      = cfg.get("JARVIS_AI_MODE", "local").lower()
+    """Zeigt Boot-Banner. System läuft vollständig lokal — keine Modus-Auswahl nötig."""
     local_mdl = cfg.get("JARVIS_TOOL_MODEL") or cfg.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
-    has_key   = bool(cfg.get("ANTHROPIC_KEY") or cfg.get("ANTHROPIC_API_KEY", ""))
 
     W = 54
     print()
@@ -96,44 +94,18 @@ def _boot_screen(cfg: dict) -> str:
     print(f"  {C}║{' '*W}║{R}")
     print(f"  {C}╚{'═'*W}╝{R}")
     print()
-    print(f"  {B}LOKALES MODELL{R}  ›  {GY}{local_mdl}{R}")
-    print(f"  {B}CLAUDE{R}          ›  {(GR+'API-Key vorhanden'+R) if has_key else (YL+'kein API-Key'+R)}")
-    print(f"  {B}PORT{R}            ›  {GY}localhost:5000{R}")
+    print(f"  {GR}⬡ 100% LOKAL{R}   {GY}— alle Leads werden lokal gefunden & bewertet{R}")
     print()
-    print(f"  {GY}{'─'*50}{R}")
-    print(f"  Welche KI soll scrapen?")
-    print()
-
-    opts = [
-        ("1", f"{GR}Lokal{R}  {GY}({local_mdl}){R}",           "local"),
-        ("2", f"{C}Claude{R} {GY}(Anthropic API){R}",           "cloud"),
-        ("3", f"{B}Beides{R} {GY}(Lokal + Claude parallel){R}", "both"),
-    ]
-    for key, label, _ in opts:
-        print(f"    [{C}{key}{R}]  {label}")
-
+    print(f"  {B}LOKALE KI{R}      ›  {GY}{local_mdl}{R}")
+    print(f"  {B}INTERNET{R}       ›  {GR}DuckDuckGo + Google Maps{R}")
+    print(f"  {B}PORT{R}           ›  {GY}localhost:5000{R}")
     print()
     print(f"  {GY}{'─'*50}{R}")
     print()
 
-    try:
-        ch = input(f"  {C}›{R}  Auswahl (1/2/3, Enter = Lokal): ").strip()
-    except (EOFError, KeyboardInterrupt):
-        ch = ""
-
-    chosen = "local"
-    for key, _, val in opts:
-        if ch == key:
-            chosen = val
-            break
-
-    _set_env("JARVIS_AI_MODE", chosen)
-    os.environ["JARVIS_AI_MODE"] = chosen
-
-    labels = {"local": f"{GR}Lokal{R}", "cloud": f"{C}Claude{R}", "both": f"{B}Lokal + Claude{R}"}
-    print(f"\n  KI-Modus: {labels[chosen]}  {GY}— starte Server...{R}")
-    print()
-    return chosen
+    _set_env("JARVIS_AI_MODE", "local")
+    os.environ["JARVIS_AI_MODE"] = "local"
+    return "local"
 
 
 def main():

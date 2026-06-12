@@ -374,11 +374,7 @@ function _startAutoRefresh() {
       _updateDOM();
       _updateStatBar();
       _updateLegend();
-      // Bubble + Treemap alle 15s updaten (nicht bei jedem 3s-Tick)
-      if (_gNodes.length % 5 === 0) {
-        renderBubble(_gNodes);
-        renderTreemap();
-      }
+      renderBarChart();
     }
   }, G_REFRESH_MS);
 }
@@ -401,8 +397,7 @@ async function initGraph() {
   _updateDOM();
   _updateStatBar();
   _updateLegend();
-  renderBubble(_gNodes);
-  await renderTreemap();
+  renderBarChart();
   _startAutoRefresh();
 }
 
@@ -412,8 +407,7 @@ async function refreshGraph() {
   _updateDOM();
   _updateStatBar();
   _updateLegend();
-  renderBubble(_gNodes);
-  await renderTreemap();
+  renderBarChart();
 }
 
 function setGrouping(g) {
@@ -467,127 +461,118 @@ function graphOnNewLead(lead) {
   _updateStatBar();
 }
 
-// ── VIZ 2: Bubble-Chart (wie vorher, minimal überarbeitet) ────────────────
-function renderBubble(nodes) {
-  const wrap = document.getElementById('bubble-wrap');
-  if (!wrap) return;
-  const W = wrap.clientWidth || 900;
-  const H = 400;
-  const M = {top:24, right:28, bottom:48, left:58};
-  const iW = W-M.left-M.right, iH = H-M.top-M.bottom;
+// ── VIZ 2: Balken-Diagramm (umschaltbare Kategorie) ───────────────────────
+let _barCat = 'branche';   // branche | bundesland | stadt | lead_typ
 
-  d3.select('#bubble-svg').selectAll('*').remove();
-  const svg = d3.select('#bubble-svg').attr('width',W).attr('height',H);
-  const g   = svg.append('g').attr('transform',`translate(${M.left},${M.top})`);
-
-  const vis = nodes.filter(_isVisible);
-  if (!vis.length) return;
-
-  const xMax = Math.max(1000, d3.max(vis, d => d.potenzial_euro||500));
-  const x = d3.scaleLinear().domain([0,xMax]).range([0,iW]);
-  const y = d3.scaleLinear().domain([0,100]).range([iH,0]);
-  const rS = d3.scaleSqrt().domain([0, d3.max(vis, d => d.anz_bewertungen||5)||5]).range([4,20]);
-
-  g.append('g').attr('transform',`translate(0,${iH})`).call(d3.axisBottom(x).tickSize(-iH).ticks(5).tickFormat(v => v>=1000?(v/1000)+'k€':v+'€')).call(gg=>{
-    gg.selectAll('line').attr('stroke','rgba(0,212,255,.06)').attr('stroke-dasharray','2');
-    gg.select('.domain').remove();
-    gg.selectAll('text').attr('fill','#4a6080').attr('font-size','10');
-  });
-  g.append('g').call(d3.axisLeft(y).tickSize(-iW).ticks(5)).call(gg=>{
-    gg.selectAll('line').attr('stroke','rgba(0,212,255,.06)').attr('stroke-dasharray','2');
-    gg.select('.domain').remove();
-    gg.selectAll('text').attr('fill','#4a6080').attr('font-size','10');
-  });
-
-  g.append('text').attr('x',iW/2).attr('y',iH+40).attr('text-anchor','middle').attr('fill','#4a6080').attr('font-size','11').text('Potenzial (€)');
-  g.append('text').attr('transform','rotate(-90)').attr('x',-iH/2).attr('y',-42).attr('text-anchor','middle').attr('fill','#4a6080').attr('font-size','11').text('Score');
-
-  const tip = document.getElementById('graph-tooltip');
-  g.selectAll('circle').data(vis).join('circle')
-    .attr('cx', d => x(d.potenzial_euro||500))
-    .attr('cy', d => y(d.score||0))
-    .attr('r',  d => rS(d.anz_bewertungen||1))
-    .attr('fill', d => _nodeColor(d))
-    .attr('fill-opacity', 0.6)
-    .attr('stroke', d => _nodeColor(d))
-    .attr('stroke-width', 0.8)
-    .attr('cursor','pointer')
-    .on('mouseover', (e,d) => {
-      tip.innerHTML = `<div class="gt-name">${_esc(d.name)}</div>
-        <div class="gt-row"><span class="gt-k">Potenzial</span><span style="color:#ffca28">${(d.potenzial_euro||0).toLocaleString('de-DE')} €</span></div>
-        <div class="gt-row"><span class="gt-k">Score</span><span class="gt-score-${d.lead_typ}">${d.score}</span></div>
-        <div class="gt-row"><span class="gt-k">${_gGrouping.charAt(0).toUpperCase()+_gGrouping.slice(1)}</span><span>${_esc(d[_gGrouping]||'—')}</span></div>`;
-      tip.style.display='block'; _moveTip(e);
-    })
-    .on('mousemove', _moveTip)
-    .on('mouseout', _hideTip)
-    .on('click', (e,d)=>{ if(typeof openModal==='function') openModal(d); });
+function setBarCategory(cat) {
+  _barCat = cat;
+  document.querySelectorAll('.bar-cat-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.cat === cat));
+  renderBarChart();
 }
 
-// ── VIZ 3: Treemap (wie vorher, minimal überarbeitet) ─────────────────────
-async function renderTreemap() {
-  const wrap = document.getElementById('treemap-wrap');
+function _barKey(d) {
+  if (_barCat === 'bundesland') return d.bundesland || 'Unbekannt';
+  if (_barCat === 'stadt')      return d.stadt || 'Unbekannt';
+  if (_barCat === 'lead_typ')   return d.lead_typ || 'Cold';
+  return d.branche || 'Sonstiges';
+}
+
+function renderBarChart() {
+  const wrap = document.getElementById('bar-wrap');
   if (!wrap) return;
-  const W = wrap.clientWidth||900, H = 440;
+  const W = wrap.clientWidth || 900;
 
-  let stats = null;
-  try {
-    const r = await fetch('/api/graph/stats');
-    stats = await r.json();
-  } catch(e) {}
+  const vis = _gNodes.filter(_isVisible);
 
-  if (!stats || !Object.keys(stats).length) {
-    stats = {};
-    _gNodes.forEach(d => {
-      const bl=d.bundesland||'Unbekannt', br=d.branche||'Sonstiges', lt=d.lead_typ||'Cold';
-      if(!stats[bl]) stats[bl]={};
-      if(!stats[bl][br]) stats[bl][br]={Hot:0,Warm:0,Cold:0};
-      stats[bl][br][lt]++;
+  // Aggregieren nach gewählter Kategorie, gestapelt nach Lead-Typ
+  const agg = {};
+  vis.forEach(d => {
+    const k = _barKey(d);
+    if (!agg[k]) agg[k] = { key: k, total: 0, Hot: 0, Warm: 0, Cold: 0 };
+    agg[k].total++;
+    agg[k][d.lead_typ || 'Cold']++;
+  });
+
+  const rows = Object.values(agg).sort((a, b) => b.total - a.total).slice(0, 15);
+
+  const M = { top: 8, right: 56, bottom: 26, left: 140 };
+  const rowH = 28;
+  const innerH = Math.max(rowH, rows.length * rowH);
+  const H = innerH + M.top + M.bottom;
+  const iW = Math.max(120, W - M.left - M.right);
+
+  d3.select('#bar-svg').selectAll('*').remove();
+  const svg = d3.select('#bar-svg').attr('width', W).attr('height', H);
+
+  if (!rows.length) {
+    svg.append('text').attr('x', W / 2).attr('y', 60).attr('text-anchor', 'middle')
+      .attr('fill', '#4a6080').attr('font-size', '13').text('Noch keine Daten — Scraper starten');
+    return;
+  }
+
+  const g = svg.append('g').attr('transform', `translate(${M.left},${M.top})`);
+  const maxV = d3.max(rows, d => d.total) || 1;
+  const x = d3.scaleLinear().domain([0, maxV]).range([0, iW]);
+  const y = d3.scaleBand().domain(rows.map(d => d.key)).range([0, innerH]).padding(0.22);
+
+  // X-Gitter
+  g.append('g').attr('transform', `translate(0,${innerH})`)
+    .call(d3.axisBottom(x).ticks(5).tickSize(-innerH))
+    .call(gg => {
+      gg.selectAll('line').attr('stroke', 'rgba(0,212,255,.06)').attr('stroke-dasharray', '2');
+      gg.select('.domain').remove();
+      gg.selectAll('text').attr('fill', '#4a6080').attr('font-size', '10');
     });
-  }
 
-  const root_data = {name:'DE', children:[]};
-  for(const [bl,brs] of Object.entries(stats)) {
-    const bl_n = {name:bl, children:[]};
-    for(const [br,types] of Object.entries(brs)) {
-      const total=(types.Hot||0)+(types.Warm||0)+(types.Cold||0);
-      if(total>0) bl_n.children.push({name:br, value:total, hot:types.Hot||0, warm:types.Warm||0, cold:types.Cold||0});
-    }
-    if(bl_n.children.length) root_data.children.push(bl_n);
-  }
-
-  d3.select('#treemap-svg').selectAll('*').remove();
-  if(!root_data.children.length) return;
-
-  const svg = d3.select('#treemap-svg').attr('width',W).attr('height',H);
-  const hier = d3.hierarchy(root_data).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-  d3.treemap().size([W,H]).paddingOuter(3).paddingInner(2).round(true)(hier);
+  // Kategorie-Labels (links)
+  g.append('g').call(d3.axisLeft(y).tickSize(0))
+    .call(gg => {
+      gg.select('.domain').remove();
+      gg.selectAll('text').attr('fill', '#c0d0e0').attr('font-size', '11')
+        .text(t => t.length > 19 ? t.slice(0, 18) + '…' : t);
+    });
 
   const tip = document.getElementById('graph-tooltip');
-  const leaf = svg.selectAll('g').data(hier.leaves()).join('g')
-    .attr('transform', d=>`translate(${d.x0},${d.y0})`);
+  const TYPES = ['Hot', 'Warm', 'Cold'];
 
-  leaf.append('rect')
-    .attr('width',  d=>Math.max(0,d.x1-d.x0))
-    .attr('height', d=>Math.max(0,d.y1-d.y0))
-    .attr('fill',   d=>{ const r=d.data.hot/(d.data.value||1); return r>0.4?'#ff3b50':r>0.15?'#ffca28':_getColor(d.data.name); })
-    .attr('fill-opacity', 0.7)
-    .attr('stroke','#0a1628').attr('stroke-width',0.5).attr('cursor','pointer')
-    .on('mouseover',(e,d)=>{
-      tip.innerHTML=`<div class="gt-name">${_esc(d.data.name)}</div>
-        <div class="gt-row"><span class="gt-k">Bundesland</span><span>${_esc(d.parent?.data?.name||'')}</span></div>
-        <div class="gt-row"><span class="gt-k">Gesamt</span><span>${d.data.value}</span></div>
-        <div class="gt-row" style="color:#ff3b50"><span class="gt-k">Hot</span><span>${d.data.hot}</span></div>
-        <div class="gt-row" style="color:#ffca28"><span class="gt-k">Warm</span><span>${d.data.warm}</span></div>
-        <div class="gt-row" style="color:#3d82f5"><span class="gt-k">Cold</span><span>${d.data.cold}</span></div>`;
-      tip.style.display='block'; _moveTip(e);
-    })
-    .on('mousemove',_moveTip).on('mouseout',_hideTip);
+  rows.forEach(row => {
+    let xOff = 0;
+    TYPES.forEach(t => {
+      const v = row[t] || 0;
+      if (v <= 0) return;
+      g.append('rect')
+        .attr('x', x(xOff))
+        .attr('y', y(row.key))
+        .attr('height', y.bandwidth())
+        .attr('width', 0)
+        .attr('fill', TYPE_COLOR[t])
+        .attr('fill-opacity', 0.85)
+        .attr('rx', 2)
+        .style('cursor', 'pointer')
+        .on('mouseover', (e) => {
+          tip.innerHTML = `<div class="gt-name">${_esc(row.key)}</div>
+            <div class="gt-row"><span class="gt-k">Gesamt</span><span>${row.total}</span></div>
+            <div class="gt-row" style="color:#ff3b50"><span class="gt-k">Hot</span><span>${row.Hot}</span></div>
+            <div class="gt-row" style="color:#ffca28"><span class="gt-k">Warm</span><span>${row.Warm}</span></div>
+            <div class="gt-row" style="color:#3d82f5"><span class="gt-k">Cold</span><span>${row.Cold}</span></div>`;
+          tip.style.display = 'block'; _moveTip(e);
+        })
+        .on('mousemove', _moveTip)
+        .on('mouseout', _hideTip)
+        .transition().duration(450)
+        .attr('width', Math.max(0, x(v)));
+      xOff += v;
+    });
 
-  leaf.filter(d=>(d.x1-d.x0)>50&&(d.y1-d.y0)>22).append('text')
-    .attr('x',5).attr('y',14).attr('font-size','9px').attr('fill','#e0f4ff')
-    .text(d=>d.data.name.substring(0,15));
-  leaf.filter(d=>(d.x1-d.x0)>36&&(d.y1-d.y0)>34).append('text')
-    .attr('x',5).attr('y',25).attr('font-size','8px').attr('fill','rgba(224,244,255,.55)')
-    .text(d=>d.data.value+' Leads');
+    // Gesamt-Zahl am Balken-Ende
+    g.append('text')
+      .attr('x', x(row.total) + 6)
+      .attr('y', y(row.key) + y.bandwidth() / 2)
+      .attr('dy', '.35em')
+      .attr('font-size', '11px')
+      .attr('fill', '#e0f4ff')
+      .attr('font-family', 'JetBrains Mono, monospace')
+      .text(row.total);
+  });
 }

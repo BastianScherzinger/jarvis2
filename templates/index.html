@@ -29,19 +29,11 @@
   </nav>
 
   <div class="topbar-center">
-    <!-- Claude Toggle -->
-    <div class="claude-toggle" id="claude-toggle" onclick="toggleClaude()">
-      <span class="ct-icon">✦</span>
-      <span class="ct-label">Claude</span>
-      <div class="ct-switch" id="ct-switch">
-        <div class="ct-knob"></div>
-      </div>
-      <span class="ct-state" id="ct-state">OFF</span>
-    </div>
+    <span class="local-badge" title="Vollständig lokal — kein Cloud-Dienst">⬡ 100% LOKAL</span>
 
-    <!-- Verifier-Modell -->
-    <select class="verifier-select" id="verifier-model" onchange="setVerifierModel()" title="Verifier-Modell">
-      <option value="">Verifier: ...</option>
+    <!-- KI-Modell (lokal, Ollama) -->
+    <select class="verifier-select" id="verifier-model" onchange="setVerifierModel()" title="Lokales KI-Modell (Ollama)">
+      <option value="">KI-Modell: ...</option>
     </select>
   </div>
 
@@ -240,20 +232,19 @@
     </div>
   </div>
 
-  <!-- VIZ 2: Bubble-Chart -->
+  <!-- VIZ 2: Balken-Diagramm (umschaltbar) -->
   <div class="viz-section">
-    <div class="viz-title">Potenzial × Score
-      <span class="viz-sub">Blasengröße = Bewertungsanzahl · Farbe = aktive Gruppierung</span>
+    <div class="viz-title">Verteilung
+      <span class="viz-sub">Gestapelt nach Hot / Warm / Cold · Kategorie umschaltbar</span>
     </div>
-    <div class="bubble-wrap" id="bubble-wrap"><svg id="bubble-svg"></svg></div>
-  </div>
-
-  <!-- VIZ 3: Treemap -->
-  <div class="viz-section">
-    <div class="viz-title">Lead-Verteilung
-      <span class="viz-sub">Fläche = Anzahl Leads · Bundesland › Branche › Hot-Anteil = Röte</span>
+    <div class="bar-cats">
+      <span class="gc-label">Kategorie:</span>
+      <button class="bar-cat-btn active" data-cat="branche"    onclick="setBarCategory('branche')">Branche</button>
+      <button class="bar-cat-btn"        data-cat="bundesland" onclick="setBarCategory('bundesland')">Bundesland</button>
+      <button class="bar-cat-btn"        data-cat="stadt"      onclick="setBarCategory('stadt')">Stadt</button>
+      <button class="bar-cat-btn"        data-cat="lead_typ"   onclick="setBarCategory('lead_typ')">Typ</button>
     </div>
-    <div class="treemap-wrap" id="treemap-wrap"><svg id="treemap-svg"></svg></div>
+    <div class="bar-wrap" id="bar-wrap"><svg id="bar-svg"></svg></div>
   </div>
 
 </main>

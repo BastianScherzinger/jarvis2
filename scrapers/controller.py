@@ -1,6 +1,6 @@
 """
-Scraper-Controller — 4 unabhängige Worker laufen parallel.
-Claude kann jederzeit per set_claude_enabled() an/abgeschaltet werden.
+Scraper-Controller — 6 unabhängige Worker laufen parallel.
+Vollständig lokal: Scraper + lokale KI (Ollama) finden und bewerten alle Leads.
 """
 import os
 import queue
@@ -20,27 +20,15 @@ import logger
 _lead_queue     = queue.Queue()
 _stop_event     = threading.Event()
 _active         = False
-_claude_enabled = False   # aus/an per API-Aufruf
 
 
 def get_queue()        -> queue.Queue: return _lead_queue
 def is_running()       -> bool:        return _active
-def is_claude_enabled()-> bool:        return _claude_enabled
-
-def get_ai_mode() -> str:
-    return "both" if _claude_enabled else "local"
 
 
 def get_combo_count() -> int:
     """Anzahl aller Stadt×Branche-Kombinationen (Deutschland-weit)."""
     return len(ALLE_REGIONEN) * len(BRANCHEN)
-
-
-def set_claude_enabled(enabled: bool) -> None:
-    global _claude_enabled
-    _claude_enabled = enabled
-    # Umgebungsvariable setzen — ai_worker liest diese dynamisch
-    os.environ["JARVIS_CLAUDE_ENABLED"] = "1" if enabled else "0"
 
 
 def set_verifier_model(model: str) -> None:
@@ -91,7 +79,7 @@ def start() -> None:
     # Worker 5: golocal (versetzt 12s)
     _spawn("Golocal",      golocal.run_continuous,       c5, delay=12, max_per=20)
 
-    # Worker 6: AI (Ollama + optional Claude, versetzt 15s)
+    # Worker 6: Lokale KI (Ollama, recherchiert via DuckDuckGo, versetzt 15s)
     _spawn("AI",           ai_worker.run_continuous,     c6, delay=15, max_per=8)
 
     # Verifier: prüft gefundene Leads per lokaler KI nach (eigene Thread-Gruppe)

@@ -3,7 +3,6 @@
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _running       = false;
-let _claudeOn      = false;
 let _sse           = null;
 let _feedCount     = 0;
 let _allLeads      = [];   // Session-Cache für Sphere + Filter
@@ -16,8 +15,7 @@ const F = {
   dasoertliche:    { cls:'oert',   av:'DÖ', lbl:'Das Örtliche',  icon:'📘',  sub:'HTTP'},
   elfacht:         { cls:'elf',    av:'11', lbl:'11880',         icon:'📞',  sub:'HTTP'},
   golocal:         { cls:'glc',    av:'GL', lbl:'golocal',       icon:'⭐',  sub:'HTTP'},
-  ollama_ai:       { cls:'ollama', av:'AI', lbl:'Ollama KI',     icon:'🤖',  sub:'Lokal'},
-  claude_ai:       { cls:'claude', av:'✦',  lbl:'Claude KI',     icon:'✦',   sub:'Anthropic'},
+  ollama_ai:       { cls:'ollama', av:'AI', lbl:'Lokale KI',     icon:'🤖',  sub:'Ollama'},
 };
 function fi(key){ return F[key] || {cls:'maps',av:'?',lbl:key||'?',icon:'?',sub:''}; }
 
@@ -111,19 +109,6 @@ let _sphere = null;
   _sphere = { addPoint };
 })();
 
-// ── Claude Toggle ─────────────────────────────────────────────────────────────
-async function toggleClaude(){
-  _claudeOn = !_claudeOn;
-  const tog = document.getElementById('claude-toggle');
-  const sw  = document.getElementById('ct-state');
-  tog.classList.toggle('on', _claudeOn);
-  sw.textContent = _claudeOn ? 'ON' : 'OFF';
-  await fetch('/api/claude',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({enabled: _claudeOn}),
-  });
-}
-
 // ── Start / Stop ──────────────────────────────────────────────────────────────
 function toggleScraper(){ _running ? stopScraper() : startScraper(); }
 
@@ -199,7 +184,7 @@ function _renderChart(finders){
   const el  = document.getElementById('source-chart');
   if(!el) return;
   const max = Math.max(1, ...Object.values(finders));
-  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','elfacht','golocal','ollama_ai','claude_ai'];
+  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','elfacht','golocal','ollama_ai'];
   const rows  = ORDER.filter(k => finders[k] > 0).map(k => {
     const f   = fi(k);
     const cnt = finders[k] || 0;
@@ -644,11 +629,6 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
     const d=await(await fetch('/api/status')).json();
     if(d.stats) _applyStats(d.stats);
     if(d.running){_running=true;_setUI(true);_connectSSE();}
-    if(d.claude_enabled){
-      _claudeOn=true;
-      document.getElementById('claude-toggle').classList.add('on');
-      document.getElementById('ct-state').textContent='ON';
-    }
   }catch{}
   loadTop();
   loadVerifierModel();
