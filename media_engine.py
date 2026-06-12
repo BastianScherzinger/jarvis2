@@ -163,12 +163,28 @@ def _load_image_pipe(model_key: str):
         raise
     pipe = pipe.to(dev)
 
-    # Speicher sparen auf schwacher Hardware
+    # Schnellerer Scheduler (DPM++ 2M Karras): gleiche Qualität bei ~20-25 Steps
+    # statt 30-50 → deutlich schneller, besonders auf GPU.
+    try:
+        from diffusers import DPMSolverMultistepScheduler
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipe.scheduler.config, use_karras_sigmas=True, algorithm_type="dpmsolver++"
+        )
+    except Exception:
+        pass
+
     if dev == "cpu":
         try: pipe.enable_attention_slicing()
         except Exception: pass
     elif dev == "cuda":
+        # GPU-Optimierung: schnellere Faltungen + speichereffiziente Attention
+        try:
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+        except Exception: pass
         try: pipe.enable_xformers_memory_efficient_attention()
+        except Exception: pass
+        try: pipe.enable_vae_slicing()
         except Exception: pass
 
     _cache[model_key] = pipe

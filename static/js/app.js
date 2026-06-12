@@ -762,12 +762,9 @@ async function generateImageSet(){
     betrieb:    (document.getElementById('af-betrieb').value || '').trim(),
     branche:    (document.getElementById('af-branche').value || '').trim(),
     motiv:      (document.getElementById('af-motiv').value || '').trim(),
-    verwendung: document.getElementById('af-verwendung').value,
     stil:       document.getElementById('af-stil').value,
     stimmung:   document.getElementById('af-stimmung').value,
-    format:     document.getElementById('af-format').value,
     text_platz: document.getElementById('af-textplatz').checked,
-    count:      parseInt(document.getElementById('af-count').value || '10'),
     model_key:  document.getElementById('img-model').value || '',
   };
   if(!brief.betrieb && !brief.branche && !brief.motiv){
@@ -808,27 +805,29 @@ function _pollSet(jobId, total){
     try{ job = await(await fetch('/api/media/job/' + jobId)).json(); }
     catch{ return; }
     const done = job.done_count || 0;
-    const tot  = job.total || total || 10;
+    const tot  = job.total || total || 5;
     elapsed += 2;
 
-    // Bereits fertige Bilder des Sets live anzeigen
-    const urls = job.result_urls || [];
-    const grid = document.getElementById('set-grid');
-    if(grid && urls.length){
-      grid.innerHTML = urls.map(u => `<div class="media-card" onclick="openMediaFull('${_e(u)}','image')">
-          <img src="${_e(u)}" loading="lazy"/></div>`).join('');
+    // Bereits fertige Assets des Sets live anzeigen — mit Label (Logo, Hero…)
+    const items = job.result_items || (job.result_urls || []).map(u => ({label:'', url:u}));
+    const grid  = document.getElementById('set-grid');
+    if(grid && items.length){
+      grid.innerHTML = items.map(it => `<div class="media-card asset-card" onclick="openMediaFull('${_e(it.url)}','image')">
+          <img src="${_e(it.url)}" loading="lazy"/>
+          ${it.label ? `<div class="asset-label">${_e(it.label)}</div>` : ''}
+        </div>`).join('');
     }
 
     if(job.status === 'running' || job.status === 'queued'){
       statusEl.classList.add('running'); statusEl.classList.remove('err');
       statusEl.innerHTML = `<div class="jc-row"><span class="jc-spin"></span>
-        <span>Generiere Foto-Set… <b>${done}/${tot}</b> Bilder · ${Math.round(elapsed)}s</span></div>
+        <span>Generiere Assets… <b>${done}/${tot}</b> · ${Math.round(elapsed)}s</span></div>
         <div class="jc-bar"><div class="jc-fill" style="width:${Math.round(done/tot*100)}%"></div></div>`;
     }else if(job.status === 'done'){
       clearInterval(_activePolls['img']); _activePolls['img'] = null;
       statusEl.classList.remove('running');
       statusEl.innerHTML = `<div class="jc-row"><span class="jc-ok">✓</span>
-        <span>Foto-Set fertig — ${urls.length} Bilder in ${job.elapsed||0}s</span></div>`;
+        <span>Asset-Set fertig — ${items.length} Bilder in ${job.elapsed||0}s</span></div>`;
       loadGallery();
       setTimeout(() => { statusEl.style.display = 'none'; }, 6000);
     }else if(job.status === 'error'){

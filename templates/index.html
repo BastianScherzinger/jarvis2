@@ -159,8 +159,8 @@
 <!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
 <main class="media-page page" data-page="images">
   <div class="media-head">
-    <div class="media-title">Werbe-Foto-Set generieren</div>
-    <div class="media-sub">10 lokale Bilder für Website-Kampagne oder Social-Media — als Werbung & Vorschau</div>
+    <div class="media-title">Werbe-Asset-Set generieren</div>
+    <div class="media-sub">5 Assets pro Erstellung: Logo · Website-Hero-Banner · Flyer · Werbeanzeige · Social-Media-Post</div>
   </div>
 
   <div class="adform">
@@ -190,15 +190,6 @@
 
     <div class="af-grid3">
       <div class="af-field">
-        <label class="af-lbl">Verwendung</label>
-        <select id="af-verwendung" class="flt">
-          <option value="social_post">Social-Media-Post</option>
-          <option value="website_hero">Website-Hero / Banner</option>
-          <option value="werbeanzeige">Werbeanzeige</option>
-          <option value="flyer">Flyer</option>
-        </select>
-      </div>
-      <div class="af-field">
         <label class="af-lbl">Bildstil</label>
         <select id="af-stil" class="flt">
           <option value="fotorealistisch">Fotorealistisch</option>
@@ -218,37 +209,18 @@
           <option value="kraftvoll">Kraftvoll & auffällig</option>
         </select>
       </div>
-    </div>
-
-    <div class="af-grid3">
-      <div class="af-field">
-        <label class="af-lbl">Format</label>
-        <select id="af-format" class="flt">
-          <option value="quadrat">Quadrat 1:1 (Instagram)</option>
-          <option value="quer">Querformat 16:9 (Website)</option>
-          <option value="hoch">Hochformat 9:16 (Stories)</option>
-        </select>
-      </div>
       <div class="af-field">
         <label class="af-lbl">KI-Modell</label>
         <select id="img-model" class="flt"></select>
-      </div>
-      <div class="af-field">
-        <label class="af-lbl">Anzahl Bilder</label>
-        <select id="af-count" class="flt">
-          <option value="10" selected>10 Bilder</option>
-          <option value="6">6 Bilder</option>
-          <option value="4">4 Bilder</option>
-        </select>
       </div>
     </div>
 
     <label class="af-check">
       <input type="checkbox" id="af-textplatz" checked>
-      <span>Platz für Text/Logo freihalten (empfohlen für Werbung)</span>
+      <span>Platz für Text/Logo freihalten (empfohlen — KI rendert keinen lesbaren Text)</span>
     </label>
 
-    <button class="start-btn af-gen" id="img-gen-btn" onclick="generateImageSet()">⚡ Werbe-Foto-Set generieren</button>
+    <button class="start-btn af-gen" id="img-gen-btn" onclick="generateImageSet()">⚡ 5 Werbe-Assets generieren</button>
     <div class="af-hint" id="af-hint"></div>
   </div>
 

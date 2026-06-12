@@ -26,6 +26,24 @@ def _pip(*args) -> bool:
     ).returncode == 0
 
 
+def _pip_cuda(*pkgs) -> bool:
+    """Installiert Pakete vom PyTorch-CUDA-Index (GPU-Build von torch)."""
+    return subprocess.run(
+        [sys.executable, "-m", "pip", "install", *pkgs,
+         "--index-url", "https://download.pytorch.org/whl/cu121", "--quiet"],
+        capture_output=True,
+    ).returncode == 0
+
+
+def _torch_is_cpu_only() -> bool:
+    """True wenn torch installiert ist aber OHNE CUDA-Unterstützung."""
+    r = subprocess.run(
+        [sys.executable, "-c", "import torch,sys; sys.exit(0 if torch.version.cuda else 1)"],
+        capture_output=True,
+    )
+    return r.returncode != 0
+
+
 def _can_import(module: str) -> bool:
     return subprocess.run(
         [sys.executable, "-c", f"import {module}"],
@@ -397,6 +415,16 @@ def run(quiet: bool = False) -> bool:
     # ── Media KI — Bild & Video Generierung ─────────────────────────
     _section("Media KI", "Hugging Face Diffusers — Bild & Video lokal")
 
+    # NVIDIA-GPU erkennen → CUDA-torch statt CPU-torch (50-100x schneller)
+    try:
+        import hardware as _hw_m
+        _gpu_name, _vram = _hw_m.gpu_info()
+    except Exception:
+        _gpu_name, _vram = "", 0.0
+    _has_nvidia = bool(_gpu_name)
+    if _has_nvidia:
+        print(f"  {GR}GPU erkannt:{R} {GY}{_gpu_name} ({_vram:.0f} GB) — nutze CUDA-Beschleunigung{R}")
+
     _diffusers_ok = _can_import("diffusers") and _can_import("torch")
 
     if not _diffusers_ok:
@@ -407,7 +435,8 @@ def run(quiet: bool = False) -> bool:
             _media_install = "n"
         if _media_install in ("j", "ja", "y", "yes"):
             _installing("torch + torchvision + diffusers + transformers + accelerate")
-            _t_ok = _pip("torch", "torchvision")
+            # Auf NVIDIA-GPU den CUDA-Build von torch installieren
+            _t_ok = _pip_cuda("torch", "torchvision") if _has_nvidia else _pip("torch", "torchvision")
             _d_ok = _pip("diffusers", "transformers", "accelerate", "sentencepiece")
             if _t_ok and _d_ok:
                 print(f"\r  {GR}OK{R}  Media-KI-Pakete installiert            ")
@@ -422,11 +451,21 @@ def run(quiet: bool = False) -> bool:
     # kommen nur Warnungen + PIL-Fallback. Läuft auch über update.py automatisch.
     if _can_import("torch") and not _can_import("torchvision"):
         print(f"  {GY}torchvision fehlt — installiere automatisch (behebt CLIP/Siglip-Warnungen)…{R}")
-        if _pip("torchvision"):
+        if (_pip_cuda("torchvision") if _has_nvidia else _pip("torchvision")):
             _ok("torchvision installiert")
             _diffusers_ok = _can_import("diffusers") and _can_import("torch")
         else:
             _warn("torchvision-Install fehlgeschlagen", "manuell: pip install torchvision")
+
+    # CPU-only torch trotz NVIDIA-GPU → CUDA-Build nachziehen (riesiger Speed-Gewinn).
+    # Einmalig: sobald CUDA-torch aktiv ist, ist die Bedingung False. Läuft via update.py.
+    if _has_nvidia and _can_import("torch") and _torch_is_cpu_only():
+        print(f"  {GY}torch ist nur CPU — installiere CUDA-Build für die GPU (einmalig, ~2.5 GB)…{R}")
+        if _pip_cuda("torch", "torchvision"):
+            _ok("CUDA-torch installiert", "GPU-Beschleunigung aktiv")
+        else:
+            _warn("CUDA-torch-Install fehlgeschlagen",
+                  "manuell: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
 
     if _diffusers_ok:
         import re as _re_m

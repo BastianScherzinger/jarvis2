@@ -45,9 +45,11 @@ def submit(kind: str, params: dict) -> str:
         "model":       params.get("model_key") or params.get("hf_model") or params.get("model") or "",
         "progress":    0,
         "result_url":  "",
-        "result_urls": [],                       # Foto-Set: alle bisher fertigen Bilder
+        "result_urls": [],                       # alle bisher fertigen Bild-URLs
+        "result_items": [],                      # Asset-Set: [{label, url, asset}]
         "done_count":  0,
-        "total":       int(params.get("count", 1)) if kind == "image_set" else 1,
+        "total":       (len(params.get("assets") or []) if kind == "asset_set"
+                        else int(params.get("count", 1)) if kind == "image_set" else 1),
         "summary":     params.get("summary", ""),
         "error":       "",
         "lead_id":     params.get("lead_id"),
@@ -104,6 +106,41 @@ def _worker() -> None:
 
         try:
             import media_engine  # lazy import
+
+            if kind == "asset_set":
+                # 5 feste Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social),
+                # jedes mit eigenem Prompt + Format. Seriell, Fortschritt live.
+                assets = params.get("assets") or []
+                tot    = len(assets) or 1
+                urls, items = [], []
+                for i, a in enumerate(assets):
+                    res = media_engine.generate_image(
+                        a.get("prompt", ""),
+                        params.get("model_key") or None,
+                        negative_prompt=a.get("negative_prompt")
+                            or "blurry, low quality, watermark, text, deformed",
+                        steps=int(params.get("steps", 24)),
+                        width=a.get("width"),
+                        height=a.get("height"),
+                    )
+                    u = res.get("web_url", "")
+                    if u:
+                        urls.append(u)
+                        items.append({"label": a.get("label", ""), "url": u, "asset": a.get("asset", "")})
+                    _set(
+                        job_id, status="running",
+                        done_count=len(urls), total=tot,
+                        progress=int((i + 1) / tot * 100),
+                        result_urls=list(urls), result_items=list(items),
+                        result_url=urls[0] if urls else "",
+                        elapsed=round(time.time() - t0, 1),
+                    )
+                if not urls:
+                    raise RuntimeError("Keine Assets erzeugt")
+                _set(job_id, status="done", progress=100,
+                     result_urls=list(urls), result_items=list(items),
+                     result_url=urls[0], elapsed=round(time.time() - t0, 1))
+                continue
 
             if kind == "image_set":
                 # Werbe-Foto-Set: N Bilder seriell, jedes ist eine eigene Variation

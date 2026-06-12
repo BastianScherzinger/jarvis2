@@ -630,6 +630,15 @@ body::after{
 .jc-bar{ height:5px; background:var(--bg4); border-radius:3px; overflow:hidden; margin-top:8px; }
 .jc-fill{ height:100%; background:linear-gradient(90deg,var(--c),var(--g)); border-radius:3px; transition:width .4s; }
 
+/* Asset-Karte mit Label (Logo, Hero, Flyer…) */
+.asset-card{ position:relative; }
+.asset-label{
+  position:absolute; left:0; right:0; bottom:0;
+  background:linear-gradient(transparent, rgba(5,8,13,.92));
+  color:var(--c); font-family:var(--fh); font-size:9px; letter-spacing:.1em;
+  text-transform:uppercase; padding:14px 8px 6px; text-align:center;
+}
+
 /* Aktuelles Set */
 .set-result{ margin-top:18px; }
 .set-result-head, .media-gallery-head{
