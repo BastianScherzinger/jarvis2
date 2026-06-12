@@ -417,12 +417,14 @@ def run(quiet: bool = False) -> bool:
         else:
             _warn("Media-KI übersprungen", "manuell: pip install torch torchvision diffusers transformers accelerate")
 
-    # torchvision separat nachinstallieren: transformers nutzt es für die
-    # Bild-Prozessoren (CLIP/Siglip). Fehlt es, kommen nur Warnungen + PIL-Fallback.
-    if _diffusers_ok and not _can_import("torchvision"):
-        print(f"  {GY}torchvision fehlt — installiere (behebt CLIP/Siglip-Warnungen)…{R}")
+    # torchvision automatisch nachinstallieren, sobald torch vorhanden ist:
+    # transformers nutzt es für die Bild-Prozessoren (CLIP/Siglip). Fehlt es,
+    # kommen nur Warnungen + PIL-Fallback. Läuft auch über update.py automatisch.
+    if _can_import("torch") and not _can_import("torchvision"):
+        print(f"  {GY}torchvision fehlt — installiere automatisch (behebt CLIP/Siglip-Warnungen)…{R}")
         if _pip("torchvision"):
             _ok("torchvision installiert")
+            _diffusers_ok = _can_import("diffusers") and _can_import("torch")
         else:
             _warn("torchvision-Install fehlgeschlagen", "manuell: pip install torchvision")
 
