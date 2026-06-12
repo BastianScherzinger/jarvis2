@@ -55,19 +55,40 @@ def _ist_eigene_domain(url: str) -> bool:
     return dom.endswith((".de", ".com", ".net", ".eu", ".org", ".info", ".biz", ".io"))
 
 
+_RECHTSFORMEN = {"gmbh", "co", "kg", "ohg", "ag", "ek", "ug", "mbh", "und", "the",
+                 "inh", "fa", "firma", "betrieb", "meister", "gbr"}
+
+
+def _name_tokens(name: str) -> list[str]:
+    """Aussagekräftige Wort-Bestandteile eines Firmennamens (für Domain-Abgleich)."""
+    roh = re.split(r'[^a-zäöüß0-9]+', (name or "").lower())
+    return [t for t in roh if len(t) >= 4 and t not in _RECHTSFORMEN]
+
+
 def _pick_website(lead: dict, hits: list[dict]) -> str:
-    """Wählt aus den Such-Treffern die wahrscheinliche eigene Website. URL oder ""."""
+    """Wählt aus den Such-Treffern die wahrscheinliche eigene Website. URL oder "".
+    Bevorzugt Treffer deren Domain einen Namens-Bestandteil enthält (passgenauer),
+    fällt sonst auf den ersten Nicht-Verzeichnis-Treffer zurück (findet trotzdem was)."""
     # Schritt 0 — bereits gesetzte URL SOFORT nehmen, wenn keine Verzeichnis-/Social-Domain.
     vorhanden = (lead.get("website_url") or "").strip()
     if vorhanden and not _ist_verzeichnis(vorhanden):
         return vorhanden
 
-    # Ersten Nicht-Verzeichnis/Nicht-Social-Treffer mit gängiger TLD nehmen.
-    for hit in hits:
-        url = (hit.get("url") or "").strip()
-        if url and _ist_eigene_domain(url):
-            return url
-    return ""
+    eigene = [(hit.get("url") or "").strip() for hit in hits
+              if (hit.get("url") or "").strip() and _ist_eigene_domain((hit.get("url") or "").strip())]
+    if not eigene:
+        return ""
+
+    # 1. Wahl: Domain enthält einen Namens-Bestandteil → sehr wahrscheinlich die echte Seite.
+    tokens = _name_tokens(lead.get("name", ""))
+    if tokens:
+        for url in eigene:
+            dom = _domain(url)
+            if any(t in dom for t in tokens):
+                return url
+
+    # 2. Wahl: erster plausibler Nicht-Verzeichnis-Treffer.
+    return eigene[0]
 
 
 def analyze(lead: dict) -> dict:

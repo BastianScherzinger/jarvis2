@@ -71,32 +71,12 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event,
 
 def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per):
     logger.scrape("AI-Worker", f"Recherchiere: {branche} | {region}")
-    # Schritt 1: Suchanfragen aus gecachten Branchen-Synonymen bauen
-    # (spart pro Combo einen Ollama-Call UND liefert bessere Begriffe).
+    # Schritt 1: EINE Suchanfrage pro Combo (bester Synonym-Begriff). Mehr Suchen
+    # würden nur das globale Such-Budget verbrauchen, das der Evaluator (Website-
+    # Findung) dringender braucht. Die HTTP-/Maps-Scraper finden die meisten Leads.
     synonyme_liste = _SYNONYME.get(branche) or []
-    queries: list[str] = [f"{syn} {region}" for syn in synonyme_liste[:3]]
-
-    # Fallback: Ollama-Query-Generator wenn kein Synonym-Cache vorhanden
-    if not queries:
-        query_prompt = (
-            f"Erstelle 3 verschiedene Google-Suchanfragen auf Deutsch um lokale {branche}-Betriebe "
-            f"in {region} zu finden. Gib NUR ein JSON-Array zurück, keine Erklärung.\n"
-            f'Beispiel: ["Elektriker Berlin Mitte", "Elektrobetrieb Mitte Berlin Telefon", '
-            f'"Elektriker Berlin Mitte keine Webseite"]\n'
-            f"Ausgabe:"
-        )
-
-        queries_raw = ask(query_prompt) if ask else None
-        if queries_raw:
-            try:
-                m = re.search(r"\[.*?\]", queries_raw, re.DOTALL)
-                if m:
-                    queries = json.loads(m.group(0))[:3]
-            except Exception:
-                pass
-
-    if not queries:
-        queries = [f"{branche} {region}", f"{branche} {region} Telefon"]
+    bester = synonyme_liste[0] if synonyme_liste else branche
+    queries: list[str] = [f"{bester} {region}"]
 
     found = 0
     for query in queries:

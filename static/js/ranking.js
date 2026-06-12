@@ -377,17 +377,20 @@ function rankSearch(v){
 
 // ── Neu bewerten ──────────────────────────────────────────────────────────────
 async function rankReeval(){
-  if(!confirm('Alle Leads neu bewerten? Die KI prüft jeden Lead erneut (läuft im Hintergrund, auch wenn der Scraper aus ist).')) return;
+  if(!confirm('Alle Leads neu bewerten? Die Rangliste wird geleert und füllt sich live wieder, jeder Lead erscheint sortiert an seiner Position.')) return;
   const live = document.getElementById('rank-live');
-  const prev = live ? live.textContent : '';
+  // Ansicht SOFORT leeren — die Leads strömen dann live sortiert wieder rein.
+  _rankData = [];
+  _renderRank();
   try{
     const r = await fetch('/api/evaluated/reeval', {method:'POST'});
     const d = await r.json();
-    if(live) live.textContent = `↻ Neubewertung läuft · ${d.requeued||0} Leads`;
+    if(live) live.textContent = `↻ Bewertet live · ${d.requeued||0} Leads`;
+    _renderSummary();
   }catch{
     if(live) live.textContent = '✕ Fehler';
   }
-  setTimeout(() => { if(live) live.textContent = prev || '● LIVE · 3s'; }, 6000);
+  setTimeout(() => { if(live) live.textContent = '● LIVE · 3s'; }, 6000);
 }
 
 // ── Gesamte Datenbank leeren ────────────────────────────────────────────────────

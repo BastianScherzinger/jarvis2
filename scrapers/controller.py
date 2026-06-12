@@ -60,15 +60,17 @@ def ensure_evaluator_running() -> None:
 
 
 def reevaluate_all() -> int:
-    """Bewertet ALLE Leads neu — in-place: setzt alle Roh-Leads auf 'pending'
-    und startet den Evaluator. Die Rangliste (DB2) bleibt sichtbar und jeder
-    Eintrag wird beim Durchlauf überschrieben/aktualisiert (kein Leeren mehr —
-    dafür gibt es den separaten 'DB leeren'-Button). Funktioniert auch bei
-    gestopptem Scraper. Gibt Anzahl neu einzustufender Leads zurück."""
+    """Frische Neubewertung: leert die Ergebnis-DB (DB2) — die Rangliste wird
+    leer und füllt sich dann LIVE wieder, jeder neu bewertete Lead erscheint
+    sofort an seiner sortierten Position. Setzt alle Roh-Leads auf 'pending'
+    und startet den Evaluator. Funktioniert auch bei gestopptem Scraper.
+    Gibt Anzahl neu einzustufender Leads zurück."""
     db_raw.init_db()
+    import db_evaluated
+    db_evaluated.clear_all()                # Rangliste leeren → füllt sich live
     n = db_raw.reset_all_for_reeval()
     ensure_evaluator_running()
-    logger.info("Controller", f"Neubewertung gestartet: {n} Leads → pending, Evaluator aktiv")
+    logger.info("Controller", f"Neubewertung: Rangliste geleert, {n} Leads → pending, Evaluator aktiv")
     return n
 
 
