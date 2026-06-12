@@ -19,17 +19,6 @@ for _d in [WORKSPACE_IMAGES, WORKSPACE_VIDEOS]:
 # ── Modell-Katalog ───────────────────────────────────────────────────────────
 
 IMAGE_MODELS: dict[str, dict] = {
-    "sd21": {
-        "hf_id":     "stabilityai/stable-diffusion-2-1",
-        "name":      "Stable Diffusion 2.1",
-        "pipeline":  "StableDiffusionPipeline",
-        "size_gb":   2.5,
-        "min_vram":  4,
-        "default_w": 768,
-        "default_h": 768,
-        "supports_neg": True,
-        "desc":      "Schnell, stabil, ab 4 GB VRAM",
-    },
     "sdxl": {
         "hf_id":     "stabilityai/stable-diffusion-xl-base-1.0",
         "name":      "Stable Diffusion XL",
@@ -39,18 +28,32 @@ IMAGE_MODELS: dict[str, dict] = {
         "default_w": 1024,
         "default_h": 1024,
         "supports_neg": True,
-        "desc":      "Hohe Qualität, 1024×1024, 8 GB VRAM",
+        "gated":     False,
+        "desc":      "Empfohlen: hohe Qualität, 1024×1024, offen (kein Token nötig)",
+    },
+    "sd21": {
+        "hf_id":     "stabilityai/stable-diffusion-2-1",
+        "name":      "Stable Diffusion 2.1",
+        "pipeline":  "StableDiffusionPipeline",
+        "size_gb":   2.5,
+        "min_vram":  4,
+        "default_w": 768,
+        "default_h": 768,
+        "supports_neg": True,
+        "gated":     False,
+        "desc":      "Leicht & schnell, ab 4 GB — gut für schwächere Hardware, offen",
     },
     "flux-schnell": {
         "hf_id":     "black-forest-labs/FLUX.1-schnell",
-        "name":      "FLUX.1 Schnell",
+        "name":      "FLUX.1 Schnell (Token nötig)",
         "pipeline":  "FluxPipeline",
         "size_gb":   15,
         "min_vram":  8,
         "default_w": 1024,
         "default_h": 1024,
         "supports_neg": False,
-        "desc":      "Bestes lokales Bildmodell, Apache 2.0",
+        "gated":     True,
+        "desc":      "Beste Qualität — GESPERRT: Lizenz auf huggingface.co akzeptieren + HF_TOKEN in .env",
     },
 }
 
@@ -105,6 +108,19 @@ def _device_dtype():
 _cache: dict = {}
 
 
+def _hf_token() -> str | None:
+    """Hugging-Face-Token aus .env oder Umgebung (für gated Modelle wie FLUX)."""
+    content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
+    m = re.search(r"HF_TOKEN=(.+)", content)
+    tok = (m.group(1).strip() if m else "") or os.environ.get("HF_TOKEN") \
+        or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    return tok or None
+
+
+class GatedModelError(RuntimeError):
+    """Modell ist auf Hugging Face gesperrt (Token/Lizenz nötig)."""
+
+
 def _load_image_pipe(model_key: str):
     if model_key in _cache:
         return _cache[model_key]
@@ -128,7 +144,23 @@ def _load_image_pipe(model_key: str):
     }
     Cls = pipe_map[m["pipeline"]]
 
-    pipe = Cls.from_pretrained(m["hf_id"], torch_dtype=dt, use_safetensors=True)
+    kwargs: dict = {"torch_dtype": dt, "use_safetensors": True}
+    tok = _hf_token()
+    if tok:
+        kwargs["token"] = tok
+
+    try:
+        pipe = Cls.from_pretrained(m["hf_id"], **kwargs)
+    except Exception as e:
+        msg = str(e).lower()
+        if m.get("gated") or "gated" in msg or "restricted" in msg or "401" in msg or "403" in msg:
+            raise GatedModelError(
+                f"'{m['name']}' ist auf Hugging Face gesperrt. Wähle ein offenes "
+                f"Modell (Stable Diffusion XL oder SD 2.1) — ODER akzeptiere die "
+                f"Lizenz auf huggingface.co/{m['hf_id']} und trage HF_TOKEN=… in die "
+                f".env ein."
+            )
+        raise
     pipe = pipe.to(dev)
 
     # Speicher sparen auf schwacher Hardware
