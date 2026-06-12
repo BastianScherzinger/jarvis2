@@ -200,6 +200,14 @@ def _load_video_pipe(model_key: str):
 
 # ── Öffentliche API ──────────────────────────────────────────────────────────
 
+def _open_image_model() -> str:
+    """Erstes offenes (nicht gesperrtes) Bildmodell — Fallback für gated Modelle."""
+    for k, m in IMAGE_MODELS.items():
+        if not m.get("gated"):
+            return k
+    return "sdxl"
+
+
 def generate_image(
     prompt: str,
     model_key: str | None = None,
@@ -216,6 +224,14 @@ def generate_image(
     m   = IMAGE_MODELS.get(key)
     if m is None:
         raise ValueError(f"Bildmodell '{key}' nicht bekannt. Verfügbar: {list(IMAGE_MODELS)}")
+
+    # Gesperrtes Modell (z.B. FLUX) ohne HF-Token → automatisch auf ein offenes
+    # Modell ausweichen, statt den User mit einem Fehler zu blockieren.
+    if m.get("gated") and not _hf_token():
+        fallback = _open_image_model()
+        if fallback and fallback != key:
+            key = fallback
+            m   = IMAGE_MODELS[key]
 
     w    = width  or m["default_w"]
     h    = height or m["default_h"]
