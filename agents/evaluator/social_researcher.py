@@ -24,10 +24,13 @@ _KLEIN_BRANCHEN = [
 _BILD_SOCIAL = {"instagram", "facebook"}
 
 
-def research(lead: dict) -> dict:
+def research(lead: dict, hits: list[dict] | None = None) -> dict:
     """
     Gibt zurück: {social_media: dict, hat_nur_social: int, beschreibung_roh: str,
                   firmengroesse_hinweis: str, hat_bilder_social: int}
+
+    `hits`: vorgefundene Such-Treffer (vom WebAnalyst) — spart eine zweite Suche.
+    Nur wenn None wird selbst gesucht.
     """
     result = {
         "social_media": {},
@@ -42,8 +45,9 @@ def research(lead: dict) -> dict:
     if not name:
         return result
 
-    query = f'"{name}" {stadt}'
-    hits  = ddg_search(query)
+    # Treffer wiederverwenden wenn vorhanden — sonst (nur dann) selbst suchen.
+    if hits is None:
+        hits = ddg_search(f'"{name}" {stadt}')
 
     social   = {}
     snippets = []

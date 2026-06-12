@@ -37,10 +37,10 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
         raw_id = lead["id"]
         try:
             logger.eval_("Evaluator", f"Prüfe: {lead.get('name')} ({lead.get('stadt')})")
-            # Agent 1: Website TIEF analysieren (findet Website aktiv)
+            # Agent 1: Website TIEF analysieren (findet Website aktiv, EINE Suche)
             web    = analyze(lead)
-            # Agent 2: Social + Firmengröße recherchieren
-            social = research(lead)
+            # Agent 2: Social + Firmengröße — nutzt die Treffer von Agent 1 (keine 2. Suche)
+            social = research(lead, web.get("search_hits"))
             logger.debug("SocialRes", f"Social: {list(social.get('social_media',{}).keys())}")
             # Agent 3: differenzierter Score + Ollama-Feinschliff + Pitch
             scored = evaluate(lead, web, social)

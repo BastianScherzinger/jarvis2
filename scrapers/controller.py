@@ -44,7 +44,7 @@ def _spawn_evaluator() -> None:
     threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
     db_raw.init_db()
     db_raw.reset_stale()
-    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "3"))
+    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "4"))
     threading.Thread(
         target=evaluator_pipeline.run_continuous,
         args=(_on_lead, _stop_event, n_eval),
@@ -60,16 +60,15 @@ def ensure_evaluator_running() -> None:
 
 
 def reevaluate_all() -> int:
-    """Frische Neubewertung: leert die Ergebnis-DB (DB2), setzt alle Roh-Leads
-    auf 'pending' und stellt sicher dass der Evaluator läuft. Funktioniert auch
-    bei gestopptem Scraper. Gibt Anzahl neu einzustufender Leads zurück."""
+    """Bewertet ALLE Leads neu — in-place: setzt alle Roh-Leads auf 'pending'
+    und startet den Evaluator. Die Rangliste (DB2) bleibt sichtbar und jeder
+    Eintrag wird beim Durchlauf überschrieben/aktualisiert (kein Leeren mehr —
+    dafür gibt es den separaten 'DB leeren'-Button). Funktioniert auch bei
+    gestopptem Scraper. Gibt Anzahl neu einzustufender Leads zurück."""
     db_raw.init_db()
-    import db_evaluated
-    geloescht = db_evaluated.clear_all()        # alte (stale) Bewertungen weg
     n = db_raw.reset_all_for_reeval()
     ensure_evaluator_running()
-    logger.info("Controller",
-                f"Neubewertung: DB2 geleert ({geloescht}), {n} Leads → pending, Evaluator aktiv")
+    logger.info("Controller", f"Neubewertung gestartet: {n} Leads → pending, Evaluator aktiv")
     return n
 
 

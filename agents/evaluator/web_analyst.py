@@ -55,26 +55,18 @@ def _ist_eigene_domain(url: str) -> bool:
     return dom.endswith((".de", ".com", ".net", ".eu", ".org", ".info", ".biz", ".io"))
 
 
-def _finde_website(lead: dict, name: str, stadt: str, branche: str) -> str:
-    """Schritt 1 — aktiv die echte Website finden. URL oder ""."""
+def _pick_website(lead: dict, hits: list[dict]) -> str:
+    """Wählt aus den Such-Treffern die wahrscheinliche eigene Website. URL oder ""."""
     # Schritt 0 — bereits gesetzte URL SOFORT nehmen, wenn keine Verzeichnis-/Social-Domain.
     vorhanden = (lead.get("website_url") or "").strip()
     if vorhanden and not _ist_verzeichnis(vorhanden):
         return vorhanden
 
-    # Schritt 1 — aktiv suchen. Ersten Nicht-Verzeichnis/Nicht-Social-Treffer nehmen.
-    queries = [f'{name} {stadt}'.strip(), f'{name} {stadt} {branche}'.strip()]
-    seen = set()
-    for q in queries:
-        for hit in ddg_search(q):
-            url = (hit.get("url") or "").strip()
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            # RELAXED: akzeptiere jeden http(s)-Treffer der kein Verzeichnis/Social ist,
-            # auch wenn der Domainname nicht exakt zum Betriebsnamen passt.
-            if _ist_eigene_domain(url):
-                return url
+    # Ersten Nicht-Verzeichnis/Nicht-Social-Treffer mit gängiger TLD nehmen.
+    for hit in hits:
+        url = (hit.get("url") or "").strip()
+        if url and _ist_eigene_domain(url):
+            return url
     return ""
 
 
@@ -103,6 +95,7 @@ def analyze(lead: dict) -> dict:
         "bilder_vorhanden": 0,
         "foto_url": "",
         "verify_steps": [],
+        "search_hits": [],     # für social_researcher wiederverwendbar (spart 2. Suche)
     }
     steps = result["verify_steps"]
 
@@ -111,9 +104,15 @@ def analyze(lead: dict) -> dict:
     if tel and len(tel) >= 6 and re.search(r'[\d\s\-\+\(\)]{6,}', tel):
         result["telefon_verifiziert"] = 1
 
-    # ── Schritt 1: Website aktiv finden ─────────────────────────────────────
+    # ── Schritt 1: Website aktiv finden (EINE Suche, geteilt mit SocialRes) ──
     logger.debug("WebAnalyst", f"→ Suche Website für {name}…")
-    url = _finde_website(lead, name, stadt, branche)
+    vorhanden = (lead.get("website_url") or "").strip()
+    if vorhanden and not _ist_verzeichnis(vorhanden):
+        hits = []                      # URL schon bekannt — keine Suche nötig
+    else:
+        hits = ddg_search(f"{name} {stadt}".strip())
+    result["search_hits"] = hits
+    url = _pick_website(lead, hits)
 
     if url:
         result["discovered_website"] = url
