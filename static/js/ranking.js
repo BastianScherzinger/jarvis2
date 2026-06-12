@@ -377,14 +377,34 @@ function rankSearch(v){
 
 // ── Neu bewerten ──────────────────────────────────────────────────────────────
 async function rankReeval(){
-  if(!confirm('Alle Leads neu bewerten?')) return;
+  if(!confirm('Alle Leads neu bewerten? Die KI prüft jeden Lead erneut (läuft im Hintergrund, auch wenn der Scraper aus ist).')) return;
   const live = document.getElementById('rank-live');
   const prev = live ? live.textContent : '';
   try{
-    await fetch('/api/evaluated/reeval', {method:'POST'});
-    if(live) live.textContent = '↻ Neubewertung gestartet';
+    const r = await fetch('/api/evaluated/reeval', {method:'POST'});
+    const d = await r.json();
+    if(live) live.textContent = `↻ Neubewertung läuft · ${d.requeued||0} Leads`;
   }catch{
     if(live) live.textContent = '✕ Fehler';
   }
-  setTimeout(() => { if(live) live.textContent = prev || '● LIVE · 3s'; }, 4000);
+  setTimeout(() => { if(live) live.textContent = prev || '● LIVE · 3s'; }, 6000);
+}
+
+// ── Gesamte Datenbank leeren ────────────────────────────────────────────────────
+async function rankClearDb(){
+  if(!confirm('WIRKLICH die GESAMTE Datenbank leeren? Alle gefundenen und bewerteten Leads werden gelöscht — das kann NICHT rückgängig gemacht werden.')) return;
+  if(!confirm('Letzte Warnung: Alles unwiderruflich löschen?')) return;
+  const live = document.getElementById('rank-live');
+  try{
+    const r = await fetch('/api/clear', {method:'POST'});
+    const d = await r.json();
+    const g = d.geloescht || {};
+    if(live) live.textContent = `🗑 Geleert: ${(g.evaluated||0)} bewertet, ${(g.raw||0)} roh`;
+    _rankData = [];
+    _renderRank();
+    _renderSummary();
+  }catch{
+    if(live) live.textContent = '✕ Fehler beim Leeren';
+  }
+  setTimeout(() => { if(live) live.textContent = '● LIVE · 3s'; }, 6000);
 }

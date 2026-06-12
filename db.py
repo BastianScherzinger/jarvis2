@@ -135,6 +135,15 @@ def get_all(limit: int = 500, offset: int = 0) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def clear_all() -> int:
+    """Leert die komplette leads-Tabelle. Gibt Anzahl gelöschter Zeilen zurück."""
+    with _lock, _conn() as c:
+        n = c.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+        c.execute("DELETE FROM leads")
+        c.commit()
+    return n
+
+
 def export_csv() -> str:
     import csv, io
     rows = get_all(limit=99999)

@@ -206,6 +206,15 @@ def update_status(eval_id: int, status: str) -> None:
         c.commit()
 
 
+def clear_all() -> int:
+    """Leert die komplette evaluated_leads-Tabelle. Gibt Anzahl gelöschter Zeilen zurück."""
+    with _lock, _conn() as c:
+        n = c.execute("SELECT COUNT(*) FROM evaluated_leads").fetchone()[0]
+        c.execute("DELETE FROM evaluated_leads")
+        c.commit()
+    return n
+
+
 def get_by_raw_id(raw_id: int) -> dict | None:
     with _lock, _conn() as c:
         row = c.execute(

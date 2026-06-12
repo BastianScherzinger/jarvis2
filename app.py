@@ -167,8 +167,21 @@ def api_eval_all():
 
 @app.route("/api/evaluated/reeval", methods=["POST"])
 def api_eval_reeval():
-    n = db_raw.reset_all_for_reeval()
+    # Setzt alle Leads auf 'pending' UND startet den Evaluator (auch ohne Scraper).
+    n = controller.reevaluate_all()
     return jsonify({"ok": True, "requeued": n})
+
+
+@app.route("/api/clear", methods=["POST"])
+def api_clear():
+    """Stoppt die Worker und leert ALLE drei Datenbanken komplett."""
+    controller.stop()
+    geloescht = {
+        "leads":     db.clear_all(),
+        "raw":       db_raw.clear_all(),
+        "evaluated": db_evaluated.clear_all(),
+    }
+    return jsonify({"ok": True, "geloescht": geloescht})
 
 
 @app.route("/api/evaluated/stats")

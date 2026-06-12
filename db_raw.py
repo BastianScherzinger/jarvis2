@@ -194,6 +194,15 @@ def reset_all_for_reeval() -> int:
         return cur.rowcount
 
 
+def clear_all() -> int:
+    """Leert die komplette raw_leads-Tabelle. Gibt Anzahl gelöschter Zeilen zurück."""
+    with _lock, _conn() as c:
+        n = c.execute("SELECT COUNT(*) FROM raw_leads").fetchone()[0]
+        c.execute("DELETE FROM raw_leads")
+        c.commit()
+    return n
+
+
 def get_pending_count() -> int:
     with _lock, _conn() as c:
         return c.execute(

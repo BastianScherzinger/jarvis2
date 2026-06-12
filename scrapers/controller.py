@@ -17,13 +17,56 @@ import db
 import db_raw
 import logger
 
-_lead_queue     = queue.Queue()
-_stop_event     = threading.Event()
-_active         = False
+_lead_queue        = queue.Queue()
+_stop_event        = threading.Event()
+_active            = False
+_evaluator_started = False   # läuft der Evaluator (via Scraper ODER standalone)?
 
 
 def get_queue()        -> queue.Queue: return _lead_queue
 def is_running()       -> bool:        return _active
+
+
+def _warmup_model() -> None:
+    from scrapers import _http
+    logger.info("Ollama", "Lade Modell in den Speicher…")
+    ok = _http.warmup_ollama()
+    logger.success("Ollama", "Modell bereit.") if ok else \
+        logger.warn("Ollama", "Modell nicht erreichbar — Heuristik-Fallback aktiv.")
+
+
+def _spawn_evaluator() -> None:
+    """Startet Warmup + Evaluator-Threads. Idempotent (via _evaluator_started)."""
+    global _evaluator_started
+    if _evaluator_started:
+        return
+    _evaluator_started = True
+    threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
+    db_raw.init_db()
+    db_raw.reset_stale()
+    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "3"))
+    threading.Thread(
+        target=evaluator_pipeline.run_continuous,
+        args=(_on_lead, _stop_event, n_eval),
+        name="Worker-Evaluator", daemon=True,
+    ).start()
+    logger.info("Controller", f"Evaluator gestartet ({n_eval} Threads)")
+
+
+def ensure_evaluator_running() -> None:
+    """Stellt sicher dass der Evaluator läuft — auch wenn die Scraper aus sind."""
+    _stop_event.clear()
+    _spawn_evaluator()
+
+
+def reevaluate_all() -> int:
+    """Setzt ALLE Leads auf 'pending' und stellt sicher dass der Evaluator läuft.
+    Funktioniert auch bei gestopptem Scraper. Gibt Anzahl Leads zurück."""
+    db_raw.init_db()
+    n = db_raw.reset_all_for_reeval()
+    ensure_evaluator_running()
+    logger.info("Controller", f"Neubewertung: {n} Leads → pending, Evaluator aktiv")
+    return n
 
 
 def get_combo_count() -> int:
@@ -46,16 +89,6 @@ def start() -> None:
         return
     _stop_event.clear()
     _active = True
-
-    # Ollama-Modell EINMAL vorladen (Kaltstart 30-120s), damit die Evaluator-
-    # Threads danach schnelle Antworten bekommen statt in den Timeout zu laufen.
-    def _warmup():
-        from scrapers import _http
-        logger.info("Ollama", "Lade Modell in den Speicher…")
-        ok = _http.warmup_ollama()
-        logger.success("Ollama", "Modell bereit.") if ok else \
-            logger.warn("Ollama", "Modell nicht erreichbar — Heuristik-Fallback aktiv.")
-    threading.Thread(target=_warmup, name="Ollama-Warmup", daemon=True).start()
 
     logger.info("Controller", f"Starte {6} Scraper-Worker + Verifier + Evaluator | Combos: {get_combo_count():,}")
 
@@ -100,23 +133,17 @@ def start() -> None:
         name="Worker-Verifier", daemon=True,
     ).start()
 
-    # Evaluator-Team: liest aus DB1 (leads_raw), schreibt nach DB2 (leads_evaluated)
-    db_raw.init_db()
-    db_raw.reset_stale()
-    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "3"))
-    threading.Thread(
-        target=evaluator_pipeline.run_continuous,
-        args=(_on_lead, _stop_event, n_eval),
-        name="Worker-Evaluator",
-        daemon=True,
-    ).start()
+    # Evaluator-Team: liest aus DB1 (leads_raw), schreibt nach DB2 (leads_evaluated).
+    # Enthält Warmup + ist idempotent.
+    _spawn_evaluator()
 
 
 def stop() -> None:
-    global _active
+    global _active, _evaluator_started
     logger.info("Controller", "Stop-Signal gesendet — alle Worker beenden")
     _stop_event.set()
     _active = False
+    _evaluator_started = False
 
 
 def _on_lead(lead: dict) -> None:
