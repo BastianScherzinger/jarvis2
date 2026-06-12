@@ -165,14 +165,43 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
             return ""   # Timeout o.ä. — Aufrufer nutzt Fallback
 
 
+_BEST_MODEL: list = [None]
+
+
+def best_chat_model() -> str:
+    """Bestes installiertes CHAT-Modell für die Lead-Bewertung.
+
+    Code-Modelle (z.B. qwen2.5-coder) sind für deutsche Vertriebstexte
+    ungeeignet (halluzinieren) — daher bevorzugt: explizites JARVIS_EVAL_MODEL,
+    sonst das größte installierte Nicht-Coder-Modell, sonst Fallback.
+    Ergebnis wird gecacht.
+    """
+    env = os.environ.get("JARVIS_EVAL_MODEL", "").strip()
+    if env:
+        return env
+    if _BEST_MODEL[0]:
+        return _BEST_MODEL[0]
+    models = ollama_models()
+    chat   = [m for m in models if "coder" not in m["name"].lower()
+              and "embed" not in m["name"].lower()]
+    pool   = chat or models
+    if pool:
+        best = max(pool, key=lambda m: m.get("size_gb", 0))["name"]
+    else:
+        best = os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    _BEST_MODEL[0] = best
+    return best
+
+
 def warmup_ollama() -> bool:
     """
-    Lädt das Modell EINMAL in den Speicher (Kaltstart kann 30-120s dauern).
+    Lädt das Bewertungs-Modell EINMAL in den Speicher (Kaltstart 30-120s).
     Sollte beim Scraper-Start in einem eigenen Thread aufgerufen werden, damit
     die Evaluator-Threads danach schnelle Antworten bekommen statt zu timeouten.
     Gibt True zurück wenn Ollama geantwortet hat.
     """
-    r = ask_ollama('Antworte nur mit: {"ok":1}', "Test", timeout=300)
+    r = ask_ollama('Antworte nur mit: {"ok":1}', "Test",
+                   model=best_chat_model(), timeout=300)
     return bool(r)
 
 

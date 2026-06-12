@@ -7,7 +7,7 @@ fällt Ollama aus, bleibt der differenzierte Basis-Score erhalten.
 """
 import json
 
-from scrapers._http import ask_ollama, extract_json
+from scrapers._http import ask_ollama, extract_json, best_chat_model
 from scrapers.regions import HIGH_VALUE
 import logger
 
@@ -37,6 +37,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     """Kombiniert alle Signale → differenzierter Score, Pitch, E-Mail."""
     issues        = web.get("website_probleme") or []
     has_web       = int(web.get("has_website", 0))
+    veraltet      = int(web.get("website_veraltet", 0))
     alter         = int(web.get("website_alter_jahre", -1))
     social_media  = social.get("social_media") or {}
     firmengroesse = social.get("firmengroesse_hinweis", "unbekannt")
@@ -44,18 +45,22 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     rating        = float(lead.get("bewertung") or 0)
     bilder        = int(web.get("bilder_vorhanden", 0))
     branche       = lead.get("branche", "")
+    n_probleme    = len(issues)
 
     breakdown: dict[str, int] = {}
 
     # ── Website-Situation (größter Faktor) ──────────────────────────────────
+    # Höchster Verkaufswert: keine Website. Dann veraltet. Moderne Seite = wenig Bedarf.
     if has_web == 0 and not social_media:
         breakdown["Keine Online-Präsenz"] = 42
     elif has_web == 0 and social_media:
         breakdown["Nur Social Media"] = 36
-    elif has_web and (alter >= 6 or len(issues) >= 3):
-        breakdown["Website stark veraltet"] = 34
-    elif has_web and ((3 <= alter <= 5) or 1 <= len(issues) <= 2):
-        breakdown["Website veraltet"] = 22
+    elif has_web and veraltet:
+        breakdown["Website veraltet"] = 30
+    elif has_web and n_probleme >= 2:
+        breakdown["Website mit Mängeln"] = 18
+    elif has_web and n_probleme == 1:
+        breakdown["Website kleinere Mängel"] = 10
     elif has_web:
         breakdown["Moderne Website"] = 4
 
@@ -115,25 +120,32 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     )
 
     system = (
-        "Du bist ein erfahrener Vertriebsanalyst für Webdesign-Dienstleistungen. "
-        "Ein Basis-Score wurde bereits berechnet. Du verfeinerst ihn nur leicht "
-        "und schreibst die Texte. Antworte NUR mit JSON."
+        "Du bist ein nüchterner deutscher B2B-Vertriebsanalyst für Webdesign. "
+        "WICHTIG: Nutze AUSSCHLIESSLICH die unten gegebenen Fakten. Erfinde NICHTS "
+        "dazu — keine Annahmen über Ort, Geschichte, Mitarbeiter oder Angebot, die "
+        "nicht in den Signalen stehen. Bleib sachlich und korrekt. Antworte NUR mit JSON."
     )
 
     prompt = (
-        f"Analysiere diesen Betrieb als Webdesign-Kunden:\n{context}\n\n"
-        "Antworte EXAKT in diesem JSON-Format (kein Markdown):\n"
-        '{"anpassung": Zahl von -15 bis 15 (Korrektur des Basis-Scores), '
-        '"beschreibung": "2-3 Sätze über Betrieb und Online-Situation", '
+        f"Bewerte diesen Betrieb als möglichen Webdesign-Kunden — nur anhand dieser Fakten:\n"
+        f"{context}\n\n"
+        "Regeln:\n"
+        "- Hoher Verkaufswert = KEINE Website oder veraltete Website + erreichbar + aktiv.\n"
+        "- Moderne, gepflegte Website = niedriger Verkaufswert (brauchen nichts).\n"
+        "- beschreibung: 1-2 sachliche Sätze NUR aus den Fakten, keine Erfindungen.\n"
+        "- pitch_hook: 1 konkreter Satz, der einen echten Mangel anspricht.\n\n"
+        "Antworte EXAKT in diesem JSON-Format (kein Markdown, deutsche Texte):\n"
+        '{"anpassung": Zahl -15 bis 15 (Korrektur des Basis-Scores), '
+        '"beschreibung": "1-2 sachliche Sätze, nur aus den Fakten", '
         '"potenzial_euro": 500 oder 1500 oder 3000 oder 5000, '
-        '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU, 0=Kette/zu groß), '
-        '"potenzial_begruendung": "1-2 Sätze warum dieser Betrag", '
-        '"pitch_hook": "1 kurzer, persönlicher Gesprächseinstieg", '
+        '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU, 0=Kette/Konzern), '
+        '"potenzial_begruendung": "1 Satz warum dieser Betrag", '
+        '"pitch_hook": "1 konkreter Gesprächseinstieg zu einem echten Mangel", '
         '"email_betreff": "kurze Betreffzeile", '
-        '"email_text": "persönliche Akquise-Mail max 100 Wörter"}'
+        '"email_text": "sachliche Akquise-Mail, max 80 Wörter, keine Erfindungen"}'
     )
 
-    raw  = ask_ollama(prompt, system=system)
+    raw  = ask_ollama(prompt, system=system, model=best_chat_model())
     data = extract_json(raw)
 
     # Anpassung anwenden (begrenzt) — bei Fehlschlag 0.

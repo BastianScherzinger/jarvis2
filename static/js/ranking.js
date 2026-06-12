@@ -155,10 +155,10 @@ function _buildRankRow(lead, rank){
     web = `<span class="rb web-none">✗ KEINE</span>`;
   }else if(Number(lead.website_veraltet)){
     const a = Number(lead.website_alter_jahre);
-    web = `<span class="rb web-old">⚠ ${a>=0?a+'J':'alt'}</span>`;
+    web = `<span class="rb web-old">⚠ ${a>=4?a+'J alt':'veraltet'}</span>`;
   }else{
     const a = Number(lead.website_alter_jahre);
-    web = `<span class="rb web-ok">✓ ${a>=0?a+'J':''}</span>`;
+    web = `<span class="rb web-ok">✓ ${a>=1?a+'J':'aktuell'}</span>`;
   }
   if(lead.discovered_website){
     const u = String(lead.discovered_website);

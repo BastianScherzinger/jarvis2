@@ -29,9 +29,10 @@ def is_running()       -> bool:        return _active
 
 def _warmup_model() -> None:
     from scrapers import _http
-    logger.info("Ollama", "Lade Modell in den Speicher…")
+    modell = _http.best_chat_model()
+    logger.info("Ollama", f"Lade Bewertungs-Modell '{modell}' in den Speicher…")
     ok = _http.warmup_ollama()
-    logger.success("Ollama", "Modell bereit.") if ok else \
+    logger.success("Ollama", f"Modell '{modell}' bereit.") if ok else \
         logger.warn("Ollama", "Modell nicht erreichbar — Heuristik-Fallback aktiv.")
 
 

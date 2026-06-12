@@ -205,14 +205,15 @@ def analyze(lead: dict) -> dict:
                 if re.search(pattern, html, re.I):
                     issues.append(label)
                     result["website_veraltet"] = 1
-            # Impressum / Datenschutz
+            # Impressum / Datenschutz (Mängel, aber KEIN Alters-Signal)
             if 'impressum' not in low and 'imprint' not in low:
                 issues.append("Kein Impressum erkennbar")
             if 'datenschutz' not in low and 'privacy' not in low:
                 issues.append("Keine Datenschutzerklärung")
 
-            if issues:
-                result["website_veraltet"] = 1
+            # 'veraltet' wird NUR durch echte Alt-Signale gesetzt (Copyright-Alter
+            # >=4 oder Legacy-Technik oben) — NICHT durch fehlendes Mobile/Impressum/
+            # Datenschutz. Sonst werden brandneue Seiten faelschlich als 'alt' markiert.
 
             # WHOIS-Fallback fürs Alter
             if result["website_alter_jahre"] == -1:
