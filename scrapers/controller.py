@@ -60,12 +60,16 @@ def ensure_evaluator_running() -> None:
 
 
 def reevaluate_all() -> int:
-    """Setzt ALLE Leads auf 'pending' und stellt sicher dass der Evaluator läuft.
-    Funktioniert auch bei gestopptem Scraper. Gibt Anzahl Leads zurück."""
+    """Frische Neubewertung: leert die Ergebnis-DB (DB2), setzt alle Roh-Leads
+    auf 'pending' und stellt sicher dass der Evaluator läuft. Funktioniert auch
+    bei gestopptem Scraper. Gibt Anzahl neu einzustufender Leads zurück."""
     db_raw.init_db()
+    import db_evaluated
+    geloescht = db_evaluated.clear_all()        # alte (stale) Bewertungen weg
     n = db_raw.reset_all_for_reeval()
     ensure_evaluator_running()
-    logger.info("Controller", f"Neubewertung: {n} Leads → pending, Evaluator aktiv")
+    logger.info("Controller",
+                f"Neubewertung: DB2 geleert ({geloescht}), {n} Leads → pending, Evaluator aktiv")
     return n
 
 
@@ -122,16 +126,21 @@ def start() -> None:
     # Worker 5: golocal (versetzt 12s)
     _spawn("Golocal",      golocal.run_continuous,       c5, delay=12, max_per=20)
 
-    # Worker 6: Lokale KI (Ollama, recherchiert via DuckDuckGo, versetzt 15s)
+    # Worker 6: Lokale KI (Ollama, recherchiert via Websuche, versetzt 15s)
     _spawn("AI",           ai_worker.run_continuous,     c6, delay=15, max_per=8)
 
-    # Verifier: prüft gefundene Leads per lokaler KI nach (eigene Thread-Gruppe)
+    # Hinweis: Der frühere Verifier (auf leads.db) ist deaktiviert. Er war
+    # redundant zum Evaluator-Team und hat die Websuche + Ollama zusätzlich
+    # belastet (→ Block der Suchmaschinen). Das Evaluator-Team (DB2) ist die
+    # kanonische Bewertungs-Pipeline und speist die Rangliste. Reaktivierbar
+    # via JARVIS_VERIFIER_THREADS>0.
     db.reset_stale_running()
-    n_verifier = int(os.environ.get("JARVIS_VERIFIER_THREADS", "3"))
-    threading.Thread(
-        target=verifier.run_continuous, args=(_on_lead, _stop_event, n_verifier),
-        name="Worker-Verifier", daemon=True,
-    ).start()
+    n_verifier = int(os.environ.get("JARVIS_VERIFIER_THREADS", "0"))
+    if n_verifier > 0:
+        threading.Thread(
+            target=verifier.run_continuous, args=(_on_lead, _stop_event, n_verifier),
+            name="Worker-Verifier", daemon=True,
+        ).start()
 
     # Evaluator-Team: liest aus DB1 (leads_raw), schreibt nach DB2 (leads_evaluated).
     # Enthält Warmup + ist idempotent.

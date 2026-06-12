@@ -7,6 +7,7 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -37,42 +38,95 @@ def get(url: str, timeout: int = 10) -> str:
         return ""
 
 
-def ddg_search(query: str) -> list[dict]:
-    """DuckDuckGo Lite HTML-Suche — robusteres Parsing."""
-    q    = urllib.parse.quote_plus(query)
-    html = get(f"https://lite.duckduckgo.com/lite/?q={q}", timeout=12)
-    if not html:
-        html = get(f"https://html.duckduckgo.com/html/?q={q}", timeout=12)
-    if not html:
+# ── Web-Suche (Multi-Engine + globaler Rate-Limiter) ──────────────────────────
+# Freie Suchmaschinen blocken server-seitige Anfragen schnell, wenn 6 Worker +
+# Evaluatoren gleichzeitig feuern. Deshalb: globaler Mindestabstand zwischen
+# Suchen + Rotation über mehrere Engines (blockt eine, wird die nächste probiert).
+_SEARCH_LOCK         = threading.Lock()
+_last_search_ts      = [0.0]
+_SEARCH_MIN_INTERVAL = 1.3   # Sekunden zwischen zwei Suchen (global)
+_engine_idx          = [0]   # Rotation, damit nicht immer dieselbe Engine zuerst
+
+
+def _rate_limit() -> None:
+    with _SEARCH_LOCK:
+        dt = time.time() - _last_search_ts[0]
+        if dt < _SEARCH_MIN_INTERVAL:
+            time.sleep(_SEARCH_MIN_INTERVAL - dt)
+        _last_search_ts[0] = time.time()
+
+
+def _search_mojeek(q: str) -> list[dict]:
+    html = get("https://www.mojeek.com/search?q=" + urllib.parse.quote_plus(q), timeout=12)
+    out = []
+    # Ergebnis-Links: <li class="rN"><a title="URL" href="URL" class="ob">
+    for m in re.finditer(r'<a[^>]+href="(https?://[^"]+)"[^>]*class="ob"', html):
+        out.append({"url": m.group(1), "title": "", "snippet": ""})
+    if not out:
+        for m in re.finditer(r'<a[^>]+class="ob"[^>]+href="(https?://[^"]+)"', html):
+            out.append({"url": m.group(1), "title": "", "snippet": ""})
+    return out
+
+
+def _search_ddg(q: str) -> list[dict]:
+    # DDG braucht POST mit Formulardaten (GET liefert nur das leere Formular).
+    body = urllib.parse.urlencode({"q": q, "kl": "de-de"}).encode()
+    req = urllib.request.Request(
+        "https://html.duckduckgo.com/html/", data=body,
+        headers={"User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded",
+                 "Accept-Language": "de-DE,de;q=0.9"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as r:
+            html = r.read().decode("utf-8", errors="replace")
+    except Exception:
         return []
-
-    results = []
-    # Lite DDG: Links in <a class="result-link">
+    out = []
     for m in re.finditer(
-        r'<a[^>]+class="[^"]*result-link[^"]*"[^>]+href="([^"]+)"[^>]*>([^<]+)</a>',
-        html, re.IGNORECASE
+        r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        html, re.IGNORECASE | re.DOTALL,
     ):
-        url   = m.group(1).strip()
-        title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-        if url.startswith("http") and title:
-            results.append({"url": url, "title": title, "snippet": ""})
-            if len(results) >= 8:
-                break
+        url = m.group(1).strip()
+        mm  = re.search(r'uddg=([^&]+)', url)   # DDG-Redirect entpacken
+        if mm:
+            url = urllib.parse.unquote(mm.group(1))
+        if url.startswith("http"):
+            out.append({"url": url, "title": re.sub(r"<[^>]+>", "", m.group(2)).strip(), "snippet": ""})
+    return out
 
-    # Fallback: Standard DDG
-    if not results:
-        for m in re.finditer(
-            r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-            html, re.IGNORECASE | re.DOTALL
-        ):
-            url   = m.group(1).strip()
-            title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-            if url.startswith("http") and title:
-                results.append({"url": url, "title": title, "snippet": ""})
-                if len(results) >= 8:
-                    break
 
-    return results
+def _search_bing(q: str) -> list[dict]:
+    html = get("https://www.bing.com/search?q=" + urllib.parse.quote_plus(q) +
+               "&setlang=de&cc=DE", timeout=12)
+    out = []
+    for m in re.finditer(r'<h2>\s*<a[^>]+href="(https?://[^"]+)"[^>]*>(.*?)</a>',
+                         html, re.IGNORECASE | re.DOTALL):
+        url = m.group(1)
+        if any(b in url for b in ("bing.com", "microsoft.com", "msn.com")):
+            continue
+        out.append({"url": url, "title": re.sub(r"<[^>]+>", "", m.group(2)).strip(), "snippet": ""})
+    return out
+
+
+_ENGINES = [_search_ddg, _search_mojeek, _search_bing]
+
+
+def ddg_search(query: str) -> list[dict]:
+    """Web-Suche über mehrere Engines mit Rotation + globalem Rate-Limit.
+    Gibt bis zu 8 Treffer [{url,title,snippet}]. Leere Liste wenn alle blocken."""
+    _rate_limit()
+    n = len(_ENGINES)
+    start = _engine_idx[0] % n
+    _engine_idx[0] = (start + 1) % n
+    for off in range(n):
+        engine = _ENGINES[(start + off) % n]
+        try:
+            res = engine(query)
+        except Exception:
+            res = []
+        if res:
+            return res[:8]
+    return []
 
 
 # ── Ollama ──────────────────────────────────────────────────────────────────
