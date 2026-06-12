@@ -38,18 +38,22 @@ def submit(kind: str, params: dict) -> str:
     """
     job_id = uuid.uuid4().hex[:12]
     job = {
-        "id":         job_id,
-        "kind":       kind,
-        "status":     "queued",
-        "prompt":     params.get("prompt", ""),
-        "model":      params.get("model_key") or params.get("hf_model") or params.get("model") or "",
-        "progress":   0,
-        "result_url": "",
-        "error":      "",
-        "lead_id":    params.get("lead_id"),
-        "created":    time.time(),
-        "elapsed":    0,
-        "_params":    params,
+        "id":          job_id,
+        "kind":        kind,
+        "status":      "queued",
+        "prompt":      params.get("prompt", ""),
+        "model":       params.get("model_key") or params.get("hf_model") or params.get("model") or "",
+        "progress":    0,
+        "result_url":  "",
+        "result_urls": [],                       # Foto-Set: alle bisher fertigen Bilder
+        "done_count":  0,
+        "total":       int(params.get("count", 1)) if kind == "image_set" else 1,
+        "summary":     params.get("summary", ""),
+        "error":       "",
+        "lead_id":     params.get("lead_id"),
+        "created":     time.time(),
+        "elapsed":     0,
+        "_params":     params,
     }
     with _lock:
         _jobs[job_id] = job
@@ -100,6 +104,39 @@ def _worker() -> None:
 
         try:
             import media_engine  # lazy import
+
+            if kind == "image_set":
+                # Werbe-Foto-Set: N Bilder seriell, jedes ist eine eigene Variation
+                # (kein fester Seed → natürliche Vielfalt). Fortschritt live updaten.
+                count   = max(1, min(int(params.get("count", 10)), 12))
+                urls: list[str] = []
+                for i in range(count):
+                    res = media_engine.generate_image(
+                        params.get("prompt", ""),
+                        params.get("model_key") or None,
+                        negative_prompt=params.get("negative_prompt")
+                            or "blurry, low quality, watermark, text, deformed",
+                        steps=int(params.get("steps", 28)),
+                        width=params.get("width"),
+                        height=params.get("height"),
+                    )
+                    u = res.get("web_url", "")
+                    if u:
+                        urls.append(u)
+                    _set(
+                        job_id,
+                        status="running",
+                        done_count=len(urls),
+                        progress=int((i + 1) / count * 100),
+                        result_urls=list(urls),
+                        result_url=urls[0] if urls else "",
+                        elapsed=round(time.time() - t0, 1),
+                    )
+                if not urls:
+                    raise RuntimeError("Keine Bilder erzeugt")
+                _set(job_id, status="done", progress=100, result_urls=list(urls),
+                     result_url=urls[0], elapsed=round(time.time() - t0, 1))
+                continue
 
             if kind in ("image", "mockup"):
                 result = media_engine.generate_image(

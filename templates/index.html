@@ -159,17 +159,107 @@
 <!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
 <main class="media-page page" data-page="images">
   <div class="media-head">
-    <div class="media-title">Bild-Generierung</div>
-    <div class="media-sub" id="img-engine-info">Lokale Diffusion · Hugging Face</div>
+    <div class="media-title">Werbe-Foto-Set generieren</div>
+    <div class="media-sub">10 lokale Bilder für Website-Kampagne oder Social-Media — als Werbung & Vorschau</div>
   </div>
-  <div class="composer">
-    <textarea id="img-prompt" placeholder="Beschreibe das Bild... (z.B. 'moderne Website für einen Dachdecker-Betrieb, Hero-Bild, professionell')"></textarea>
-    <div class="composer-row">
-      <select id="img-model" class="flt"></select>
-      <button class="start-btn" id="img-gen-btn" onclick="generateImage()">⚡ Generieren</button>
+
+  <div class="adform">
+    <!-- Lead-Auswahl -->
+    <div class="af-field">
+      <label class="af-lbl">Für welchen Lead? <span class="af-opt">(optional — füllt Betrieb & Branche)</span></label>
+      <select id="af-lead" class="flt" onchange="afLeadPick()">
+        <option value="">— Lead wählen —</option>
+      </select>
     </div>
+
+    <div class="af-grid">
+      <div class="af-field">
+        <label class="af-lbl">Betrieb / Thema</label>
+        <input id="af-betrieb" class="af-in" type="text" placeholder="z.B. Dachdeckerei Müller">
+      </div>
+      <div class="af-field">
+        <label class="af-lbl">Branche</label>
+        <input id="af-branche" class="af-in" type="text" placeholder="z.B. Dachdecker">
+      </div>
+    </div>
+
+    <div class="af-field">
+      <label class="af-lbl">Was soll zu sehen sein? <span class="af-opt">(optional — sonst aus der Branche)</span></label>
+      <input id="af-motiv" class="af-in" type="text" placeholder="z.B. Handwerker bei der Dacharbeit, moderne Baustelle, zufriedene Kunden">
+    </div>
+
+    <div class="af-grid3">
+      <div class="af-field">
+        <label class="af-lbl">Verwendung</label>
+        <select id="af-verwendung" class="flt">
+          <option value="social_post">Social-Media-Post</option>
+          <option value="website_hero">Website-Hero / Banner</option>
+          <option value="werbeanzeige">Werbeanzeige</option>
+          <option value="flyer">Flyer</option>
+        </select>
+      </div>
+      <div class="af-field">
+        <label class="af-lbl">Bildstil</label>
+        <select id="af-stil" class="flt">
+          <option value="fotorealistisch">Fotorealistisch</option>
+          <option value="modern_clean">Modern & Clean</option>
+          <option value="cinematisch">Cinematisch</option>
+          <option value="illustrativ">Illustrativ</option>
+          <option value="minimalistisch">Minimalistisch</option>
+        </select>
+      </div>
+      <div class="af-field">
+        <label class="af-lbl">Stimmung / Farben</label>
+        <select id="af-stimmung" class="flt">
+          <option value="professionell">Professionell (Blau/Weiß)</option>
+          <option value="warm">Warm & einladend</option>
+          <option value="edel">Edel & dunkel</option>
+          <option value="frisch">Frisch & natürlich</option>
+          <option value="kraftvoll">Kraftvoll & auffällig</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="af-grid3">
+      <div class="af-field">
+        <label class="af-lbl">Format</label>
+        <select id="af-format" class="flt">
+          <option value="quadrat">Quadrat 1:1 (Instagram)</option>
+          <option value="quer">Querformat 16:9 (Website)</option>
+          <option value="hoch">Hochformat 9:16 (Stories)</option>
+        </select>
+      </div>
+      <div class="af-field">
+        <label class="af-lbl">KI-Modell</label>
+        <select id="img-model" class="flt"></select>
+      </div>
+      <div class="af-field">
+        <label class="af-lbl">Anzahl Bilder</label>
+        <select id="af-count" class="flt">
+          <option value="10" selected>10 Bilder</option>
+          <option value="6">6 Bilder</option>
+          <option value="4">4 Bilder</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="af-check">
+      <input type="checkbox" id="af-textplatz" checked>
+      <span>Platz für Text/Logo freihalten (empfohlen für Werbung)</span>
+    </label>
+
+    <button class="start-btn af-gen" id="img-gen-btn" onclick="generateImageSet()">⚡ Werbe-Foto-Set generieren</button>
+    <div class="af-hint" id="af-hint"></div>
   </div>
+
   <div id="img-job-status" class="job-card" style="display:none"></div>
+
+  <div class="set-result" id="set-result" style="display:none">
+    <div class="set-result-head">Aktuelles Set</div>
+    <div class="media-grid" id="set-grid"></div>
+  </div>
+
+  <div class="media-gallery-head">Galerie · alle generierten Bilder</div>
   <div class="media-grid" id="img-gallery"></div>
 </main>
 

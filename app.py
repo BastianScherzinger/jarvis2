@@ -277,6 +277,42 @@ def api_media_generate_image():
     return jsonify({"ok": True, "job_id": job_id})
 
 
+@app.route("/api/media/generate/set", methods=["POST"])
+def api_media_generate_set():
+    """Werbe-Foto-Set: baut aus dem Formular-Brief einen Prompt und generiert
+    N Bilder (Standard 10) als Variationen — für Website-/Social-Kampagnen."""
+    import ad_prompts
+    body  = request.get_json(silent=True) or {}
+    brief = {
+        "betrieb":    (body.get("betrieb") or "").strip(),
+        "branche":    (body.get("branche") or "").strip(),
+        "motiv":      (body.get("motiv") or "").strip(),
+        "stil":       body.get("stil", ""),
+        "stimmung":   body.get("stimmung", ""),
+        "verwendung": body.get("verwendung", ""),
+        "format":     body.get("format", ""),
+        "text_platz": bool(body.get("text_platz")),
+    }
+    built  = ad_prompts.build_ad_prompt(brief)
+    count  = max(4, min(int(body.get("count", 10)), 12))
+    params = {
+        "prompt":          built["prompt"],
+        "negative_prompt": built["negative_prompt"],
+        "width":           built["width"],
+        "height":          built["height"],
+        "model_key":       (body.get("model_key") or "").strip(),
+        "steps":           int(body.get("steps", 28)),
+        "count":           count,
+        "summary":         built["summary"],
+        "lead_id":         body.get("lead_id"),
+    }
+    job_id = media_queue.submit("image_set", params)
+    return jsonify({
+        "ok": True, "job_id": job_id, "count": count,
+        "prompt": built["prompt"], "summary": built["summary"],
+    })
+
+
 @app.route("/api/media/generate/video", methods=["POST"])
 def api_media_generate_video():
     body    = request.get_json(silent=True) or {}

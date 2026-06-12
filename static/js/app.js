@@ -650,6 +650,7 @@ function showPage(name){
     b.classList.toggle('active', b.dataset.page === name));
   location.hash = name;
   if(name === 'images' || name === 'videos') loadGallery();
+  if(name === 'images') loadImageLeads();
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
 }
@@ -732,6 +733,110 @@ async function generateImage(){
     else _showJob('img', {status:'error', error: d.reason || 'Fehler'});
   }catch(e){ _showJob('img', {status:'error', error:String(e)}); }
   finally{ btn.disabled = false; }
+}
+
+// ── Werbe-Foto-Set: Lead-Dropdown + Formular ──────────────────────────────────
+let _imgLeads = [];
+async function loadImageLeads(){
+  const sel = document.getElementById('af-lead');
+  if(!sel) return;
+  try{
+    const d = await(await fetch('/api/evaluated/all?limit=300&sort=score')).json();
+    _imgLeads = Array.isArray(d) ? d : (d.leads || []);
+  }catch{ return; }
+  sel.innerHTML = '<option value="">— Lead wählen —</option>' +
+    _imgLeads.map(l => `<option value="${l.id}">${_e(l.name)} · ${_e(l.branche||'')} (${_e(l.stadt||'')})</option>`).join('');
+}
+
+function afLeadPick(){
+  const id = document.getElementById('af-lead').value;
+  const l  = _imgLeads.find(x => String(x.id) === String(id));
+  if(!l) return;
+  document.getElementById('af-betrieb').value = l.name || '';
+  document.getElementById('af-branche').value = l.branche || '';
+}
+
+async function generateImageSet(){
+  const brief = {
+    lead_id:    document.getElementById('af-lead').value || null,
+    betrieb:    (document.getElementById('af-betrieb').value || '').trim(),
+    branche:    (document.getElementById('af-branche').value || '').trim(),
+    motiv:      (document.getElementById('af-motiv').value || '').trim(),
+    verwendung: document.getElementById('af-verwendung').value,
+    stil:       document.getElementById('af-stil').value,
+    stimmung:   document.getElementById('af-stimmung').value,
+    format:     document.getElementById('af-format').value,
+    text_platz: document.getElementById('af-textplatz').checked,
+    count:      parseInt(document.getElementById('af-count').value || '10'),
+    model_key:  document.getElementById('img-model').value || '',
+  };
+  if(!brief.betrieb && !brief.branche && !brief.motiv){
+    document.getElementById('af-hint').textContent = 'Bitte mindestens Betrieb, Branche oder Motiv angeben.';
+    return;
+  }
+  const btn = document.getElementById('img-gen-btn');
+  btn.disabled = true;
+  document.getElementById('af-hint').textContent = '';
+  try{
+    const res = await fetch('/api/media/generate/set', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(brief),
+    });
+    const d = await res.json();
+    if(d.ok && d.job_id){
+      document.getElementById('af-hint').textContent = 'Prompt: ' + (d.prompt||'').slice(0,140) + '…';
+      // Set-Anzeige vorbereiten
+      const sr = document.getElementById('set-result');
+      sr.style.display = 'block';
+      document.getElementById('set-grid').innerHTML = '';
+      _pollSet(d.job_id, d.count || brief.count);
+    }else{
+      _showJob('img', {status:'error', error: d.reason || 'Fehler'});
+    }
+  }catch(e){ _showJob('img', {status:'error', error:String(e)}); }
+  finally{ btn.disabled = false; }
+}
+
+function _pollSet(jobId, total){
+  if(_activePolls['img']){ clearInterval(_activePolls['img']); }
+  const statusEl = document.getElementById('img-job-status');
+  statusEl.style.display = 'block';
+  statusEl.classList.add('running');
+  let elapsed = 0;
+  _activePolls['img'] = setInterval(async () => {
+    let job;
+    try{ job = await(await fetch('/api/media/job/' + jobId)).json(); }
+    catch{ return; }
+    const done = job.done_count || 0;
+    const tot  = job.total || total || 10;
+    elapsed += 2;
+
+    // Bereits fertige Bilder des Sets live anzeigen
+    const urls = job.result_urls || [];
+    const grid = document.getElementById('set-grid');
+    if(grid && urls.length){
+      grid.innerHTML = urls.map(u => `<div class="media-card" onclick="openMediaFull('${_e(u)}','image')">
+          <img src="${_e(u)}" loading="lazy"/></div>`).join('');
+    }
+
+    if(job.status === 'running' || job.status === 'queued'){
+      statusEl.classList.add('running'); statusEl.classList.remove('err');
+      statusEl.innerHTML = `<div class="jc-row"><span class="jc-spin"></span>
+        <span>Generiere Foto-Set… <b>${done}/${tot}</b> Bilder · ${Math.round(elapsed)}s</span></div>
+        <div class="jc-bar"><div class="jc-fill" style="width:${Math.round(done/tot*100)}%"></div></div>`;
+    }else if(job.status === 'done'){
+      clearInterval(_activePolls['img']); _activePolls['img'] = null;
+      statusEl.classList.remove('running');
+      statusEl.innerHTML = `<div class="jc-row"><span class="jc-ok">✓</span>
+        <span>Foto-Set fertig — ${urls.length} Bilder in ${job.elapsed||0}s</span></div>`;
+      loadGallery();
+      setTimeout(() => { statusEl.style.display = 'none'; }, 6000);
+    }else if(job.status === 'error'){
+      clearInterval(_activePolls['img']); _activePolls['img'] = null;
+      statusEl.classList.add('err'); statusEl.classList.remove('running');
+      statusEl.innerHTML = `<div class="jc-row"><span class="jc-x">✕</span><span>Fehler: ${_e(job.error||'unbekannt')}</span></div>`;
+    }
+  }, 2000);
 }
 
 async function generateVideo(){
