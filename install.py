@@ -406,16 +406,25 @@ def run(quiet: bool = False) -> bool:
         except (EOFError, KeyboardInterrupt):
             _media_install = "n"
         if _media_install in ("j", "ja", "y", "yes"):
-            _installing("torch + diffusers + transformers + accelerate")
-            _t_ok = _pip("torch")
+            _installing("torch + torchvision + diffusers + transformers + accelerate")
+            _t_ok = _pip("torch", "torchvision")
             _d_ok = _pip("diffusers", "transformers", "accelerate", "sentencepiece")
             if _t_ok and _d_ok:
                 print(f"\r  {GR}OK{R}  Media-KI-Pakete installiert            ")
                 _diffusers_ok = True
             else:
-                print(f"\r  {YL}!{R}   Install fehlgeschlagen — manuell: pip install torch diffusers transformers accelerate")
+                print(f"\r  {YL}!{R}   Install fehlgeschlagen — manuell: pip install torch torchvision diffusers transformers accelerate")
         else:
-            _warn("Media-KI übersprungen", "manuell: pip install torch diffusers transformers accelerate")
+            _warn("Media-KI übersprungen", "manuell: pip install torch torchvision diffusers transformers accelerate")
+
+    # torchvision separat nachinstallieren: transformers nutzt es für die
+    # Bild-Prozessoren (CLIP/Siglip). Fehlt es, kommen nur Warnungen + PIL-Fallback.
+    if _diffusers_ok and not _can_import("torchvision"):
+        print(f"  {GY}torchvision fehlt — installiere (behebt CLIP/Siglip-Warnungen)…{R}")
+        if _pip("torchvision"):
+            _ok("torchvision installiert")
+        else:
+            _warn("torchvision-Install fehlgeschlagen", "manuell: pip install torchvision")
 
     if _diffusers_ok:
         import re as _re_m
