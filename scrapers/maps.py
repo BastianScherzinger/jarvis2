@@ -13,6 +13,7 @@ from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
 import db_raw as _db_raw
+import logger
 
 
 def _headless() -> bool:
@@ -44,6 +45,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
         return
 
     with sync_playwright() as pw:
+        logger.scrape("Maps", "Browser gestartet")
         browser = pw.chromium.launch(
             headless=_headless(),
             args=["--disable-blink-features=AutomationControlled",
@@ -92,6 +94,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
             try:
                 _scrape_query(page, region, branche, on_lead, stop_event, max_per)
             except Exception as e:
+                logger.error("Maps", f"{region}/{branche}: {e}")
                 on_lead({"_error": f"Maps ({region}/{branche}): {e}"})
                 # Browser-Neustart bei schwerem Fehler
                 try:
@@ -107,6 +110,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
 
 
 def _scrape_query(page, region: str, branche: str, on_lead, stop_event, max_per: int):
+    logger.scrape("Maps", f"Scanne: {branche} | {region}")
     query = f"{branche} {region}"
     url   = f"https://www.google.de/maps/search/{query.replace(' ', '+')}"
 
@@ -145,6 +149,7 @@ def _scrape_query(page, region: str, branche: str, on_lead, stop_event, max_per:
                 _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
                 if lead_id:
                     lead["id"] = lead_id
+                    logger.success("Maps", f"Gefunden: {lead['name']} ({lead['stadt']})")
                     on_lead(lead)
                     found += 1
 

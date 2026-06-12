@@ -11,6 +11,7 @@ from agents.evaluator.social_researcher  import research
 from agents.evaluator.score_writer       import evaluate
 import db_raw
 import db_evaluated
+import logger
 
 
 def run_continuous(on_update, stop_event, n_threads: int = 3) -> None:
@@ -35,12 +36,16 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
 
         raw_id = lead["id"]
         try:
+            logger.eval_("Evaluator", f"Prüfe: {lead.get('name')} ({lead.get('stadt')})")
             # Agent 1: Website analysieren
             web    = analyze(lead)
+            logger.debug("WebAnalyst", f"Website: {len(web.get('website_probleme',[]))} Probleme | Email: {'ja' if web.get('email_vorhanden') else 'nein'}")
             # Agent 2: Social + Firmengröße recherchieren
             social = research(lead)
+            logger.debug("SocialRes", f"Social: {list(social.get('social_media',{}).keys())}")
             # Agent 3: Ollama-Bewertung + Score + Pitch
             scored = evaluate(lead, web, social)
+            logger.eval_("ScoreWriter", f"Score: {scored.get('score')} | {scored.get('lead_typ')} | Potenzial: {scored.get('potenzial_euro')}€")
 
             # DB2 befüllen
             row = {
@@ -74,8 +79,10 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
             db_evaluated.insert_evaluated(row)
             db_raw.update_eval_status(raw_id, "done")
 
+            logger.success("Evaluator", f"Bewertet: {lead.get('name')} → {row.get('score')} Pkt ({row.get('lead_typ')})")
             on_update({"type": "evaluated", "data": row})
 
         except Exception as e:
             db_raw.update_eval_status(raw_id, "failed")
+            logger.error("Evaluator", f"Fehler bei {lead.get('name')}: {e}")
             on_update({"_error": f"Evaluator-{worker_id} ({lead.get('name')}): {e}"})

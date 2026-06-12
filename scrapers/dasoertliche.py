@@ -14,6 +14,7 @@ from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
 import db_raw as _db_raw
+import logger
 
 _HEADERS = {
     "User-Agent": (
@@ -60,6 +61,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
 
 
 def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
+    logger.scrape("DasOertl", f"Scanne: {branche} | {region}")
     kw   = urllib.parse.quote_plus(branche)
     city = urllib.parse.quote_plus(region.replace("Berlin ", ""))
     url  = f"https://www.dasoertliche.de/suche/?kw={kw}&ci={city}"
@@ -75,6 +77,8 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
         soup.select("[class*='result']") or
         soup.select("div.hit")
     )
+    if not entries:
+        logger.warn("DasOertl", f"Keine Ergebnisse: {region}/{branche}")
 
     found = 0
     for art in entries:
@@ -149,6 +153,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
         _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
         if lead_id:
             lead["id"] = lead_id
+            logger.success("DasOertl", f"Gefunden: {name} ({region})")
             on_lead(lead)
             found += 1
 

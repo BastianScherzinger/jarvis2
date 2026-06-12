@@ -205,41 +205,55 @@
 <!-- ══════════════════════════ GRAPH-SEITE ══════════════════════════════════ -->
 <main class="graph-page page" data-page="graph">
 
-  <!-- Sortier-Controls -->
+  <!-- Controls-Bar -->
   <div class="graph-controls">
-    <span class="gc-label">Gruppieren nach:</span>
-    <button class="gc-btn active" data-group="branche" onclick="setGrouping('branche')">Branche</button>
-    <button class="gc-btn" data-group="bundesland" onclick="setGrouping('bundesland')">Bundesland</button>
-    <button class="gc-btn" data-group="lead_typ" onclick="setGrouping('lead_typ')">Typ</button>
-    <button class="gc-btn" data-group="potenzial" onclick="setGrouping('potenzial')">Potenzial</button>
+    <span class="gc-label">Gruppieren:</span>
+    <button class="gc-btn active" data-group="branche"    onclick="setGrouping('branche')">Branche</button>
+    <button class="gc-btn"        data-group="bundesland" onclick="setGrouping('bundesland')">Bundesland</button>
+    <button class="gc-btn"        data-group="lead_typ"   onclick="setGrouping('lead_typ')">Typ</button>
+    <button class="gc-btn"        data-group="potenzial"  onclick="setGrouping('potenzial')">Potenzial</button>
+    <span class="gc-sep">|</span>
+    <button class="gc-btn" id="hot-only-btn" onclick="toggleHotOnly()">🔴 Nur Hot</button>
+    <input  class="gc-search" id="graph-search" type="text" placeholder="Suche…" oninput="setGraphSearch(this.value)">
     <span class="gc-sep">|</span>
     <span class="gc-count" id="graph-node-count">0 Leads</span>
-    <button class="gc-btn" style="margin-left:auto" onclick="refreshGraph()">↺ Aktualisieren</button>
+    <span class="gc-sep" style="margin-left:auto">|</span>
+    <button class="gc-btn" onclick="zoomReset()">⊡ Reset</button>
+    <button class="gc-btn" onclick="refreshGraph()">↺ Reload</button>
   </div>
+
+  <!-- Stat-Bar -->
+  <div class="graph-stat-bar" id="graph-stat-bar"></div>
 
   <!-- VIZ 1: Force-Graph -->
   <div class="viz-section">
-    <div class="viz-title">Lead-Netzwerk <span class="viz-sub">Obsidian-Stil — Knoten = Leads, Gruppen = Branchen/Orte</span></div>
+    <div class="viz-title">Lead-Netzwerk
+      <span class="viz-sub">Obsidian-Stil · Zoom/Pan/Drag · Klick = Details · Auto-Refresh 3s</span>
+    </div>
     <div class="graph-wrap" id="graph-wrap">
       <svg id="graph-svg"></svg>
       <div class="graph-tooltip" id="graph-tooltip" style="display:none"></div>
+      <!-- Legende -->
+      <div class="graph-legend" id="graph-legend"></div>
+      <!-- Refresh-Indikator -->
+      <div class="graph-refresh-ind" id="graph-refresh-ind">● LIVE</div>
     </div>
   </div>
 
   <!-- VIZ 2: Bubble-Chart -->
   <div class="viz-section">
-    <div class="viz-title">Potenzial vs. Score <span class="viz-sub">Blasengröße = Anzahl Bewertungen</span></div>
-    <div class="bubble-wrap" id="bubble-wrap">
-      <svg id="bubble-svg"></svg>
+    <div class="viz-title">Potenzial × Score
+      <span class="viz-sub">Blasengröße = Bewertungsanzahl · Farbe = aktive Gruppierung</span>
     </div>
+    <div class="bubble-wrap" id="bubble-wrap"><svg id="bubble-svg"></svg></div>
   </div>
 
   <!-- VIZ 3: Treemap -->
   <div class="viz-section">
-    <div class="viz-title">Lead-Verteilung <span class="viz-sub">Fläche = Anzahl Leads — Bundesland › Branche › Typ</span></div>
-    <div class="treemap-wrap" id="treemap-wrap">
-      <svg id="treemap-svg"></svg>
+    <div class="viz-title">Lead-Verteilung
+      <span class="viz-sub">Fläche = Anzahl Leads · Bundesland › Branche › Hot-Anteil = Röte</span>
     </div>
+    <div class="treemap-wrap" id="treemap-wrap"><svg id="treemap-svg"></svg></div>
   </div>
 
 </main>
@@ -253,5 +267,26 @@
 <script src="/static/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/static/js/graph.js"></script>
+
+<!-- Log-Drawer (ausklappbar von unten) -->
+<div class="log-drawer" id="log-drawer">
+  <div class="log-header" onclick="toggleLogDrawer()">
+    <span class="log-title">⬡ SYSTEM KONSOLE</span>
+    <span class="log-stats" id="log-stats"></span>
+    <span class="log-toggle-btn" id="log-toggle-btn">▲ Öffnen</span>
+  </div>
+  <div class="log-body" id="log-body">
+    <div class="log-toolbar">
+      <button class="lf-btn active" data-lvl="" onclick="setLogFilter('')">Alle</button>
+      <button class="lf-btn" data-lvl="SCRAPE"  onclick="setLogFilter('SCRAPE')">Scraper</button>
+      <button class="lf-btn" data-lvl="EVAL"    onclick="setLogFilter('EVAL')">Evaluator</button>
+      <button class="lf-btn" data-lvl="SUCCESS" onclick="setLogFilter('SUCCESS')">OK</button>
+      <button class="lf-btn" data-lvl="ERROR"   onclick="setLogFilter('ERROR')">Fehler</button>
+      <button class="lf-btn" data-lvl="WARN"    onclick="setLogFilter('WARN')">Warn</button>
+      <button class="lf-btn" style="margin-left:auto" onclick="clearLogView()">✕ Leeren</button>
+    </div>
+    <div class="log-entries" id="log-entries"></div>
+  </div>
+</div>
 </body>
 </html>

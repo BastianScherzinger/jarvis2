@@ -13,6 +13,7 @@ from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 import db
 import db_raw as _db_raw
+import logger
 
 _HEADERS = {
     "User-Agent": (
@@ -56,6 +57,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
 
 
 def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
+    logger.scrape("GelbeSeit", f"Scanne: {branche} | {region}")
     city_enc   = urllib.parse.quote_plus(region)
     branch_enc = urllib.parse.quote_plus(branche)
     base       = f"https://www.gelbeseiten.de/suche/{branch_enc}/{city_enc}"
@@ -77,6 +79,8 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             soup.select("[class*='result']")
         )
         if not entries:
+            if page_nr == 1:
+                logger.warn("GelbeSeit", f"Keine Ergebnisse: {region}/{branche}")
             break
 
         new_found = False
@@ -153,6 +157,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
             if lead_id:
                 lead["id"] = lead_id
+                logger.success("GelbeSeit", f"Gefunden: {name} ({region})")
                 on_lead(lead)
                 found += 1
                 new_found = True

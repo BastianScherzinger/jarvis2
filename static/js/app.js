@@ -871,3 +871,80 @@ function openMediaFull(url, kind){
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
 }
+
+// ── Log-Konsole ───────────────────────────────────────────────────────────
+let _logLastTs  = '';
+let _logFilter  = '';
+let _logOpen    = false;
+let _logTimer   = null;
+const LOG_COLORS = {
+  SUCCESS: '#00e676', ERROR: '#ff3b50', WARN: '#ffca28',
+  INFO: '#00d4ff', EVAL: '#ea80fc', SCRAPE: '#ffab40', DEBUG: '#4a6080',
+};
+
+function toggleLogDrawer() {
+  _logOpen = !_logOpen;
+  document.getElementById('log-drawer').classList.toggle('open', _logOpen);
+  document.getElementById('log-toggle-btn').textContent = _logOpen ? '▼ Schließen' : '▲ Öffnen';
+  if (_logOpen && !_logTimer) _startLogPoll();
+  if (!_logOpen && _logTimer) { clearInterval(_logTimer); _logTimer = null; }
+}
+
+function _startLogPoll() {
+  _pollLogs();
+  _logTimer = setInterval(_pollLogs, 2000);
+}
+
+async function _pollLogs() {
+  try {
+    const url = '/api/logs?limit=100' + (_logLastTs ? '&since=' + encodeURIComponent(_logLastTs) : '');
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.logs && d.logs.length) {
+      _logLastTs = d.last_ts || _logLastTs;
+      _appendLogs(d.logs);
+    }
+  } catch(e) {}
+}
+
+function _appendLogs(entries) {
+  const el = document.getElementById('log-entries');
+  if (!el) return;
+  const wasBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  entries.forEach(e => {
+    if (_logFilter && e.level !== _logFilter) return;
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.dataset.lvl = e.level;
+    const col = LOG_COLORS[e.level] || '#4a6080';
+    div.innerHTML = `<span class="ll-ts">${e.ts}</span>`
+      + `<span class="ll-lvl" style="color:${col}">${e.level.padEnd(7)}</span>`
+      + `<span class="ll-worker">[${e.worker}]</span>`
+      + `<span class="ll-msg">${_e(e.msg)}</span>`;
+    el.appendChild(div);
+  });
+  // Max 400 Zeilen im DOM
+  while (el.children.length > 400) el.removeChild(el.firstChild);
+  if (wasBottom) el.scrollTop = el.scrollHeight;
+
+  // Stats
+  const total = el.querySelectorAll('.log-line').length;
+  const errs  = el.querySelectorAll('[data-lvl="ERROR"]').length;
+  const stats = document.getElementById('log-stats');
+  if (stats) stats.textContent = `${total} Zeilen${errs ? ' · ' + errs + ' Fehler' : ''}`;
+}
+
+function setLogFilter(lvl) {
+  _logFilter = lvl;
+  document.querySelectorAll('.lf-btn').forEach(b => b.classList.toggle('active', b.dataset.lvl === lvl));
+  // Bestehende Zeilen filtern
+  document.querySelectorAll('.log-line').forEach(l => {
+    l.style.display = (!lvl || l.dataset.lvl === lvl) ? '' : 'none';
+  });
+}
+
+function clearLogView() {
+  const el = document.getElementById('log-entries');
+  if (el) el.innerHTML = '';
+  _logLastTs = '';
+}

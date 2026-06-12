@@ -20,6 +20,7 @@ import db
 import db_raw
 import db_evaluated
 import media_queue
+import logger as _logger
 from scrapers import controller, _http
 
 app = Flask(__name__)
@@ -185,13 +186,23 @@ def api_eval_status(eval_id):
 
 @app.route("/api/graph/nodes")
 def api_graph_nodes():
-    limit = min(int(request.args.get("limit", 2000)), 2000)
-    return jsonify({"nodes": db_evaluated.get_for_graph(limit)})
+    limit  = min(int(request.args.get("limit", 2000)), 2000)
+    offset = max(int(request.args.get("offset", 0)), 0)
+    return jsonify({"nodes": db_evaluated.get_for_graph(limit, offset)})
 
 
 @app.route("/api/graph/stats")
 def api_graph_stats():
     return jsonify(db_evaluated.get_graph_stats())
+
+
+@app.route("/api/logs")
+def api_logs():
+    limit   = int(request.args.get("limit", 150))
+    since   = request.args.get("since", "")
+    entries = _logger.get_since(since, limit) if since else _logger.get_recent(limit)
+    last_ts = entries[-1]["ts"] if entries else ""
+    return jsonify({"logs": entries, "last_ts": last_ts})
 
 
 # ── Media: Bild/Video-Generierung ────────────────────────────────────────────

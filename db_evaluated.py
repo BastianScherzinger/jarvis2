@@ -167,15 +167,28 @@ def get_by_raw_id(raw_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def get_for_graph(limit: int = 2000) -> list[dict]:
-    """Leichtgewichtige Knoten für die Graph-Visualisierung."""
+def get_for_graph(limit: int = 2000, offset: int = 0) -> list[dict]:
+    """Leichtgewichtige Knoten für die Graph-Visualisierung.
+
+    offset=0  → bestes-zuerst (score DESC) für den initialen Vollabruf.
+    offset>0  → inkrementell (id ASC): nur Knoten ab dem Offset, damit neu
+                bewertete Leads für den 3s-Auto-Refresh zuverlässig nachrücken.
+    """
+    cols = ("id, name, branche, stadt, bundesland, score, "
+            "potenzial_euro, lead_typ, has_website")
     with _lock, _conn() as c:
-        rows = c.execute(
-            "SELECT id, name, branche, stadt, bundesland, score, "
-            "potenzial_euro, lead_typ, has_website "
-            "FROM evaluated_leads ORDER BY score DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if offset > 0:
+            rows = c.execute(
+                f"SELECT {cols} FROM evaluated_leads "
+                "ORDER BY id ASC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                f"SELECT {cols} FROM evaluated_leads "
+                "ORDER BY score DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

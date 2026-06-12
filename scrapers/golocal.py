@@ -15,6 +15,7 @@ from scrapers.regions import get_bundesland
 from scrapers import _http
 import db
 import db_raw as _db_raw
+import logger
 
 _HEADERS = {
     "User-Agent": _http.UA,
@@ -58,6 +59,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
 
 
 def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
+    logger.scrape("golocal", f"Scanne: {branche} | {region}")
     city = region.replace("Berlin ", "")
     what = urllib.parse.quote_plus(branche)
     where = urllib.parse.quote_plus(city)
@@ -74,6 +76,8 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
         soup.select("li[class*='entry']") or
         soup.select("[class*='result']")
     )
+    if not entries:
+        logger.warn("golocal", f"Keine Ergebnisse: {region}/{branche}")
 
     found = 0
     for art in entries:
@@ -165,6 +169,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
         _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
         if lead_id:
             lead["id"] = lead_id
+            logger.success("golocal", f"Gefunden: {name} ({region})")
             on_lead(lead)
             found += 1
 

@@ -15,6 +15,7 @@ from agents import ai_worker
 from agents.evaluator import pipeline as evaluator_pipeline
 import db
 import db_raw
+import logger
 
 _lead_queue     = queue.Queue()
 _stop_event     = threading.Event()
@@ -57,6 +58,8 @@ def start() -> None:
         return
     _stop_event.clear()
     _active = True
+
+    logger.info("Controller", f"Starte {6} Scraper-Worker + Verifier + Evaluator | Combos: {get_combo_count():,}")
 
     # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks
     # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
@@ -113,6 +116,7 @@ def start() -> None:
 
 def stop() -> None:
     global _active
+    logger.info("Controller", "Stop-Signal gesendet — alle Worker beenden")
     _stop_event.set()
     _active = False
 
@@ -122,6 +126,8 @@ def _on_lead(lead: dict) -> None:
 
 
 def _spawn(name: str, fn, combos, delay: float = 0, **kwargs):
+    logger.info("Controller", f"Worker '{name}' gestartet (Delay: {delay}s)")
+
     def _run():
         if delay:
             time.sleep(delay)

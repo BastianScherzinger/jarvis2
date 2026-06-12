@@ -16,6 +16,7 @@ from scrapers import _http
 from scrapers import synonyme
 import db
 import db_raw as _db_raw
+import logger
 
 # Synonym-Cache lazy laden (gecacht → kein Ollama-Spam pro Combo).
 # Erst beim ersten run_continuous-Aufruf, damit der Import (→ Flask-Start)
@@ -99,6 +100,7 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event,
 
 
 def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_per):
+    logger.scrape("AI-Worker", f"Recherchiere: {branche} | {region}")
     # Schritt 1: Suchanfragen aus gecachten Branchen-Synonymen bauen
     # (spart pro Combo einen Ollama-Call UND liefert bessere Begriffe).
     synonyme_liste = _SYNONYME.get(branche) or []
@@ -132,6 +134,7 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             break
 
         results = _ddg_search(query)
+        logger.debug("AI-Worker", f"{len(results)} URLs gefunden für '{query}'")
 
         for res in results:
             if stop_event.is_set() or found >= max_per:
@@ -157,6 +160,8 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
 
             raw  = ask(extract_prompt) if ask else ""
             data = _extract_json(raw)
+            if not raw:
+                logger.warn("AI-Worker", "Ollama nicht erreichbar — Fallback")
 
             name = (data.get("name") or title)[:120]
             if not name or len(name.strip()) < 3:
@@ -197,6 +202,7 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
             if lead_id:
                 lead["id"] = lead_id
+                logger.success("AI-Worker", f"Extrahiert: {name} ({region})")
                 on_lead(lead)
                 found += 1
 

@@ -10,6 +10,7 @@ from datetime import date
 from agents.scorer import combine_score
 from scrapers import _http
 import db
+import logger
 
 # Erkennungs-Muster
 _VIEWPORT_RE   = re.compile(r'name=["\']viewport["\']', re.IGNORECASE)
@@ -45,11 +46,14 @@ def _verify_loop(worker_id, on_update, stop_event):
             time.sleep(5)
             continue
         try:
+            logger.info("Verifier", f"Prüfe: {lead.get('name')} ({lead.get('stadt')})")
             result = verify_lead(lead)
             db.update_verification(lead["id"], result)
             lead.update(result)
+            logger.success("Verifier", f"Verifiziert: {lead.get('name')} → {result.get('end_score')} Pkt ({result.get('lead_typ')})")
             on_update({"type": "verified", "data": lead})
         except Exception as e:
+            logger.error("Verifier", f"Fehler bei {lead.get('name')}: {e}")
             try:
                 db.update_verification(lead["id"], {
                     "verify_status": "failed",
