@@ -71,6 +71,7 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 "website_url":         web.get("website_url", ""),
                 "discovered_website":  web.get("discovered_website", ""),
                 "bilder_vorhanden":    bilder,
+                "foto_url":            web.get("foto_url") or lead.get("foto_url", ""),
                 "email_vorhanden":     web.get("email_vorhanden", 0),
                 "email_adresse":       web.get("email_adresse", ""),
                 "telefon_verifiziert": web.get("telefon_verifiziert", 0),

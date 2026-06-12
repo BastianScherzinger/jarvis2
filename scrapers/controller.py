@@ -47,6 +47,16 @@ def start() -> None:
     _stop_event.clear()
     _active = True
 
+    # Ollama-Modell EINMAL vorladen (Kaltstart 30-120s), damit die Evaluator-
+    # Threads danach schnelle Antworten bekommen statt in den Timeout zu laufen.
+    def _warmup():
+        from scrapers import _http
+        logger.info("Ollama", "Lade Modell in den Speicher…")
+        ok = _http.warmup_ollama()
+        logger.success("Ollama", "Modell bereit.") if ok else \
+            logger.warn("Ollama", "Modell nicht erreichbar — Heuristik-Fallback aktiv.")
+    threading.Thread(target=_warmup, name="Ollama-Warmup", daemon=True).start()
+
     logger.info("Controller", f"Starte {6} Scraper-Worker + Verifier + Evaluator | Combos: {get_combo_count():,}")
 
     # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks

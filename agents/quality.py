@@ -7,6 +7,15 @@ PORTAL_WORDS = ["suche", "finden", "vergleich", "liste", "wikipedia", "facebook"
     "das örtliche", "branchenbuch", "verzeichnis", "portal", "anzeigen", "kleinanzeigen",
     "immobilien scout", "ebay", "amazon", "booking", "tripadvisor"]
 
+# Generische UI-/Seiten-Texte die KEIN Betrieb sind (exakte Treffer, normalisiert).
+# Fängt z.B. den Maps-Bug ab, bei dem die Überschrift "Ergebnisse" als Lead landet.
+GENERIC_NAMES = {
+    "ergebnisse", "suchergebnisse", "mehr ergebnisse", "keine ergebnisse",
+    "results", "search results", "google maps", "maps", "anmelden", "login",
+    "mehr anzeigen", "alle anzeigen", "weitere ergebnisse", "übersicht",
+    "startseite", "home", "impressum", "kontakt", "menü", "menu",
+}
+
 
 def is_real_business(lead: dict) -> tuple[bool, str]:
     """
@@ -19,8 +28,13 @@ def is_real_business(lead: dict) -> tuple[bool, str]:
     if len(name) < 3:
         return (False, "Name zu kurz")
 
-    # 2. Portal / Verzeichnis
     name_lower = name.lower()
+
+    # 2. Generischer UI-/Seiten-Text (exakter Treffer)
+    if name_lower in GENERIC_NAMES:
+        return (False, "Generischer Seiten-Text")
+
+    # 3. Portal / Verzeichnis
     if any(w in name_lower for w in PORTAL_WORDS):
         return (False, "Portal/Verzeichnis")
 

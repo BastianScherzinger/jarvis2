@@ -14,7 +14,7 @@ _COLUMNS = [
     "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
     "has_website", "website_url", "discovered_website", "website_veraltet",
     "website_alter_jahre", "website_probleme", "fotos_in_maps", "bilder_vorhanden",
-    "social_media", "hat_nur_social",
+    "foto_url", "social_media", "hat_nur_social",
     "beschreibung", "ist_privat_zahler", "firmengroesse", "potenzial_euro",
     "potenzial_begruendung", "pitch_hook", "score", "lead_typ", "email_entwurf",
     "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
@@ -24,6 +24,7 @@ _COLUMNS = [
 _NEW_COLUMNS = {
     "discovered_website": "TEXT",
     "bilder_vorhanden":   "INTEGER DEFAULT 0",
+    "foto_url":           "TEXT",
     "score_breakdown":    "TEXT",
     "verify_log":         "TEXT",
     "verifiziert":        "INTEGER DEFAULT 1",
@@ -62,6 +63,7 @@ def init_db() -> None:
             website_probleme      TEXT,
             fotos_in_maps         INTEGER DEFAULT 0,
             bilder_vorhanden      INTEGER DEFAULT 0,
+            foto_url              TEXT,
             social_media          TEXT,
             hat_nur_social        INTEGER DEFAULT 0,
             beschreibung          TEXT,
@@ -253,3 +255,74 @@ def get_graph_stats() -> dict:
         if typ in out[bl][br]:
             out[bl][br][typ] += r["n"]
     return out
+
+
+# ── CSV-Export ──────────────────────────────────────────────────────────────
+# Saubere, nach Score sortierte Tabelle mit sprechenden deutschen Spalten.
+# Semikolon-Trennung + UTF-8-BOM → öffnet in deutschem Excel mit korrekten Umlauten.
+
+_CSV_SPALTEN = [
+    ("Rang",             None),
+    ("Schlüssel",        "schluessel"),
+    ("Score",            "score"),
+    ("Typ",              "lead_typ"),
+    ("Potenzial (€)",    "potenzial_euro"),
+    ("Name",             "name"),
+    ("Branche",          "branche"),
+    ("Stadt",            "stadt"),
+    ("Bundesland",       "bundesland"),
+    ("Adresse",          "adresse"),
+    ("Telefon",          "telefon"),
+    ("E-Mail",           "email_adresse"),
+    ("Website?",         "_website_status"),
+    ("Website-URL",      "_website_url"),
+    ("Website-Alter (J)","website_alter_jahre"),
+    ("Website-Probleme", "_website_probleme"),
+    ("Bilder?",          "_bilder"),
+    ("Foto-URL",         "foto_url"),
+    ("Firmengröße",      "firmengroesse"),
+    ("Privatzahler?",    "_privat"),
+    ("Pitch-Hook",       "pitch_hook"),
+    ("Beschreibung",     "beschreibung"),
+    ("Status",           "status"),
+    ("Bewertet am",      "bewertet_am"),
+]
+
+
+def _csv_value(lead: dict, key: str) -> str:
+    import json as _json
+    if key == "_website_status":
+        if not lead.get("has_website"):
+            return "KEINE Website"
+        return "veraltet" if lead.get("website_veraltet") else "vorhanden"
+    if key == "_website_url":
+        return lead.get("discovered_website") or lead.get("website_url") or ""
+    if key == "_website_probleme":
+        try:
+            probs = _json.loads(lead.get("website_probleme") or "[]")
+            return " | ".join(probs) if isinstance(probs, list) else ""
+        except Exception:
+            return ""
+    if key == "_bilder":
+        return "ja" if lead.get("bilder_vorhanden") else "nein"
+    if key == "_privat":
+        return "ja" if lead.get("ist_privat_zahler") else "nein"
+    val = lead.get(key, "")
+    return "" if val is None else str(val)
+
+
+def export_csv() -> str:
+    """Sortierter CSV-Export (Score absteigend) mit sprechenden Spalten + BOM."""
+    import csv, io
+    rows = get_all(limit=100000, sort="score")
+    buf = io.StringIO()
+    buf.write("﻿")   # UTF-8-BOM für Excel
+    w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL,
+                   lineterminator="\r\n")
+    w.writerow([titel for titel, _ in _CSV_SPALTEN])
+    for i, lead in enumerate(rows, start=1):
+        zeile = []
+        for _titel, key in _CSV_SPALTEN:
+            zeile.append(str(i) if key is None else _csv_value(lead, key))
+        w.writerow(zeile)
+    return buf.getvalue()

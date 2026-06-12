@@ -44,37 +44,26 @@ def _real_emails(html: str) -> list[str]:
     return [e for e in emails if not any(b in e.lower() for b in _BAD_DOMAINS)]
 
 
-def _name_tokens(name: str) -> list[str]:
-    """Aussagekräftige Namens-Bestandteile (>=4 Zeichen, klein)."""
-    raw = re.sub(r'[^a-zäöüß0-9 ]', ' ', (name or "").lower())
-    stop = {"gmbh", "ohg", "kg", "ag", "co", "und", "der", "die", "das",
-            "inh", "ek", "ug", "mbh", "betrieb", "firma"}
-    return [t for t in raw.split() if len(t) >= 4 and t not in stop]
-
-
-def _passt_zum_namen(url: str, name: str) -> bool:
-    """True wenn die Domain plausibel zum Betriebsnamen passt ODER eine
-    generische eigene Domain ist (eigene TLD, kein Verzeichnis)."""
+def _ist_eigene_domain(url: str) -> bool:
+    """True wenn die URL eine eigene Website sein könnte: kein Verzeichnis/Social
+    und eine gängige TLD. RELAXED — keine strenge Namens-Plausibilitätsprüfung."""
+    if _ist_verzeichnis(url):
+        return False
     dom = _domain(url)
     if not dom:
         return False
-    host = dom.split(".")[0]
-    for tok in _name_tokens(name):
-        if tok[:5] in host or host in tok:
-            return True
-    # Generische eigene Domain: endet auf gängige TLD und ist kein Verzeichnis.
-    return dom.endswith((".de", ".com", ".net", ".eu", ".org", ".info"))
+    return dom.endswith((".de", ".com", ".net", ".eu", ".org", ".info", ".biz", ".io"))
 
 
 def _finde_website(lead: dict, name: str, stadt: str, branche: str) -> str:
     """Schritt 1 — aktiv die echte Website finden. URL oder ""."""
-    # Bereits gesetzte URL nehmen, wenn sie keine Verzeichnis-/Social-Domain ist.
+    # Schritt 0 — bereits gesetzte URL SOFORT nehmen, wenn keine Verzeichnis-/Social-Domain.
     vorhanden = (lead.get("website_url") or "").strip()
     if vorhanden and not _ist_verzeichnis(vorhanden):
         return vorhanden
 
-    # Aktiv suchen — zwei Queries für bessere Trefferquote.
-    queries = [f'{name} {stadt} {branche}'.strip(), f'{name} {stadt}'.strip()]
+    # Schritt 1 — aktiv suchen. Ersten Nicht-Verzeichnis/Nicht-Social-Treffer nehmen.
+    queries = [f'{name} {stadt}'.strip(), f'{name} {stadt} {branche}'.strip()]
     seen = set()
     for q in queries:
         for hit in ddg_search(q):
@@ -82,9 +71,9 @@ def _finde_website(lead: dict, name: str, stadt: str, branche: str) -> str:
             if not url or url in seen:
                 continue
             seen.add(url)
-            if _ist_verzeichnis(url):
-                continue
-            if _passt_zum_namen(url, name):
+            # RELAXED: akzeptiere jeden http(s)-Treffer der kein Verzeichnis/Social ist,
+            # auch wenn der Domainname nicht exakt zum Betriebsnamen passt.
+            if _ist_eigene_domain(url):
                 return url
     return ""
 
@@ -97,7 +86,7 @@ def analyze(lead: dict) -> dict:
       discovered_website, has_website (überschreibt Scraper), website_url,
       email_vorhanden, email_adresse, telefon_verifiziert,
       website_veraltet, website_alter_jahre, website_probleme(list),
-      bilder_vorhanden, verify_steps(list).
+      bilder_vorhanden, foto_url, verify_steps(list).
     """
     name    = (lead.get("name") or "").strip()
     stadt   = (lead.get("stadt") or "").strip()
@@ -112,6 +101,7 @@ def analyze(lead: dict) -> dict:
         "website_veraltet": 0, "website_alter_jahre": -1,
         "website_probleme": [],
         "bilder_vorhanden": 0,
+        "foto_url": "",
         "verify_steps": [],
     }
     steps = result["verify_steps"]
@@ -214,15 +204,34 @@ def analyze(lead: dict) -> dict:
 
         result["website_probleme"] = issues[:6]
 
-    # ── Schritt 3: Bilder prüfen ────────────────────────────────────────────
-    web_bilder = 0
-    if html:
-        img_count = html.lower().count("<img")
-        og_image  = bool(re.search(r'property=["\']og:image["\']', html, re.I))
-        if img_count >= 1 or og_image:
-            web_bilder = 1
+    # ── Schritt 3: Bilder + Foto-URL erfassen ───────────────────────────────
     maps_fotos = int(lead.get("bilder_maps") or 0)
-    result["bilder_vorhanden"] = 1 if (web_bilder or maps_fotos) else 0
+    if html:
+        # og:image extrahieren → Foto-URL für die Vorschau.
+        try:
+            og = re.search(
+                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                html, re.I,
+            ) or re.search(
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                html, re.I,
+            )
+            if og:
+                og_url = og.group(1).strip()
+                if og_url and not og_url.startswith("http"):
+                    og_url = urljoin(url, og_url)
+                result["foto_url"] = og_url[:300]
+        except Exception:
+            pass
+
+        img_count = html.lower().count("<img")
+        if result["foto_url"] or img_count > 3 or maps_fotos:
+            result["bilder_vorhanden"] = 1
+    else:
+        result["bilder_vorhanden"] = 1 if maps_fotos else 0
+
+    if result["foto_url"]:
+        logger.debug("WebAnalyst", f"→ Foto-URL: {result['foto_url']}")
 
     bilder_txt = "ja" if result["bilder_vorhanden"] else "nein"
     alter = result["website_alter_jahre"]

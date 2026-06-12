@@ -65,10 +65,13 @@ def api_status():
 
 @app.route("/api/export/csv")
 def api_export_csv():
+    # Sortierter Export der KI-bewerteten Leads (DB2): Score absteigend,
+    # sprechende deutsche Spalten, Semikolon + BOM für deutsches Excel.
+    csv_text = db_evaluated.export_csv()
     return Response(
-        db.export_csv(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+        csv_text.encode("utf-8"),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=leads_rangliste.csv"},
     )
 
 

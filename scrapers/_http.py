@@ -1,13 +1,24 @@
 """
 Geteilte HTTP- und Ollama-Helfer für alle Scraper und den Verifier.
-Öffentliche API: get, ddg_search, ask_ollama, extract_json, ollama_models, UA.
+Öffentliche API: get, ddg_search, ask_ollama, extract_json, ollama_models,
+warmup_ollama, UA.
 """
 import json
 import os
 import re
+import threading
 import urllib.request
 import urllib.parse
 import urllib.error
+
+# Ollama serialisiert Anfragen intern auf einer GPU. Bei 6+ parallelen Threads
+# (Evaluator + Verifier) stauen sich die Requests und laufen in den Timeout.
+# Die Semaphore begrenzt gleichzeitige Ollama-Calls → kein Timeout-Kaskade.
+_OLLAMA_SEM = threading.Semaphore(2)
+_OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
+# Großzügiger Timeout: Kaltstart eines 7B-Modells (Laden von Platte) kann
+# 30-120s dauern. keep_alive hält das Modell danach im Speicher.
+_OLLAMA_TIMEOUT = 180
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -66,11 +77,13 @@ def ddg_search(query: str) -> list[dict]:
 
 # ── Ollama ──────────────────────────────────────────────────────────────────
 
-def ask_ollama(prompt: str, system: str = "", model: str = "") -> str:
+def ask_ollama(prompt: str, system: str = "", model: str = "",
+               timeout: int = _OLLAMA_TIMEOUT) -> str:
     """
     Fragt das lokale Ollama-Modell. Modell-Auswahl dynamisch:
     explizites model > JARVIS_VERIFIER_MODEL > JARVIS_LOCAL_MODEL > qwen2.5:7b.
     Env-Vars werden bei JEDEM Aufruf neu gelesen (Laufzeit-Wechsel möglich).
+    Begrenzt durch Semaphore (max 2 parallel) + keep_alive hält Modell geladen.
     """
     if not model:
         model = os.environ.get("JARVIS_VERIFIER_MODEL") or \
@@ -82,19 +95,31 @@ def ask_ollama(prompt: str, system: str = "", model: str = "") -> str:
             {"role": "user",   "content": prompt},
         ],
         "stream": False,
-        "options": {"temperature": 0.1},
+        "keep_alive": "10m",                # Modell 10 Min im Speicher halten
+        "options": {"temperature": 0.1, "num_predict": 400},
     }).encode("utf-8")
     req = urllib.request.Request(
-        "http://127.0.0.1:11434/api/chat",
-        data=payload, headers={"Content-Type": "application/json"}
+        _OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read())["message"]["content"]
-    except urllib.error.URLError:
-        return ""   # Ollama nicht erreichbar — kein Fehler-Spam
-    except Exception as e:
-        return f"FEHLER: {e}"
+    with _OLLAMA_SEM:
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())["message"]["content"]
+        except urllib.error.URLError:
+            return ""   # Ollama nicht erreichbar — kein Fehler-Spam
+        except Exception:
+            return ""   # Timeout o.ä. — Aufrufer nutzt Fallback
+
+
+def warmup_ollama() -> bool:
+    """
+    Lädt das Modell EINMAL in den Speicher (Kaltstart kann 30-120s dauern).
+    Sollte beim Scraper-Start in einem eigenen Thread aufgerufen werden, damit
+    die Evaluator-Threads danach schnelle Antworten bekommen statt zu timeouten.
+    Gibt True zurück wenn Ollama geantwortet hat.
+    """
+    r = ask_ollama('Antworte nur mit: {"ok":1}', "Test", timeout=300)
+    return bool(r)
 
 
 def ollama_models() -> list[dict]:

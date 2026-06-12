@@ -176,6 +176,10 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
         name = _text(page, "h1", "h2[class*='fontHeadlineLarge']")
         if not name or len(name) < 2:
             return None
+        # Generische Maps-Überschriften ("Ergebnisse" etc.) sind keine Betriebe
+        if name.strip().lower() in {"ergebnisse", "suchergebnisse", "results",
+                                    "mehr ergebnisse", "weitere ergebnisse"}:
+            return None
 
         # Website-Check (mehrere Selektor-Varianten)
         website_url = ""
@@ -192,7 +196,28 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
         has_web  = bool(website_url and "google" not in website_url)
         web_info = check_website(website_url) if has_web else {}
 
-        bilder = bool(page.query_selector(
+        # Bilder / Hero-Foto-URL erfassen (gespeicherte Maps-Bilder)
+        foto_url = ""
+        for img_sel in [
+            "button[jsaction*='heroHeaderImage'] img",
+            "div[role='img'] img[src*='googleusercontent']",
+            "img[decoding='async'][src*='googleusercontent']",
+        ]:
+            el = page.query_selector(img_sel)
+            if el:
+                src = el.get_attribute("src") or ""
+                if src and "googleusercontent" in src:
+                    foto_url = src
+                    break
+        # Fallback: Hintergrundbild im Hero-Button
+        if not foto_url:
+            hero = page.query_selector("button[jsaction*='heroHeaderImage'], div[role='img']")
+            if hero:
+                style = hero.get_attribute("style") or ""
+                m = re.search(r'url\(["\']?(https?://[^"\')]+)', style)
+                if m and "googleusercontent" in m.group(1):
+                    foto_url = m.group(1)
+        bilder = bool(foto_url) or bool(page.query_selector(
             "button[aria-label*='Foto'], button[aria-label*='Bild'], "
             "div[aria-label*='Fotos']"
         ))
@@ -255,6 +280,7 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
             "bewertung":      rating,
             "anz_bewertungen": anz_rev,
             "bilder":         int(bilder),
+            "foto_url":       foto_url,
             "finder":         "maps_playwright",
             "maps_url":       page.url,
         }

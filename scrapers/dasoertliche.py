@@ -123,6 +123,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
 
         has_web  = bool(website_url)
         web_info = check_website(website_url) if has_web else {}
+        bewertung, anz_bew = _parse_rating(art)
 
         lead = {
             "name":           name[:120],
@@ -134,8 +135,8 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             "website_url":    website_url[:300] if has_web else "",
             "has_website":    int(has_web),
             "website_alter":  web_info.get("alter_jahre", -1),
-            "bewertung":      0.0,
-            "anz_bewertungen": 0,
+            "bewertung":      bewertung,
+            "anz_bewertungen": anz_bew,
             "bilder":         0,
             "finder":         "dasoertliche",
             "maps_url":       "",
@@ -158,3 +159,48 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             found += 1
 
     time.sleep(1.0)
+
+
+def _parse_rating(art) -> tuple[float, int]:
+    """Extrahiert (Sterne 0-5, Anzahl Bewertungen) aus einem Listen-Eintrag.
+    Robust — gibt (0.0, 0) zurück wenn nichts gefunden, crasht nie."""
+    bewertung, anz = 0.0, 0
+    try:
+        rate_el = (
+            art.select_one("[itemprop='ratingValue']") or
+            art.select_one("[class*='rating']") or
+            art.select_one("[class*='stars']") or
+            art.select_one("[class*='bewertung']")
+        )
+        txt = ""
+        if rate_el:
+            txt = rate_el.get("content") or rate_el.get("aria-label") or rate_el.get_text(" ", strip=True)
+        if txt:
+            m = re.search(r"(\d[.,]?\d?)", txt)
+            if m:
+                val = float(m.group(1).replace(",", "."))
+                if 0.0 <= val <= 5.0:
+                    bewertung = val
+    except Exception:
+        bewertung = 0.0
+    try:
+        cnt_el = (
+            art.select_one("[itemprop='reviewCount']") or
+            art.select_one("[class*='count']")
+        )
+        cnt_txt = ""
+        if cnt_el:
+            cnt_txt = cnt_el.get("content") or cnt_el.get_text(" ", strip=True)
+        if not cnt_txt:
+            full = art.get_text(" ", strip=True)
+            mb = re.search(r"\((\d+)\s*Bewertung", full, re.I) or \
+                 re.search(r"(\d+)\s*Bewertung", full, re.I)
+            if mb:
+                cnt_txt = mb.group(1)
+        if cnt_txt:
+            mc = re.search(r"\d+", cnt_txt)
+            if mc:
+                anz = int(mc.group(0))
+    except Exception:
+        anz = 0
+    return bewertung, anz
