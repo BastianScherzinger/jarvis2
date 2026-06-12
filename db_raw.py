@@ -174,6 +174,15 @@ def reset_stale() -> None:
         c.commit()
 
 
+def reset_all_for_reeval() -> int:
+    """Setzt ALLE Leads (auch 'done'/'failed') auf 'pending' für eine komplette
+    Neu-Bewertung. Gibt die Anzahl betroffener Zeilen zurück."""
+    with _lock, _conn() as c:
+        cur = c.execute("UPDATE raw_leads SET eval_status='pending'")
+        c.commit()
+        return cur.rowcount
+
+
 def get_pending_count() -> int:
     with _lock, _conn() as c:
         return c.execute(

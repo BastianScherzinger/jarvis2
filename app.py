@@ -155,7 +155,17 @@ def api_eval_all():
     branche    = request.args.get("branche")
     bundesland = request.args.get("bundesland")
     lead_typ   = request.args.get("lead_typ")
-    return jsonify(db_evaluated.get_all(limit, offset, branche, bundesland, lead_typ))
+    sort       = request.args.get("sort", "score")
+    suche      = request.args.get("suche", "")
+    return jsonify(db_evaluated.get_all(
+        limit, offset, branche, bundesland, lead_typ, sort, suche
+    ))
+
+
+@app.route("/api/evaluated/reeval", methods=["POST"])
+def api_eval_reeval():
+    n = db_raw.reset_all_for_reeval()
+    return jsonify({"ok": True, "requeued": n})
 
 
 @app.route("/api/evaluated/stats")

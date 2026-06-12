@@ -1,0 +1,390 @@
+'use strict';
+/* ── JARVIS LeadHunter · Rangliste (DB2 — KI-bewertete Leads) ──────────────── */
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let _rankData        = [];
+let _rankSort        = 'score';
+let _rankSearch      = '';
+let _rankTimer       = null;
+let _rankFiltersInit = false;
+let _rankSearchTimer = null;
+let _rankInit        = false;
+
+// ── HTML-Escape (lokal — NICHT die app.js-Version überschreiben) ──────────────
+function _re(s){
+  return (s==null?'':String(s))
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Sicheres JSON-Parsen (Felder können leer/ungültig sein) ───────────────────
+function _rjson(raw, fallback){
+  if(raw==null) return fallback;
+  if(typeof raw !== 'string') return raw;
+  const t = raw.trim();
+  if(!t) return fallback;
+  try{ return JSON.parse(t); }catch{ return fallback; }
+}
+
+// ── Aktiv? (Tab sichtbar) ─────────────────────────────────────────────────────
+function _rankActive(){
+  const p = document.querySelector('main[data-page="ranking"]');
+  return !!(p && p.classList.contains('active'));
+}
+
+// ── Init (erster Tab-Wechsel) ─────────────────────────────────────────────────
+function initRanking(){
+  if(!_rankInit){
+    _rankInit = true;
+    _initRankFilters();
+    _startRankRefresh();
+  }
+  rankReload();
+}
+
+// ── Filter-Dropdowns EINMALIG befüllen (aus /stats) ──────────────────────────
+async function _initRankFilters(){
+  if(_rankFiltersInit) return;
+  _rankFiltersInit = true;
+  let s;
+  try{ s = await(await fetch('/api/evaluated/stats')).json(); }catch{ return; }
+  const blSel = document.getElementById('rank-bl');
+  const brSel = document.getElementById('rank-br');
+  const fill = (sel, obj) => {
+    if(!sel || !obj) return;
+    const keys = Object.keys(obj);
+    if(!keys.length) return;
+    sel.insertAdjacentHTML('beforeend',
+      keys.map(k => `<option value="${_re(k)}">${_re(k)}</option>`).join(''));
+  };
+  fill(blSel, s.top_bundeslaender);
+  fill(brSel, s.top_branchen);
+}
+
+// ── Auto-Refresh alle 3s (nur wenn Tab aktiv) ────────────────────────────────
+function _startRankRefresh(){
+  if(_rankTimer) return;
+  _rankTimer = setInterval(() => {
+    if(_rankActive()) rankReload();
+  }, 3000);
+}
+
+// ── Reload: Query bauen, fetchen, rendern ────────────────────────────────────
+async function rankReload(){
+  const sort = document.getElementById('rank-sort')?.value || _rankSort;
+  const typ  = document.getElementById('rank-typ')?.value  || '';
+  const bl   = document.getElementById('rank-bl')?.value   || '';
+  const br   = document.getElementById('rank-br')?.value   || '';
+  _rankSort  = sort;
+
+  const q = new URLSearchParams({limit:'200', sort});
+  if(typ) q.set('lead_typ', typ);
+  if(bl)  q.set('bundesland', bl);
+  if(br)  q.set('branche', br);
+  if(_rankSearch) q.set('suche', _rankSearch);
+
+  let data;
+  try{ data = await(await fetch('/api/evaluated/all?' + q.toString())).json(); }
+  catch{ return; }
+  _rankData = Array.isArray(data) ? data : (data.leads || data.items || []);
+  _renderRank();
+  _renderSummary();
+}
+
+// ── Kopf-Kacheln (Pipeline-Wert als Hero) ────────────────────────────────────
+async function _renderSummary(){
+  const el = document.getElementById('rank-summary');
+  if(!el) return;
+  let s;
+  try{ s = await(await fetch('/api/evaluated/stats')).json(); }catch{ return; }
+
+  const eur = n => (Number(n)||0).toLocaleString('de-DE') + ' €';
+  el.innerHTML = `
+    <div class="rs-hero">
+      <div class="rs-hero-lbl">Pipeline-Wert</div>
+      <div class="rs-hero-num">${eur(s.summe_potenzial)}</div>
+      <div class="rs-hero-sub">${(Number(s.total)||0).toLocaleString('de-DE')} bewertete Leads · Ø ${eur(s.avg_potenzial)}</div>
+    </div>
+    <div class="rs-cards">
+      <div class="rs-card"><div class="rs-c-num">${Number(s.total)||0}</div><div class="rs-c-lbl">Gesamt</div></div>
+      <div class="rs-card hot"><div class="rs-c-num">${Number(s.hot)||0}</div><div class="rs-c-lbl">🔴 Hot</div></div>
+      <div class="rs-card warm"><div class="rs-c-num">${Number(s.warm)||0}</div><div class="rs-c-lbl">🟡 Warm</div></div>
+      <div class="rs-card cold"><div class="rs-c-num">${Number(s.cold)||0}</div><div class="rs-c-lbl">🔵 Cold</div></div>
+      <div class="rs-card"><div class="rs-c-num">${Number(s.ohne_website_echt)||0}</div><div class="rs-c-lbl">Ohne Website</div></div>
+      <div class="rs-card"><div class="rs-c-num">${Number(s.mit_bildern)||0}</div><div class="rs-c-lbl">Mit Bildern</div></div>
+      <div class="rs-card"><div class="rs-c-num">${Number(s.mit_email)||0}</div><div class="rs-c-lbl">Mit E-Mail</div></div>
+    </div>`;
+}
+
+// ── Liste rendern (DocumentFragment, max 200) ────────────────────────────────
+function _renderRank(){
+  const list = document.getElementById('rank-list');
+  if(!list) return;
+
+  // Scroll-Position der Seite merken (Re-Render darf sie nicht zerstören)
+  const page = document.querySelector('main[data-page="ranking"]');
+  const sc   = page ? page.scrollTop : 0;
+
+  if(!_rankData.length){
+    list.innerHTML = '<div class="rank-empty">Noch keine bewerteten Leads. Scraper + Evaluator starten.</div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  _rankData.slice(0, 200).forEach((lead, i) => {
+    frag.appendChild(_buildRankRow(lead, i + 1));
+  });
+  list.innerHTML = '';
+  list.appendChild(frag);
+
+  if(page) page.scrollTop = sc;
+}
+
+// ── Einzelne Zeile ────────────────────────────────────────────────────────────
+function _buildRankRow(lead, rank){
+  const row = document.createElement('div');
+  const typ = lead.lead_typ || 'Cold';
+  row.className = 'rank-row ' + typ;
+
+  // Rang (Medaillen-Glow Top 3)
+  const medal = rank<=3 ? ' r'+rank : '';
+
+  // Website-Badge
+  let web;
+  if(!Number(lead.has_website)){
+    web = `<span class="rb web-none">✗ KEINE</span>`;
+  }else if(Number(lead.website_veraltet)){
+    const a = Number(lead.website_alter_jahre);
+    web = `<span class="rb web-old">⚠ ${a>=0?a+'J':'alt'}</span>`;
+  }else{
+    const a = Number(lead.website_alter_jahre);
+    web = `<span class="rb web-ok">✓ ${a>=0?a+'J':''}</span>`;
+  }
+  if(lead.discovered_website){
+    const u = String(lead.discovered_website);
+    const href = u.startsWith('http') ? u : 'https://'+u;
+    web += `<a class="rb-link" href="${_re(href)}" target="_blank" title="Gefundene Website" onclick="event.stopPropagation()">↗</a>`;
+  }
+
+  // Bilder
+  const bild = Number(lead.bilder_vorhanden)
+    ? `<span class="rb bild-ok">✓</span>`
+    : `<span class="rb bild-no">—</span>`;
+
+  // Kontakt
+  const kTel  = lead.telefon ? `<span class="rb k-tel" title="${_re(lead.telefon)}">📞</span>` : '';
+  const kMail = Number(lead.email_vorhanden) ? `<span class="rb k-mail" title="${_re(lead.email_adresse||'E-Mail')}">✉</span>` : '';
+  const kontakt = (kTel + kMail) || `<span class="rb k-none">—</span>`;
+
+  // Sub-Zeile
+  const sub = [lead.branche, lead.stadt, lead.bundesland].filter(Boolean).map(_re).join(' · ');
+  const hook = lead.pitch_hook ? `<div class="rr-hook">${_re(lead.pitch_hook)}</div>` : '';
+
+  const pot = (Number(lead.potenzial_euro)||0).toLocaleString('de-DE') + ' €';
+  const cur = lead.status || 'neu';
+  const opt = (v,l)=>`<option value="${v}"${cur===v?' selected':''}>${l}</option>`;
+
+  row.innerHTML = `
+    <span class="rt-rank rr-rank${medal}">${rank}</span>
+    <span class="rt-score"><span class="rr-score ${typ}">${Number(lead.score)||0}</span></span>
+    <span class="rt-name">
+      <div class="rr-name">${_re(lead.name)}</div>
+      <div class="rr-sub">${sub}</div>
+      ${hook}
+    </span>
+    <span class="rt-web">${web}</span>
+    <span class="rt-bild">${bild}</span>
+    <span class="rt-kontakt">${kontakt}</span>
+    <span class="rt-pot"><span class="rr-pot">${pot}</span></span>
+    <span class="rt-status">
+      <select class="rr-status" onclick="event.stopPropagation()" onchange="rankSetStatus(event, ${Number(lead.id)||0})">
+        ${opt('neu','● Neu')}${opt('kontaktiert','● Kontaktiert')}${opt('termin','● Termin')}${opt('verkauft','● Verkauft')}${opt('tot','● Tot')}
+      </select>
+    </span>`;
+
+  row.addEventListener('click', () => openRankDetail(lead));
+  return row;
+}
+
+// ── Status setzen ─────────────────────────────────────────────────────────────
+async function rankSetStatus(ev, id){
+  ev.stopPropagation();
+  const sel = ev.target;
+  if(!id) return;
+  try{
+    await fetch(`/api/evaluated/${id}/status`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status: sel.value}),
+    });
+    const l = _rankData.find(x => Number(x.id) === Number(id));
+    if(l) l.status = sel.value;
+  }catch{}
+}
+
+// ── Detail-Ansicht im bestehenden Modal ──────────────────────────────────────
+function openRankDetail(lead){
+  const typ   = lead.lead_typ || 'Cold';
+  const inner = document.getElementById('modal-inner');
+  if(!inner) return;
+
+  // Score-Aufschlüsselung
+  const breakdown = _rjson(lead.score_breakdown, {});
+  let bdHtml = '';
+  if(breakdown && typeof breakdown === 'object' && Object.keys(breakdown).length){
+    const entries = Object.entries(breakdown);
+    const maxAbs = Math.max(1, ...entries.map(([,v]) => Math.abs(Number(v)||0)));
+    bdHtml = entries.map(([sig,pts]) => {
+      const p = Number(pts)||0;
+      const w = Math.round(Math.abs(p)/maxAbs*100);
+      const neg = p < 0;
+      return `<div class="score-comp${neg?' neg':''}">
+        <span class="sc-sig">${_re(sig)}</span>
+        <span class="sc-bar-wrap"><span class="sc-bar" style="width:${w}%"></span></span>
+        <span class="sc-pts">${p>0?'+':''}${p}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Prüf-Protokoll
+  const vlog = _rjson(lead.verify_log, []);
+  let vlogHtml = '';
+  if(Array.isArray(vlog) && vlog.length){
+    vlogHtml = vlog.map((s,i) =>
+      `<div class="verify-step"><span class="vs-n">${i+1}</span><span class="vs-t">${_re(String(s))}</span></div>`
+    ).join('');
+  }
+
+  // Website-Probleme
+  const probleme = _rjson(lead.website_probleme, []);
+  let probHtml = '';
+  if(Array.isArray(probleme) && probleme.length){
+    probHtml = `<ul class="m-issues">${probleme.map(p=>`<li>${_re(String(p))}</li>`).join('')}</ul>`;
+  }
+
+  // Social Media
+  const social = _rjson(lead.social_media, {});
+  let socialHtml = '';
+  if(social && typeof social === 'object' && Object.keys(social).length){
+    const pills = Object.entries(social).filter(([,v])=>v).map(([k,v]) => {
+      const u = String(v);
+      const href = u.startsWith('http') ? u : 'https://'+u;
+      return `<a class="m-social-pill" href="${_re(href)}" target="_blank">${_re(k)} ↗</a>`;
+    }).join('');
+    if(pills) socialHtml = `<div class="m-social">${pills}</div>`;
+  }
+
+  // Website-Status-Zeile
+  let webStatus;
+  if(!Number(lead.has_website))      webStatus = `<span class="m-v no">✗ Keine Website</span>`;
+  else if(Number(lead.website_veraltet)) webStatus = `<span class="m-v warn">⚠ Veraltet</span>`;
+  else                                webStatus = `<span class="m-v ok">✓ Aktuell</span>`;
+  const alterTxt = Number(lead.website_alter_jahre)>=0 ? Number(lead.website_alter_jahre)+' Jahre' : 'unbekannt';
+  const discHref = lead.discovered_website
+    ? (String(lead.discovered_website).startsWith('http') ? lead.discovered_website : 'https://'+lead.discovered_website)
+    : '';
+
+  // E-Mail-Entwurf
+  const mail = _rjson(lead.email_entwurf, null);
+  let mailHtml = '';
+  if(mail && (mail.betreff || mail.text)){
+    const full = (mail.betreff?('Betreff: '+mail.betreff+'\n\n'):'') + (mail.text||'');
+    mailHtml = `<div class="m-sec">
+      <div class="m-sec-t">E-Mail-Entwurf</div>
+      ${mail.betreff?`<div class="m-email-sub">${_re(mail.betreff)}</div>`:''}
+      <textarea class="m-email-txt" readonly>${_re(mail.text||'')}</textarea>
+      <button class="m-copy-btn" onclick="_rankCopy(this)" data-full="${_re(full)}">⧉ Kopieren</button>
+    </div>`;
+  }
+
+  const eur = n => (Number(n)||0).toLocaleString('de-DE') + ' €';
+
+  inner.innerHTML = `
+    <div class="m-hdr">
+      <div class="m-badge ${typ}">${typ}</div>
+      <div class="m-title">${_re(lead.name)}</div>
+      <button class="m-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="m-score-row">
+      <span style="font-size:10px;color:var(--tx2)">Score</span>
+      <div class="m-bar"><div class="m-fill ${typ}" style="width:${Number(lead.score)||0}%"></div></div>
+      <span class="m-score-num ${typ}">${Number(lead.score)||0}</span>
+    </div>
+
+    ${bdHtml ? `<div class="m-sec"><div class="m-sec-t">Score-Aufschlüsselung</div>${bdHtml}</div>` : ''}
+    ${vlogHtml ? `<div class="m-sec"><div class="m-sec-t">Prüf-Protokoll</div>${vlogHtml}</div>` : ''}
+
+    <div class="m-sec">
+      <div class="m-sec-t">Website</div>
+      <div class="m-row"><span class="m-k">Status</span>${webStatus}</div>
+      <div class="m-row"><span class="m-k">Alter</span><span class="m-v ${Number(lead.website_alter_jahre)>5?'warn':''}">${alterTxt}</span></div>
+      ${lead.website_url?`<div class="m-row"><span class="m-k">URL</span><span class="m-v"><a href="${_re(String(lead.website_url).startsWith('http')?lead.website_url:'https://'+lead.website_url)}" target="_blank">${_re(lead.website_url)} ↗</a></span></div>`:''}
+      ${discHref?`<div class="m-row"><span class="m-k">Gefunden</span><span class="m-v"><a href="${_re(discHref)}" target="_blank">${_re(lead.discovered_website)} ↗</a></span></div>`:''}
+      ${probHtml}
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-t">Online-Präsenz</div>
+      <div class="m-row"><span class="m-k">Bilder (Maps)</span><span class="m-v ${Number(lead.fotos_in_maps)?'ok':'no'}">${Number(lead.fotos_in_maps)?'✓ Ja':'✗ Nein'}</span></div>
+      <div class="m-row"><span class="m-k">Bilder (Web)</span><span class="m-v ${Number(lead.bilder_vorhanden)?'ok':'no'}">${Number(lead.bilder_vorhanden)?'✓ Ja':'✗ Nein'}</span></div>
+      ${Number(lead.hat_nur_social)?`<div class="m-row"><span class="m-k">Nur Social</span><span class="m-v warn">⚠ Ja</span></div>`:''}
+      ${socialHtml}
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-t">Kontakt</div>
+      ${lead.adresse?`<div class="m-row"><span class="m-k">Adresse</span><span class="m-v">${_re(lead.adresse)}</span></div>`:''}
+      <div class="m-row"><span class="m-k">Stadt</span><span class="m-v">${_re(lead.stadt||'')} · ${_re(lead.bundesland||'')}</span></div>
+      <div class="m-row"><span class="m-k">Branche</span><span class="m-v">${_re(lead.branche||'—')}</span></div>
+      ${lead.telefon?`<div class="m-row"><span class="m-k">Telefon</span><span class="m-v ok">${_re(lead.telefon)}${Number(lead.telefon_verifiziert)?' ✓':''}</span></div>`:''}
+      ${Number(lead.email_vorhanden)?`<div class="m-row"><span class="m-k">E-Mail</span><span class="m-v ok">${_re(lead.email_adresse||'vorhanden')}</span></div>`:''}
+    </div>
+
+    <div class="m-sec">
+      <div class="m-sec-t">Einschätzung</div>
+      ${lead.beschreibung?`<div class="m-row"><span class="m-k">Beschreibung</span><span class="m-v">${_re(lead.beschreibung)}</span></div>`:''}
+      ${lead.firmengroesse?`<div class="m-row"><span class="m-k">Firmengröße</span><span class="m-v">${_re(lead.firmengroesse)}</span></div>`:''}
+      <div class="m-row"><span class="m-k">Privat-Zahler</span><span class="m-v ${Number(lead.ist_privat_zahler)?'ok':''}">${Number(lead.ist_privat_zahler)?'✓ Ja':'Nein'}</span></div>
+      <div class="m-row"><span class="m-k">Potenzial</span><span class="m-v" style="color:var(--y);font-weight:700">${eur(lead.potenzial_euro)}</span></div>
+      ${lead.potenzial_begruendung?`<div class="m-row"><span class="m-k">Begründung</span><span class="m-v">${_re(lead.potenzial_begruendung)}</span></div>`:''}
+    </div>
+
+    ${lead.pitch_hook?`<div class="m-sec"><div class="m-sec-t">Pitch-Hook</div><div class="m-pitch">${_re(lead.pitch_hook)}</div></div>`:''}
+    ${mailHtml}
+
+    ${lead.schluessel?`<div class="rr-key">${_re(lead.schluessel)}</div>`:''}`;
+
+  document.getElementById('modal-bg').classList.add('open');
+  document.getElementById('modal').classList.add('open');
+}
+
+// ── E-Mail kopieren ───────────────────────────────────────────────────────────
+function _rankCopy(btn){
+  const txt = btn.getAttribute('data-full') || '';
+  navigator.clipboard.writeText(txt).then(() => {
+    btn.textContent = '✓ Kopiert';
+    setTimeout(() => { btn.textContent = '⧉ Kopieren'; }, 2000);
+  }).catch(()=>{});
+}
+
+// ── Suche (debounce 350ms) ────────────────────────────────────────────────────
+function rankSearch(v){
+  if(_rankSearchTimer) clearTimeout(_rankSearchTimer);
+  _rankSearchTimer = setTimeout(() => {
+    _rankSearch = (v||'').trim();
+    rankReload();
+  }, 350);
+}
+
+// ── Neu bewerten ──────────────────────────────────────────────────────────────
+async function rankReeval(){
+  if(!confirm('Alle Leads neu bewerten?')) return;
+  const live = document.getElementById('rank-live');
+  const prev = live ? live.textContent : '';
+  try{
+    await fetch('/api/evaluated/reeval', {method:'POST'});
+    if(live) live.textContent = '↻ Neubewertung gestartet';
+  }catch{
+    if(live) live.textContent = '✕ Fehler';
+  }
+  setTimeout(() => { if(live) live.textContent = prev || '● LIVE · 3s'; }, 4000);
+}

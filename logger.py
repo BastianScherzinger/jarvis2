@@ -1,8 +1,17 @@
 """
 JARVIS Logger — farbige Console-Ausgabe + RAM-Ringpuffer für Frontend-Konsole.
 """
+import sys
 import threading, time, collections
 from datetime import datetime
+
+# stdout/stderr auf UTF-8 zwingen — sonst crasht print() bei →/€/✓ auf
+# Windows-cp1252-Konsolen (z.B. wenn app.py direkt statt via start.py läuft).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ANSI
 _R  = "\033[0m"
@@ -32,8 +41,12 @@ _LEVELS = {
 def _log(level: str, worker: str, msg: str) -> None:
     col, tag = _LEVELS.get(level, (_GY, level.ljust(7)))
     ts  = datetime.now().strftime("%H:%M:%S")
-    # Console
-    print(f"  {_GY}[{ts}]{_R} {col}{_B}{tag}{_R} {_GY}[{worker}]{_R}  {msg}")
+    # Console — robust gegen Encoding-Fehler (Windows-cp1252)
+    line = f"  {_GY}[{ts}]{_R} {col}{_B}{tag}{_R} {_GY}[{worker}]{_R}  {msg}"
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        print(line.encode("ascii", "replace").decode("ascii"))
     # Buffer
     entry = {"ts": ts, "level": level, "worker": worker, "msg": msg}
     with _lock:

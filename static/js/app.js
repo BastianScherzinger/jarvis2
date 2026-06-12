@@ -640,7 +640,7 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['leads', 'images', 'videos', 'graph'];
+const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -651,6 +651,7 @@ function showPage(name){
   location.hash = name;
   if(name === 'images' || name === 'videos') loadGallery();
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
+  if(name === 'ranking' && typeof initRanking === 'function') initRanking();
 }
 
 function _initPageFromHash(){

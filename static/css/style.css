@@ -888,3 +888,170 @@ body::after{
 .ll-lvl    { flex-shrink:0; font-size:10px; font-weight:700; width:64px; }
 .ll-worker { color: #3a5070; flex-shrink:0; font-size:10px; min-width:90px; }
 .ll-msg    { color: var(--tx2); font-size:11px; word-break:break-word; }
+
+/* ══════════════════════════ RANGLISTE-SEITE ═══════════════════════════════ */
+.rank-page{
+  margin-top:52px;
+  height:calc(100vh - 52px);
+  overflow-y:auto;
+  padding:16px 28px 60px;
+  max-width:1400px;
+  margin-left:auto;
+  margin-right:auto;
+}
+
+/* ── Summary / Pipeline-Hero ────────────────────────────────────────────── */
+.rank-summary{
+  display:flex;align-items:stretch;gap:14px;flex-wrap:wrap;margin-bottom:14px;
+}
+.rs-hero{
+  flex:0 0 auto;min-width:240px;
+  background:linear-gradient(135deg, rgba(0,212,255,.08), rgba(0,212,255,.02));
+  border:1px solid rgba(0,212,255,.4);border-radius:14px;
+  padding:16px 22px;display:flex;flex-direction:column;justify-content:center;
+  box-shadow:0 0 24px rgba(0,212,255,.08) inset;
+}
+.rs-hero-lbl{font-family:var(--fh);font-size:9px;letter-spacing:.18em;color:var(--tx2);text-transform:uppercase}
+.rs-hero-num{
+  font-family:var(--fh);font-size:34px;font-weight:900;line-height:1.1;
+  color:var(--c);text-shadow:0 0 18px rgba(0,212,255,.5);margin:4px 0 2px;
+}
+.rs-hero-sub{font-size:11px;color:var(--tx2)}
+.rs-cards{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;min-width:280px}
+.rs-card{
+  background:var(--bg3);border:1px solid var(--bdr2);border-radius:10px;
+  padding:10px 8px;text-align:center;display:flex;flex-direction:column;justify-content:center;
+}
+.rs-card.hot {border-color:rgba(255,59,78,.3)}
+.rs-card.warm{border-color:rgba(255,201,61,.3)}
+.rs-card.cold{border-color:rgba(59,130,246,.3)}
+.rs-c-num{font-family:var(--fh);font-size:20px;font-weight:900;line-height:1;color:var(--c)}
+.rs-card.hot  .rs-c-num{color:var(--hot)}
+.rs-card.warm .rs-c-num{color:var(--warm)}
+.rs-card.cold .rs-c-num{color:var(--cold)}
+.rs-c-lbl{font-size:9px;color:var(--tx2);margin-top:4px;letter-spacing:.04em}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+.rank-controls{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 14px;background:var(--bg2);border:1px solid var(--bdr);
+  border-radius:8px;margin-bottom:10px;
+}
+.rank-controls .gc-search{width:240px}
+.rank-controls .flt{width:auto;min-width:150px}
+.rank-live{
+  font-family:var(--fh);font-size:9px;letter-spacing:.1em;color:var(--g);
+  white-space:nowrap;animation:pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Tabellen-Kopf + Zeilen (Grid) ──────────────────────────────────────── */
+.rank-thead,.rank-row{
+  display:grid;
+  grid-template-columns:48px 70px 1fr 130px 60px 80px 110px 120px;
+  align-items:center;gap:10px;
+}
+.rank-thead{
+  padding:8px 14px;background:var(--bg2);border:1px solid var(--bdr);
+  border-radius:8px 8px 0 0;border-bottom:1px solid var(--bdr2);
+  font-family:var(--fh);font-size:8px;letter-spacing:.14em;color:var(--tx3);
+  text-transform:uppercase;position:sticky;top:0;z-index:5;
+}
+.rank-list{
+  border:1px solid var(--bdr);border-top:none;border-radius:0 0 8px 8px;
+  background:var(--bg2);overflow:hidden;
+}
+.rank-empty{padding:40px 0;text-align:center;color:var(--tx3);font-size:12px}
+
+.rank-row{
+  padding:9px 14px;border-bottom:1px solid var(--bdr);cursor:pointer;
+  border-left:3px solid transparent;
+  transition:background .12s,border-color .12s;
+}
+.rank-row:last-child{border-bottom:none}
+.rank-row:hover{background:rgba(0,212,255,.04);box-shadow:inset 0 0 12px rgba(0,212,255,.05)}
+.rank-row.Hot {border-left-color:var(--hot)}
+.rank-row.Warm{border-left-color:var(--warm)}
+.rank-row.Cold{border-left-color:var(--cold)}
+
+/* Rang + Medaillen */
+.rr-rank{
+  font-family:var(--fh);font-size:14px;font-weight:900;color:var(--tx2);text-align:center;
+  width:30px;height:30px;line-height:30px;border-radius:50%;border:1px solid var(--bdr2);
+}
+.rr-rank.r1{color:#ffd54a;border-color:#ffd54a;box-shadow:0 0 12px rgba(255,213,74,.5);background:rgba(255,213,74,.07)}
+.rr-rank.r2{color:#cfd8e3;border-color:#cfd8e3;box-shadow:0 0 12px rgba(207,216,227,.4);background:rgba(207,216,227,.06)}
+.rr-rank.r3{color:#e08c52;border-color:#e08c52;box-shadow:0 0 12px rgba(224,140,82,.45);background:rgba(224,140,82,.06)}
+
+/* Score-Badge */
+.rr-score{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:42px;height:42px;border-radius:50%;
+  font-family:var(--fh);font-size:16px;font-weight:900;border:2px solid;
+}
+.rr-score.Hot {color:var(--hot); border-color:var(--hot); background:rgba(255,59,78,.1);  box-shadow:0 0 10px rgba(255,59,78,.3)}
+.rr-score.Warm{color:var(--warm);border-color:var(--warm);background:rgba(255,201,61,.1); box-shadow:0 0 10px rgba(255,201,61,.25)}
+.rr-score.Cold{color:var(--cold);border-color:var(--cold);background:rgba(59,130,246,.1);box-shadow:0 0 10px rgba(59,130,246,.25)}
+
+/* Betrieb */
+.rt-name{min-width:0}
+.rr-name{font-size:13px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rr-sub{font-size:10px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rr-hook{font-size:10px;color:var(--c2);font-style:italic;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+
+/* Kompakt-Badges */
+.rb{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:10px;padding:2px 7px;border-radius:9px;white-space:nowrap;
+  background:var(--bg4);border:1px solid var(--bdr);color:var(--tx2);
+}
+.rb.web-none{background:rgba(255,59,78,.08);border-color:rgba(255,59,78,.3);color:var(--r)}
+.rb.web-old {background:rgba(255,138,0,.08);border-color:rgba(255,138,0,.35);color:#ff8a00}
+.rb.web-ok  {background:rgba(0,232,122,.07);border-color:rgba(0,232,122,.25);color:var(--g)}
+.rb.bild-ok {background:rgba(0,232,122,.07);border-color:rgba(0,232,122,.25);color:var(--g)}
+.rb.bild-no {color:var(--tx3)}
+.rb.k-tel,.rb.k-mail{background:rgba(0,232,122,.07);border-color:rgba(0,232,122,.25);color:var(--g);padding:2px 6px}
+.rb.k-none{color:var(--tx3)}
+.rb-link{
+  margin-left:4px;font-size:11px;color:var(--c);text-decoration:none;
+  padding:2px 5px;border-radius:8px;border:1px solid rgba(0,212,255,.25);background:rgba(0,212,255,.06);
+}
+.rb-link:hover{border-color:var(--c);background:rgba(0,212,255,.12)}
+.rt-kontakt{display:flex;gap:4px;flex-wrap:wrap}
+
+/* Potenzial */
+.rr-pot{font-family:var(--fm);font-size:12px;font-weight:700;color:var(--y)}
+
+/* Status-Select */
+.rr-status{
+  width:100%;background:var(--bg3);border:1px solid var(--bdr2);color:var(--tx);
+  border-radius:6px;padding:5px 7px;font-size:11px;font-family:var(--fu);cursor:pointer;
+}
+.rr-status:focus{outline:none;border-color:var(--c)}
+
+/* Schlüssel unten im Detail */
+.rr-key{font-family:var(--fm);font-size:9px;color:var(--tx3);margin-top:6px;word-break:break-all}
+
+/* ── Score-Aufschlüsselung (Modal) ──────────────────────────────────────── */
+.score-comp{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11.5px}
+.sc-sig{flex:0 0 42%;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-bar-wrap{flex:1;height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.sc-bar{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--c),var(--c2));transition:width .4s}
+.sc-pts{flex:0 0 38px;text-align:right;font-family:var(--fm);font-size:11px;font-weight:700;color:var(--g)}
+.score-comp.neg .sc-bar{background:linear-gradient(90deg,var(--r),#ff7b88)}
+.score-comp.neg .sc-pts{color:var(--r)}
+
+/* ── Prüf-Protokoll (Modal) ─────────────────────────────────────────────── */
+.verify-step{display:flex;align-items:flex-start;gap:9px;padding:4px 0;font-size:11.5px;color:var(--tx)}
+.vs-n{
+  flex-shrink:0;width:18px;height:18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--fm);font-size:9px;color:var(--c);
+  background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);margin-top:1px;
+}
+.vs-t{flex:1;line-height:1.45;color:var(--tx2)}
+
+/* ── Responsive (schmal) ────────────────────────────────────────────────── */
+@media (max-width:980px){
+  .rank-thead,.rank-row{grid-template-columns:40px 60px 1fr 90px 90px;}
+  .rt-bild,.rt-pot,.rt-status{display:none}
+}

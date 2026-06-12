@@ -1,8 +1,20 @@
-"""Agent 3 — Ollama bewertet alle Signale, generiert Score + Pitch + E-Mail."""
+"""
+Agent 3 — Score-Writer.
+
+Differenzierter deterministischer Basis-Score (0-100) aus allen verifizierten
+Signalen. KEIN flaches 40 mehr. Ollama verfeinert nur (Feinschliff + Texte);
+fällt Ollama aus, bleibt der differenzierte Basis-Score erhalten.
+"""
 import json
+
 from scrapers._http import ask_ollama, extract_json
+from scrapers.regions import HIGH_VALUE
+import logger
 
 POTENZIAL_STUFEN = [500, 1500, 3000, 5000]
+
+_GASTRO = ["restaurant", "café", "cafe", "bäckerei", "baeckerei", "catering",
+           "einzelhandel", "laden", "shop", "kiosk"]
 
 
 def _potenzial_fuer_branche(branche: str) -> int:
@@ -17,70 +29,121 @@ def _potenzial_fuer_branche(branche: str) -> int:
     return 800
 
 
+def _clamp(v: int) -> int:
+    return max(0, min(100, int(v)))
+
+
 def evaluate(lead: dict, web: dict, social: dict) -> dict:
-    """
-    Kombiniert alle Signale, ruft Ollama, gibt vollständiges Ergebnis zurück.
-    Auch ohne Ollama (Fallback): liefert Heuristik-Ergebnis.
-    """
-    # Signale zusammenstellen
-    issues = web.get("website_probleme") or []
-    has_web = lead.get("has_website", 0)
-    rev = int(lead.get("anz_bewertungen") or 0)
-    rating = float(lead.get("bewertung") or 0)
+    """Kombiniert alle Signale → differenzierter Score, Pitch, E-Mail."""
+    issues        = web.get("website_probleme") or []
+    has_web       = int(web.get("has_website", 0))
+    alter         = int(web.get("website_alter_jahre", -1))
+    social_media  = social.get("social_media") or {}
     firmengroesse = social.get("firmengroesse_hinweis", "unbekannt")
+    rev           = int(lead.get("anz_bewertungen") or 0)
+    rating        = float(lead.get("bewertung") or 0)
+    bilder        = int(web.get("bilder_vorhanden", 0))
+    branche       = lead.get("branche", "")
 
-    # Heuristik-Score (Fallback + Anker)
-    pts = 0
-    if not has_web:          pts += 30
-    elif issues:             pts += 15
-    if web.get("email_vorhanden"):  pts += 10
-    if web.get("telefon_verifiziert"): pts += 8
-    if rev >= 10:            pts += 10
-    elif rev >= 3:           pts += 5
-    if rating >= 4.0:        pts += 8
-    if lead.get("bilder_maps"): pts += 5
-    if firmengroesse in ("1-2 Personen", "3-10"): pts += 10
-    pts = max(0, min(100, pts))
+    breakdown: dict[str, int] = {}
 
-    basis_potenzial = _potenzial_fuer_branche(lead.get("branche", ""))
+    # ── Website-Situation (größter Faktor) ──────────────────────────────────
+    if has_web == 0 and not social_media:
+        breakdown["Keine Online-Präsenz"] = 42
+    elif has_web == 0 and social_media:
+        breakdown["Nur Social Media"] = 36
+    elif has_web and (alter >= 6 or len(issues) >= 3):
+        breakdown["Website stark veraltet"] = 34
+    elif has_web and ((3 <= alter <= 5) or 1 <= len(issues) <= 2):
+        breakdown["Website veraltet"] = 22
+    elif has_web:
+        breakdown["Moderne Website"] = 4
 
-    # Ollama-Prompt
+    # ── Branche ─────────────────────────────────────────────────────────────
+    if branche in HIGH_VALUE:
+        breakdown["High-Value-Branche"] = 14
+    elif any(g in (branche or "").lower() for g in _GASTRO):
+        breakdown["Gastro/Einzelhandel"] = 3
+    else:
+        breakdown["Neutrale Branche"] = 6
+
+    # ── Erreichbarkeit ──────────────────────────────────────────────────────
+    if web.get("telefon_verifiziert"):
+        breakdown["Telefon verifiziert"] = 8
+    if web.get("email_vorhanden"):
+        breakdown["E-Mail gefunden"] = 6
+
+    # ── Aktivität (Reviews) ─────────────────────────────────────────────────
+    if rev >= 50:
+        breakdown["Viele Bewertungen"] = 12
+    elif rev >= 20:
+        breakdown["Etliche Bewertungen"] = 8
+    elif rev >= 5:
+        breakdown["Einige Bewertungen"] = 4
+    if rating >= 4.5:
+        breakdown["Top-Rating"] = 4
+
+    # ── Bilder ──────────────────────────────────────────────────────────────
+    if bilder:
+        breakdown["Bildpräsenz"] = 4
+
+    # ── Firmengröße / Zahler ────────────────────────────────────────────────
+    if firmengroesse in ("1-2 Personen", "3-10"):
+        breakdown["Privatzahler (KMU)"] = 8
+        heur_privat = 1
+    elif firmengroesse == "Kette":
+        breakdown["Kette (kein Zahler)"] = -35
+        heur_privat = 0
+    else:
+        heur_privat = 0
+
+    base = _clamp(sum(breakdown.values()))
+
+    basis_potenzial = _potenzial_fuer_branche(branche)
+
+    # ── Ollama-Verfeinerung (nur Feinschliff) ───────────────────────────────
     context = (
-        f"Betrieb: {lead.get('name')} | Branche: {lead.get('branche')} | Stadt: {lead.get('stadt')}\n"
+        f"Betrieb: {lead.get('name')} | Branche: {branche} | Stadt: {lead.get('stadt')}\n"
         f"Website: {'Ja' if has_web else 'NEIN'}"
+        + (f" ({alter}J alt)" if has_web and alter >= 0 else "")
         + (f" | Probleme: {', '.join(issues[:3])}" if issues else "") + "\n"
-        f"Bewertungen: {rev} ({rating}★) | Fotos: {'ja' if lead.get('bilder_maps') else 'nein'}\n"
-        f"Firmengröße: {firmengroesse} | Social Media: {', '.join(social.get('social_media', {}).keys()) or 'keins'}\n"
-        f"Telefon: {'ja' if lead.get('telefon') else 'nein'} | E-Mail gefunden: {'ja' if web.get('email_vorhanden') else 'nein'}"
+        f"Bewertungen: {rev} ({rating}★) | Bilder: {'ja' if bilder else 'nein'}\n"
+        f"Firmengröße: {firmengroesse} | Social: {', '.join(social_media.keys()) or 'keins'}\n"
+        f"Telefon: {'ja' if web.get('telefon_verifiziert') else 'nein'} | "
+        f"E-Mail: {'ja' if web.get('email_vorhanden') else 'nein'}\n"
+        f"Vorläufiger Basis-Score: {base}/100"
     )
 
     system = (
         "Du bist ein erfahrener Vertriebsanalyst für Webdesign-Dienstleistungen. "
-        "Analysiere Kleinbetriebe als potenzielle Kunden. Antworte NUR mit JSON."
+        "Ein Basis-Score wurde bereits berechnet. Du verfeinerst ihn nur leicht "
+        "und schreibst die Texte. Antworte NUR mit JSON."
     )
 
     prompt = (
-        f"Bewerte diesen Betrieb als Webdesign-Kunden:\n{context}\n\n"
+        f"Analysiere diesen Betrieb als Webdesign-Kunden:\n{context}\n\n"
         "Antworte EXAKT in diesem JSON-Format (kein Markdown):\n"
-        '{"score": 0-100, '
-        '"beschreibung": "2-3 Sätze über den Betrieb und seine Online-Situation", '
-        '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU zahlt selbst, 0=Kette/zu groß), '
-        '"potenzial_euro": eine dieser Zahlen: 500 oder 1500 oder 3000 oder 5000, '
+        '{"anpassung": Zahl von -15 bis 15 (Korrektur des Basis-Scores), '
+        '"beschreibung": "2-3 Sätze über Betrieb und Online-Situation", '
+        '"potenzial_euro": 500 oder 1500 oder 3000 oder 5000, '
+        '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU, 0=Kette/zu groß), '
         '"potenzial_begruendung": "1-2 Sätze warum dieser Betrag", '
-        '"pitch_hook": "1 kurzer Satz als Gesprächseinstieg, konkret und persönlich", '
-        '"email_betreff": "kurze E-Mail-Betreffzeile", '
-        '"email_text": "kurze persönliche Akquise-Mail max 100 Wörter"}'
+        '"pitch_hook": "1 kurzer, persönlicher Gesprächseinstieg", '
+        '"email_betreff": "kurze Betreffzeile", '
+        '"email_text": "persönliche Akquise-Mail max 100 Wörter"}'
     )
 
-    raw = ask_ollama(prompt, system=system)
+    raw  = ask_ollama(prompt, system=system)
     data = extract_json(raw)
 
-    # Validierung + Fallback
-    score = data.get("score")
+    # Anpassung anwenden (begrenzt) — bei Fehlschlag 0.
     try:
-        score = max(0, min(100, int(score)))
+        anpassung = int(data.get("anpassung", 0))
+        anpassung = max(-15, min(15, anpassung))
     except (TypeError, ValueError):
-        score = pts  # Heuristik-Fallback
+        anpassung = 0
+
+    score = _clamp(base + anpassung)
 
     potenzial = data.get("potenzial_euro")
     if potenzial not in POTENZIAL_STUFEN:
@@ -88,7 +151,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
 
     ist_privat = data.get("ist_privat_zahler")
     if ist_privat not in (0, 1):
-        ist_privat = 1 if firmengroesse in ("1-2 Personen", "3-10") else 0
+        ist_privat = heur_privat
 
     lead_typ = "Hot" if score >= 72 else "Warm" if score >= 48 else "Cold"
 
@@ -98,6 +161,11 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
             "betreff": str(data["email_betreff"])[:100],
             "text":    str(data["email_text"])[:2000],
         }, ensure_ascii=False)
+
+    logger.eval_(
+        "ScoreWriter",
+        f"→ Basis {base} + Ollama {anpassung:+d} = {score} | {lead_typ} | {potenzial}€",
+    )
 
     return {
         "score":                 score,
@@ -109,4 +177,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         "potenzial_begruendung": str(data.get("potenzial_begruendung") or "")[:300],
         "pitch_hook":            str(data.get("pitch_hook") or "")[:200],
         "email_entwurf":         email_draft,
+        "score_breakdown":       json.dumps(breakdown, ensure_ascii=False),
+        "discovered_website":    web.get("discovered_website", ""),
+        "bilder_vorhanden":      bilder,
     }

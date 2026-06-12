@@ -12,12 +12,22 @@ _lock   = threading.Lock()
 _COLUMNS = [
     "raw_id", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
     "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
-    "has_website", "website_url", "website_veraltet", "website_alter_jahre",
-    "website_probleme", "fotos_in_maps", "social_media", "hat_nur_social",
+    "has_website", "website_url", "discovered_website", "website_veraltet",
+    "website_alter_jahre", "website_probleme", "fotos_in_maps", "bilder_vorhanden",
+    "social_media", "hat_nur_social",
     "beschreibung", "ist_privat_zahler", "firmengroesse", "potenzial_euro",
     "potenzial_begruendung", "pitch_hook", "score", "lead_typ", "email_entwurf",
-    "status", "bewertet_am",
+    "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
 ]
+
+# Neue Spalten (Name → SQL-Definition) für die Migration bestehender DBs.
+_NEW_COLUMNS = {
+    "discovered_website": "TEXT",
+    "bilder_vorhanden":   "INTEGER DEFAULT 0",
+    "score_breakdown":    "TEXT",
+    "verify_log":         "TEXT",
+    "verifiziert":        "INTEGER DEFAULT 1",
+}
 
 
 def _conn() -> sqlite3.Connection:
@@ -46,10 +56,12 @@ def init_db() -> None:
             telefon_verifiziert   INTEGER DEFAULT 0,
             has_website           INTEGER DEFAULT 0,
             website_url           TEXT,
+            discovered_website    TEXT,
             website_veraltet      INTEGER DEFAULT 0,
             website_alter_jahre   INTEGER DEFAULT -1,
             website_probleme      TEXT,
             fotos_in_maps         INTEGER DEFAULT 0,
+            bilder_vorhanden      INTEGER DEFAULT 0,
             social_media          TEXT,
             hat_nur_social        INTEGER DEFAULT 0,
             beschreibung          TEXT,
@@ -61,6 +73,9 @@ def init_db() -> None:
             score                 INTEGER DEFAULT 0,
             lead_typ              TEXT DEFAULT 'Cold',
             email_entwurf         TEXT,
+            score_breakdown       TEXT,
+            verify_log            TEXT,
+            verifiziert           INTEGER DEFAULT 1,
             status                TEXT DEFAULT 'neu',
             bewertet_am           TEXT
         )
@@ -71,6 +86,17 @@ def init_db() -> None:
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_status ON evaluated_leads(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_branche ON evaluated_leads(branche, bundesland)")
+        c.commit()
+    migrate()
+
+
+def migrate() -> None:
+    """Ergänzt fehlende Spalten in einer bestehenden DB (idempotent)."""
+    with _lock, _conn() as c:
+        have = {r["name"] for r in c.execute("PRAGMA table_info(evaluated_leads)")}
+        for col, sql_def in _NEW_COLUMNS.items():
+            if col not in have:
+                c.execute(f"ALTER TABLE evaluated_leads ADD COLUMN {col} {sql_def}")
         c.commit()
 
 
@@ -100,8 +126,16 @@ def get_top(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+_SORT_CLAUSES = {
+    "score":     "score DESC",
+    "potenzial": "potenzial_euro DESC",
+    "datum":     "bewertet_am DESC",
+}
+
+
 def get_all(limit: int = 500, offset: int = 0, branche: str | None = None,
-            bundesland: str | None = None, lead_typ: str | None = None) -> list[dict]:
+            bundesland: str | None = None, lead_typ: str | None = None,
+            sort: str = "score", suche: str = "") -> list[dict]:
     where  = []
     params: list = []
     if branche:
@@ -110,12 +144,17 @@ def get_all(limit: int = 500, offset: int = 0, branche: str | None = None,
         where.append("bundesland=?"); params.append(bundesland)
     if lead_typ:
         where.append("lead_typ=?");   params.append(lead_typ)
-    clause = ("WHERE " + " AND ".join(where)) if where else ""
-    params += [limit, offset]
+    if suche:
+        where.append("(name LIKE ? OR stadt LIKE ? OR branche LIKE ?)")
+        like = f"%{suche}%"
+        params += [like, like, like]
+    clause   = ("WHERE " + " AND ".join(where)) if where else ""
+    order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["score"])
+    params  += [limit, offset]
     with _lock, _conn() as c:
         rows = c.execute(
             f"SELECT * FROM evaluated_leads {clause} "
-            f"ORDER BY score DESC LIMIT ? OFFSET ?",
+            f"ORDER BY {order_by} LIMIT ? OFFSET ?",
             params,
         ).fetchall()
     return [dict(r) for r in rows]
@@ -131,6 +170,9 @@ def get_stats() -> dict:
         ohne_web   = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE has_website=0").fetchone()[0]
         privat     = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE ist_privat_zahler=1").fetchone()[0]
         avg_pot    = c.execute("SELECT AVG(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
+        sum_pot    = c.execute("SELECT SUM(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
+        mit_bild   = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE bilder_vorhanden=1").fetchone()[0]
+        ohne_web_e = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE has_website=0").fetchone()[0]
         br_rows = c.execute(
             "SELECT branche, COUNT(*) AS n FROM evaluated_leads "
             "GROUP BY branche ORDER BY n DESC LIMIT 15"
@@ -148,6 +190,9 @@ def get_stats() -> dict:
         "ohne_website":     ohne_web,
         "privat_zahler":    privat,
         "avg_potenzial":    round(avg_pot),
+        "summe_potenzial":  round(sum_pot),
+        "mit_bildern":      mit_bild,
+        "ohne_website_echt": ohne_web_e,
         "top_branchen":     {r["branche"]: r["n"] for r in br_rows if r["branche"]},
         "top_bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
     }

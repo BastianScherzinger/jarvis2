@@ -26,6 +26,7 @@
     <button class="topnav-btn"        data-page="images" onclick="showPage('images')">Bilder</button>
     <button class="topnav-btn"        data-page="videos" onclick="showPage('videos')">Videos</button>
     <button class="topnav-btn"        data-page="graph"  onclick="showPage('graph')">Graph</button>
+    <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
   </nav>
 
   <div class="topbar-center">
@@ -249,6 +250,39 @@
 
 </main>
 
+<!-- ══════════════════════════ RANGLISTE-SEITE ══════════════════════════════ -->
+<main class="rank-page page" data-page="ranking">
+  <!-- Kopf: Pipeline-Wert + Stats -->
+  <div class="rank-summary" id="rank-summary"></div>
+
+  <!-- Controls -->
+  <div class="rank-controls">
+    <input class="gc-search" id="rank-search" type="text" placeholder="Suche Name / Stadt / Branche…" oninput="rankSearch(this.value)">
+    <select class="flt" id="rank-sort" onchange="rankReload()">
+      <option value="score">Sortierung: Score</option>
+      <option value="potenzial">Sortierung: Potenzial €</option>
+      <option value="datum">Sortierung: Neueste</option>
+    </select>
+    <select class="flt" id="rank-typ" onchange="rankReload()">
+      <option value="">Alle Typen</option><option value="Hot">🔴 Hot</option>
+      <option value="Warm">🟡 Warm</option><option value="Cold">🔵 Cold</option>
+    </select>
+    <select class="flt" id="rank-bl" onchange="rankReload()"><option value="">Alle Bundesländer</option></select>
+    <select class="flt" id="rank-br" onchange="rankReload()"><option value="">Alle Branchen</option></select>
+    <span class="rank-live" id="rank-live">● LIVE · 3s</span>
+    <button class="gc-btn" style="margin-left:auto" onclick="rankReeval()">↻ Alle neu bewerten</button>
+  </div>
+
+  <!-- Tabellen-Kopf -->
+  <div class="rank-thead">
+    <span class="rt-rank">#</span><span class="rt-score">Score</span>
+    <span class="rt-name">Betrieb</span><span class="rt-web">Website</span>
+    <span class="rt-bild">Bilder</span><span class="rt-kontakt">Kontakt</span>
+    <span class="rt-pot">Potenzial</span><span class="rt-status">Status</span>
+  </div>
+  <div class="rank-list" id="rank-list"></div>
+</main>
+
 <!-- ══════════════════════════ MODAL ════════════════════════════════════════ -->
 <div class="modal-bg" id="modal-bg" onclick="closeModal()"></div>
 <div class="modal" id="modal">
@@ -258,6 +292,7 @@
 <script src="/static/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/static/js/graph.js"></script>
+<script src="/static/js/ranking.js"></script>
 
 <!-- Log-Drawer (ausklappbar von unten) -->
 <div class="log-drawer" id="log-drawer">
