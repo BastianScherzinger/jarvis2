@@ -81,12 +81,17 @@ def get_combo_count() -> int:
 
 
 def set_verifier_model(model: str) -> None:
+    """Setzt das Bewertungs-Modell zur Laufzeit (Dashboard-Dropdown)."""
     os.environ["JARVIS_VERIFIER_MODEL"] = model
+    os.environ["JARVIS_EVAL_MODEL"]     = model   # steuert den Evaluator/ScoreWriter
+    from scrapers import _http
+    _http._BEST_MODEL[0] = None                   # Modell-Cache invalidieren
 
 
 def get_verifier_model() -> str:
-    return os.environ.get("JARVIS_VERIFIER_MODEL", "") or \
-        os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    """Aktuell aktives Bewertungs-Modell."""
+    from scrapers import _http
+    return _http.best_chat_model()
 
 
 def start() -> None:

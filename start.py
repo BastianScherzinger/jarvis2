@@ -81,9 +81,37 @@ def _install_deps() -> None:
         )
 
 
+def _ensure_model(model: str) -> None:
+    """Lädt das Modell per 'ollama pull' falls noch nicht installiert (mit Nachfrage)."""
+    try:
+        import hardware
+        if model in hardware.installed_models():
+            return
+    except Exception:
+        return
+    print()
+    print(f"  {YL}[!]{R}  Modell '{model}' ist noch nicht installiert.")
+    try:
+        ans = input(f"  {C}›{R}  Jetzt herunterladen? (j/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        ans = ""
+    if ans in ("j", "ja", "y", "yes"):
+        print(f"  {CY}[>]{R}  Lade {model} … (kann je nach Größe einige Minuten dauern)")
+        subprocess.run(["ollama", "pull", model], check=False)
+    else:
+        print(f"  {GY}     Übersprungen — bestehendes Modell wird genutzt.{R}")
+
+
 def _boot_screen(cfg: dict) -> str:
-    """Zeigt Boot-Banner. System läuft vollständig lokal — keine Modus-Auswahl nötig."""
-    local_mdl = cfg.get("JARVIS_TOOL_MODEL") or cfg.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    """Boot-Banner mit Hardware-Erkennung + Auswahl des lokalen KI-Profils."""
+    try:
+        import hardware
+        hw  = hardware.detect()
+        rec = hardware.recommend(hw)
+        profs = hardware.PROFILES
+        installed = hardware.installed_models()
+    except Exception:
+        hw, rec, profs, installed = {}, None, [], []
 
     W = 54
     print()
@@ -96,9 +124,41 @@ def _boot_screen(cfg: dict) -> str:
     print()
     print(f"  {GR}⬡ 100% LOKAL{R}   {GY}— alle Leads werden lokal gefunden & bewertet{R}")
     print()
-    print(f"  {B}LOKALE KI{R}      ›  {GY}{local_mdl}{R}")
-    print(f"  {B}INTERNET{R}       ›  {GR}DuckDuckGo + Google Maps{R}")
-    print(f"  {B}PORT{R}           ›  {GY}localhost:5000{R}")
+
+    if hw:
+        gpu = f"{hw['gpu_name']} ({hw['vram_gb']:.0f} GB)" if hw["has_gpu"] else "keine dedizierte GPU"
+        print(f"  {B}HARDWARE{R}   ›  {GY}{hw['ram_gb']:.0f} GB RAM  ·  {gpu}{R}")
+    if rec:
+        print(f"  {B}EMPFOHLEN{R}  ›  {GR}{rec['name']}{R} {GY}({rec['model']}){R}")
+    print()
+
+    # ── Profil-Auswahl ──────────────────────────────────────────────────────
+    chosen = rec
+    if profs:
+        print(f"  {GY}Wähle das lokale KI-Profil:{R}")
+        print()
+        for i, p in enumerate(profs, 1):
+            mark = f"{GR}● installiert{R}" if p["model"] in installed else f"{GY}↓ Download{R}"
+            star = f" {C}◄ empfohlen{R}" if rec and p["key"] == rec["key"] else ""
+            print(f"    [{C}{i}{R}]  {B}{p['name']:<12}{R} {GY}{p['model']:<18}{R} {mark}{star}")
+            print(f"          {GY}{p['desc']}{R}")
+        print()
+        try:
+            ch = input(f"  {C}›{R}  Auswahl (1-{len(profs)}, Enter = empfohlen): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            ch = ""
+        if ch.isdigit() and 1 <= int(ch) <= len(profs):
+            chosen = profs[int(ch) - 1]
+
+    if chosen:
+        _set_env("JARVIS_EVAL_MODEL", chosen["model"])
+        os.environ["JARVIS_EVAL_MODEL"] = chosen["model"]
+        print()
+        print(f"  {B}KI-PROFIL{R}  ›  {GR}{chosen['name']}{R} {GY}({chosen['model']}){R}")
+        _ensure_model(chosen["model"])
+
+    print(f"  {B}INTERNET{R}   ›  {GR}DuckDuckGo + Google Maps{R}")
+    print(f"  {B}PORT{R}       ›  {GY}localhost:5000{R}")
     print()
     print(f"  {GY}{'─'*50}{R}")
     print()
