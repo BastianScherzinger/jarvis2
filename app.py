@@ -29,6 +29,18 @@ db.init_db()
 db_raw.init_db()
 db_evaluated.init_db()
 
+# Auto-Start Evaluator wenn ausstehende Roh-Leads aus vorherigen Sessions vorhanden.
+def _auto_start_evaluator():
+    try:
+        if db_raw.get_pending_count() > 0:
+            from scrapers import controller
+            controller.ensure_evaluator_running()
+    except Exception:
+        pass
+
+import threading as _startup_t
+_startup_t.Thread(target=_auto_start_evaluator, daemon=True).start()
+
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
 
@@ -202,9 +214,10 @@ def api_eval_status(eval_id):
 
 @app.route("/api/graph/nodes")
 def api_graph_nodes():
-    limit  = min(int(request.args.get("limit", 2000)), 2000)
+    limit  = min(int(request.args.get("limit", 2000)), 5000)
     offset = max(int(request.args.get("offset", 0)), 0)
-    return jsonify({"nodes": db_evaluated.get_for_graph(limit, offset)})
+    min_id = max(int(request.args.get("min_id", 0)), 0)
+    return jsonify({"nodes": db_evaluated.get_for_graph(limit, offset, min_id)})
 
 
 @app.route("/api/graph/stats")

@@ -2,11 +2,12 @@
 /* ── JARVIS LeadHunter ─────────────────────────────────────────────────────── */
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let _running       = false;
-let _sse           = null;
-let _feedCount     = 0;
-let _allLeads      = [];   // Session-Cache für Sphere + Filter
-let _sessionFinder = {};   // {finder: count} nur Session
+let _running        = false;
+let _sse            = null;
+let _feedCount      = 0;
+let _allLeads       = [];   // Session-Cache für Sphere + Filter
+let _sessionFinder  = {};   // {finder: count} nur Session
+let _evalRankTimer  = null; // Debounce für Ranking-Reload nach evaluated-Event
 
 // ── Finder-Registry ───────────────────────────────────────────────────────────
 const F = {
@@ -150,6 +151,14 @@ function _connectSSE(){
       if(msg.type==='init_stats') { _applyStats(msg.stats); }
       if(msg.type==='activity')   { _onActivity(msg.msg); }
       if(msg.type==='error')      { _onErr(msg.msg); }
+      if(msg.type==='evaluated'){
+        // Ranking und Graph sofort aktualisieren (debounced — 600ms)
+        clearTimeout(_evalRankTimer);
+        _evalRankTimer = setTimeout(() => {
+          if(typeof rankReload === 'function') rankReload();
+          if(typeof _updateStatBar === 'function') _updateStatBar();
+        }, 600);
+      }
     }catch{}
   };
   _sse.onerror = () => { if(_running) setTimeout(_connectSSE,3000); };

@@ -17,9 +17,8 @@ let _gSim        = null;
 let _gNodeSel    = null;      // D3-Selection der Knoten-Gruppen
 let _gLinkSel    = null;      // D3-Selection der Kanten
 let _gG          = null;      // Container-Group
-let _gZoom       = null;
 let _gRefreshTimer = null;
-let _gLastCount  = 0;         // Zähler für inkrementellen Fetch
+let _gLastMaxId  = 0;         // Höchste bekannte ID für inkrementellen Fetch
 let _gInitDone   = false;
 
 // ── Farben ─────────────────────────────────────────────────────────────────
@@ -68,12 +67,12 @@ function _initSimulation(W, H) {
   if (_gSim) _gSim.stop();
 
   _gSim = d3.forceSimulation()
-    .force('link',    d3.forceLink(_gLinks).id(d => d.id).distance(55).strength(0.25))
-    .force('charge',  d3.forceManyBody().strength(-70).distanceMax(200))
-    .force('center',  d3.forceCenter(W/2, H/2).strength(0.05))
-    .force('collide', d3.forceCollide(d => _nodeR(d) + 4).strength(0.7))
-    .alphaDecay(0.015)
-    .velocityDecay(0.4);
+    .force('link',    d3.forceLink(_gLinks).id(d => d.id).distance(60).strength(0.3))
+    .force('charge',  d3.forceManyBody().strength(-90).distanceMax(250))
+    .force('center',  d3.forceCenter(W/2, H/2).strength(0.12))
+    .force('collide', d3.forceCollide(d => _nodeR(d) + 6).strength(0.85))
+    .alphaDecay(0.03)
+    .velocityDecay(0.55);
 
   _gSim.on('tick', _tick);
 }
@@ -132,7 +131,7 @@ function _updateDOM() {
       .attr('stroke-opacity', 0.15)
       .attr('stroke-width', 1);
 
-  // Nodes
+  // Nodes — kein Drag (alles fest nach Simulation)
   _gNodeSel = _gG.select('.nodes')
     .selectAll('g.node')
     .data(_gNodes, d => d.id)
@@ -141,11 +140,6 @@ function _updateDOM() {
         const g = enter.append('g').attr('class', 'node')
           .style('cursor', 'pointer')
           .style('opacity', 0)
-          .call(d3.drag()
-            .on('start', (e, d) => { if (!e.active) _gSim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-            .on('drag',  (e, d) => { d.fx=e.x; d.fy=e.y; })
-            .on('end',   (e, d) => { if (!e.active) _gSim.alphaTarget(0); d.fx=null; d.fy=null; })
-          )
           .on('mouseover', _showTip)
           .on('mousemove', _moveTip)
           .on('mouseout',  _hideTip)
@@ -190,10 +184,10 @@ function _updateDOM() {
     .attr('opacity', d => (_isVisible(d) && _nodeR(d) >= 7) ? 1 : 0)
     .text(d => (d.name||'').substring(0, 13));
 
-  // Simulation-Nodes + Links updaten
+  // Simulation-Nodes + Links updaten — sanfter Neustart (wenig Bewegung)
   _gSim.nodes(_gNodes);
   _gSim.force('link').links(_gLinks);
-  _gSim.alpha(0.15).restart();
+  _gSim.alpha(0.08).restart();
 }
 
 // ── Statistik-Bar updaten ─────────────────────────────────────────────────
@@ -279,15 +273,11 @@ function _setupSVG() {
   const H = wrap.clientHeight || 540;
 
   const svg = d3.select('#graph-svg')
-    .attr('width', W).attr('height', H);
+    .attr('width', W).attr('height', H)
+    .style('touch-action', 'none');  // kein Pinch-Zoom auf Touch
 
-  _gZoom = d3.zoom()
-    .scaleExtent([0.15, 5])
-    .on('zoom', e => _gG && _gG.attr('transform', e.transform));
-
-  svg.call(_gZoom);
-
-  // Hintergrund-Klick = Zoom-Reset
+  // Zoom/Pan DEAKTIVIERT — Karte ist fest
+  svg.on('.zoom', null);
   svg.on('dblclick.zoom', null);
 
   _gG = svg.select('g.graph-root');
@@ -305,35 +295,34 @@ function _setupSVG() {
       const nW = wrap.clientWidth, nH = wrap.clientHeight;
       svg.attr('width', nW).attr('height', nH);
       if (_gSim) {
-        _gSim.force('center', d3.forceCenter(nW/2, nH/2).strength(0.05));
+        _gSim.force('center', d3.forceCenter(nW/2, nH/2).strength(0.12));
         _gSim.alpha(0.05).restart();
       }
     }).observe(wrap);
   }
 }
 
-// ── Daten laden (inkrementell!) ───────────────────────────────────────────
+// ── Daten laden (inkrementell — nur neue IDs) ─────────────────────────────
 async function _fetchNew() {
+  if (_gLastMaxId === 0) return false;
   let nodes = [];
   try {
-    // Nur neue Nodes holen (offset = aktuelle Anzahl)
-    const r = await fetch(`/api/graph/nodes?limit=${G_MAX_NODES}&offset=${_gLastCount}`);
+    const r = await fetch(`/api/graph/nodes?limit=${G_MAX_NODES}&min_id=${_gLastMaxId}`);
     const d = await r.json();
     nodes = d.nodes || [];
   } catch(e) {}
 
   if (!nodes.length) return false;
 
-  // Neue Nodes in Map einfügen
   let added = false;
   nodes.forEach(n => {
     if (!_gNodeMap.has(n.id)) {
       _gNodeMap.set(n.id, n);
       _gNodes.push(n);
+      if (n.id > _gLastMaxId) _gLastMaxId = n.id;
       added = true;
     }
   });
-  _gLastCount = _gNodes.length;
   return added;
 }
 
@@ -359,8 +348,12 @@ async function _fetchAll() {
 
   _gNodes = [];
   _gNodeMap.clear();
-  nodes.forEach(n => { _gNodeMap.set(n.id, n); _gNodes.push(n); });
-  _gLastCount = _gNodes.length;
+  _gLastMaxId = 0;
+  nodes.forEach(n => {
+    _gNodeMap.set(n.id, n);
+    _gNodes.push(n);
+    if (n.id > _gLastMaxId) _gLastMaxId = n.id;
+  });
 }
 
 // ── Auto-Refresh ──────────────────────────────────────────────────────────
@@ -435,11 +428,8 @@ function toggleHotOnly() {
 }
 
 function zoomReset() {
-  const wrap = document.getElementById('graph-wrap');
-  const svg = d3.select('#graph-svg');
-  if (!wrap || !_gZoom) return;
-  svg.transition().duration(500)
-    .call(_gZoom.transform, d3.zoomIdentity.translate(wrap.clientWidth/2, wrap.clientHeight/2).scale(0.85).translate(-wrap.clientWidth/2, -wrap.clientHeight/2));
+  // Neu-Layout: Simulation kurz aufwärmen damit Knoten sich neu positionieren
+  if (_gSim) _gSim.alpha(0.4).restart();
 }
 
 function graphOnNewLead(lead) {
@@ -455,7 +445,7 @@ function graphOnNewLead(lead) {
   };
   _gNodeMap.set(lead.id, node);
   _gNodes.push(node);
-  _gLastCount = _gNodes.length;
+  if (lead.id > _gLastMaxId) _gLastMaxId = lead.id;
   // Kein Link-Rebuild bei jedem Lead — passiert beim nächsten 3s-Tick
   _updateDOM();
   _updateStatBar();

@@ -228,26 +228,52 @@ def analyze(lead: dict) -> dict:
     # ── Schritt 3: Bilder + Foto-URL erfassen ───────────────────────────────
     maps_fotos = int(lead.get("bilder_maps") or 0)
     if html:
-        # og:image extrahieren → Foto-URL für die Vorschau.
+        # Foto-URL: og:image / twitter:image / Schema.org image
         try:
-            og = re.search(
-                r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-                html, re.I,
-            ) or re.search(
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-                html, re.I,
+            og = (
+                re.search(
+                    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                    html, re.I,
+                ) or re.search(
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                    html, re.I,
+                ) or re.search(
+                    r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+                    html, re.I,
+                ) or re.search(
+                    r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+                    html, re.I,
+                )
             )
             if og:
                 og_url = og.group(1).strip()
                 if og_url and not og_url.startswith("http"):
                     og_url = urljoin(url, og_url)
-                result["foto_url"] = og_url[:300]
+                if og_url:
+                    result["foto_url"] = og_url[:300]
         except Exception:
             pass
 
-        img_count = html.lower().count("<img")
-        if result["foto_url"] or img_count > 3 or maps_fotos:
-            result["bilder_vorhanden"] = 1
+        # Bild-Heuristik: mehrere Signale zusammenzählen
+        low = html.lower()
+        img_count  = low.count("<img")
+        pic_count  = low.count("<picture")
+        srcset_cnt = low.count("srcset=")
+        # Schema.org ImageObject
+        schema_img = '"image"' in low or '"imageobject"' in low
+        # Galerie/Portfolio-Hinweise
+        gallery    = any(k in low for k in ("gallery", "galerie", "portfolio", "slider", "carousel", "bildergalerie"))
+
+        has_bilder = (
+            bool(result["foto_url"])
+            or img_count > 1
+            or pic_count > 0
+            or srcset_cnt > 0
+            or schema_img
+            or gallery
+            or maps_fotos > 0
+        )
+        result["bilder_vorhanden"] = 1 if has_bilder else 0
     else:
         result["bilder_vorhanden"] = 1 if maps_fotos else 0
 
