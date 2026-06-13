@@ -1,9 +1,16 @@
 """
 DB2 — KI-angereicherte Lead-Bewertungen. Wird vom Evaluator-Team befüllt.
 """
+import hashlib
 import sqlite3
 import threading
 from pathlib import Path
+
+
+def _compute_lead_key(name: str, stadt: str) -> str:
+    """Globaler Dedup-Schlüssel: md5(lower(name)|lower(stadt)). Identisch mit cloud_sync."""
+    s = f"{(name or '').strip().lower()}|{(stadt or '').strip().lower()}"
+    return hashlib.md5(s.encode("utf-8")).hexdigest()
 
 DB_PATH = Path(__file__).parent / "data" / "leads_evaluated.db"
 _lock   = threading.Lock()
@@ -80,7 +87,8 @@ def init_db() -> None:
             verify_log            TEXT,
             verifiziert           INTEGER DEFAULT 1,
             status                TEXT DEFAULT 'neu',
-            bewertet_am           TEXT
+            bewertet_am           TEXT,
+            lead_key              TEXT
         )
         """)
         c.execute(
@@ -89,10 +97,15 @@ def init_db() -> None:
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_status  ON evaluated_leads(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_branche ON evaluated_leads(branche, bundesland)")
-        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_key ON evaluated_leads(lead_key) "
-                  "WHERE lead_key IS NOT NULL")
         c.commit()
     migrate()
+    # Unique-Index für lead_key NACH migrate() — Spalte existiert jetzt sicher
+    with _lock, _conn() as c:
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_key "
+            "ON evaluated_leads(lead_key) WHERE lead_key IS NOT NULL"
+        )
+        c.commit()
 
 
 def migrate() -> None:
@@ -107,11 +120,10 @@ def migrate() -> None:
 
 def insert_evaluated(data: dict) -> int | None:
     """INSERT OR REPLACE — nutzt lead_key (global) oder raw_id (lokal) für Dedup."""
-    from cloud_sync import make_lead_key as _mlk
     row = {k: data[k] for k in _COLUMNS if k in data}
-    # lead_key immer befüllen (Dedup-Schlüssel über alle PCs)
+    # lead_key immer befüllen (kein Kreisimport — lokale Funktion)
     if not row.get("lead_key"):
-        row["lead_key"] = _mlk(data.get("name", ""), data.get("stadt", ""))
+        row["lead_key"] = _compute_lead_key(data.get("name", ""), data.get("stadt", ""))
     # raw_id ist optional (None für remote Leads aus Pull)
     if not row.get("raw_id") and not row.get("lead_key"):
         return None

@@ -46,7 +46,8 @@ _lock    = threading.Lock()
 # ── Helfer ─────────────────────────────────────────────────────────────────────
 
 def make_lead_key(name: str, stadt: str) -> str:
-    """Globaler Unique-Key über alle PCs: MD5(lower(name)|lower(stadt))."""
+    """Globaler Unique-Key über alle PCs: MD5(lower(name)|lower(stadt)).
+    Identisch mit db_evaluated._compute_lead_key — beide müssen synchron bleiben."""
     s = f"{(name or '').strip().lower()}|{(stadt or '').strip().lower()}"
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
@@ -108,12 +109,12 @@ def _fetch_all_remote(url: str, key: str) -> list[dict]:
 
 
 def _fetch_remote_full(url: str, key: str, offset: int = 0) -> list[dict]:
-    """Vollständige Lead-Daten aus Supabase (für lokalen Cache)."""
-    endpoint = (
-        f"{url}/rest/v1/{_TABLE}"
-        f"?select=*&order=score.desc&limit={_BATCH}&offset={offset}"
-    )
-    req = urllib.request.Request(endpoint, headers=_headers(key))
+    """Vollständige Lead-Daten aus Supabase (für lokalen Cache). Pagination via Range-Header."""
+    endpoint = f"{url}/rest/v1/{_TABLE}?select=*&order=score.desc"
+    hdrs = dict(_headers(key))
+    hdrs["Range-Unit"] = "items"
+    hdrs["Range"]      = f"{offset}-{offset + _BATCH - 1}"
+    req = urllib.request.Request(endpoint, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
             return json.loads(r.read())
