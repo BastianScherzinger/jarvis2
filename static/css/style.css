@@ -390,6 +390,13 @@ body::after{
 }
 .m-act-btn:hover:not(:disabled){border-color:var(--c);background:rgba(0,212,255,.08)}
 .m-act-btn:disabled{opacity:.5;cursor:not-allowed}
+.rank-img-btn{
+  width:100%;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:12px;
+  font-family:var(--fu);font-weight:600;letter-spacing:.03em;
+  background:linear-gradient(135deg,rgba(0,212,255,.12),rgba(0,232,122,.08));
+  border:1px solid var(--c);color:var(--c);transition:all .18s;
+}
+.rank-img-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.22),rgba(0,232,122,.14));transform:translateY(-1px)}
 .m-email-out,.m-mockup-out{margin-top:8px}
 .m-email-sub{font-size:11px;color:var(--tx2);margin-bottom:5px;font-weight:600}
 .m-email-txt{

@@ -9,6 +9,7 @@ let _rankTimer       = null;
 let _rankFiltersInit = false;
 let _rankSearchTimer = null;
 let _rankInit        = false;
+let _rankCurrentLead = null;  // zuletzt geöffneter Lead (für Bilder-Aktion)
 
 // ── HTML-Escape (lokal — NICHT die app.js-Version überschreiben) ──────────────
 function _re(s){
@@ -223,6 +224,7 @@ async function rankSetStatus(ev, id){
 
 // ── Detail-Ansicht im bestehenden Modal ──────────────────────────────────────
 function openRankDetail(lead){
+  _rankCurrentLead = lead;
   const typ   = lead.lead_typ || 'Cold';
   const inner = document.getElementById('modal-inner');
   if(!inner) return;
@@ -351,10 +353,47 @@ function openRankDetail(lead){
     ${lead.pitch_hook?`<div class="m-sec"><div class="m-sec-t">Pitch-Hook</div><div class="m-pitch">${_re(lead.pitch_hook)}</div></div>`:''}
     ${mailHtml}
 
-    ${lead.schluessel?`<div class="rr-key">${_re(lead.schluessel)}</div>`:''}`;
+    ${lead.schluessel?`<div class="rr-key">${_re(lead.schluessel)}</div>`:''}
+
+    <div class="m-sec m-actions" style="margin-top:10px">
+      <button class="rank-img-btn" onclick="rankCreateImages()">
+        🎨 Werbe-Bilder für diesen Lead erstellen
+      </button>
+    </div>`;
 
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
+}
+
+// ── Zu Bilder-Tab wechseln und Lead vorausfüllen ──────────────────────────────
+function rankCreateImages(){
+  if(!_rankCurrentLead) return;
+  const lead = _rankCurrentLead;
+  closeModal();
+  if(typeof showPage === 'function') showPage('images');
+  // Kurz warten bis Tab aktiv + loadImageLeads fertig (Dropdown befüllt)
+  setTimeout(async () => {
+    // Lead-Dropdown: passenden Eintrag wählen
+    const sel = document.getElementById('af-lead');
+    if(sel){
+      // Falls noch nicht befüllt: kurz warten
+      if(sel.options.length <= 1){
+        await new Promise(r => setTimeout(r, 600));
+      }
+      const opt = [...sel.options].find(o => String(o.value) === String(lead.id));
+      if(opt){
+        sel.value = String(lead.id);
+        if(typeof afLeadPick === 'function') afLeadPick();
+      }
+    }
+    // Direkt setzen falls Dropdown-Treffer fehlt
+    const b  = document.getElementById('af-betrieb');
+    const br = document.getElementById('af-branche');
+    if(b  && !b.value)  b.value  = lead.name    || '';
+    if(br && !br.value) br.value = lead.branche || '';
+    // Zum Formular scrollen
+    document.querySelector('.adform')?.scrollIntoView({behavior:'smooth'});
+  }, 300);
 }
 
 // ── E-Mail kopieren ───────────────────────────────────────────────────────────
