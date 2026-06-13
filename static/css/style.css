@@ -390,6 +390,9 @@ body::after{
 }
 .m-act-btn:hover:not(:disabled){border-color:var(--c);background:rgba(0,212,255,.08)}
 .m-act-btn:disabled{opacity:.5;cursor:not-allowed}
+.sync-status{
+  font-size:11px; color:var(--g); white-space:nowrap; transition:opacity .3s;
+}
 .rank-img-btn{
   width:100%;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:12px;
   font-family:var(--fu);font-weight:600;letter-spacing:.03em;

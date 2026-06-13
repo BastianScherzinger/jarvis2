@@ -20,6 +20,7 @@ import db
 import db_raw
 import db_evaluated
 import media_queue
+import cloud_sync
 import logger as _logger
 from scrapers import controller, _http
 
@@ -40,6 +41,9 @@ def _auto_start_evaluator():
 
 import threading as _startup_t
 _startup_t.Thread(target=_auto_start_evaluator, daemon=True).start()
+
+# Cloud-Sync starten (10s verzögert — wartet auf App-Init)
+cloud_sync.start()
 
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
@@ -210,6 +214,21 @@ def api_eval_status(eval_id):
         return jsonify({"error": f"Ungültig. Erlaubt: {VALID}"}), 400
     db_evaluated.update_status(eval_id, status)
     return jsonify({"ok": True})
+
+
+@app.route("/api/sync", methods=["GET", "POST"])
+def api_sync():
+    """GET: Sync-Status. POST: manueller Sync-Trigger (body: {full: true/false})."""
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        full = bool(body.get("full", False))
+        result = cloud_sync.sync_once(full=full)
+        return jsonify(result)
+    return jsonify({
+        "configured": cloud_sync.is_configured(),
+        "interval_s": cloud_sync.SYNC_INTERVAL,
+        "table":      cloud_sync._TABLE,
+    })
 
 
 @app.route("/api/graph/nodes")

@@ -333,6 +333,8 @@
     <select class="flt" id="rank-br" onchange="rankReload()"><option value="">Alle Branchen</option></select>
     <span class="rank-live" id="rank-live">● LIVE · 3s</span>
     <button class="gc-btn" style="margin-left:auto" onclick="rankReeval()">↻ Alle neu bewerten</button>
+    <button class="gc-btn" id="sync-btn" onclick="rankCloudSync()" title="Leads in Supabase hochladen">☁ Sync</button>
+    <span class="sync-status" id="sync-status"></span>
     <button class="gc-btn gc-btn-danger" onclick="rankClearDb()">🗑 DB leeren</button>
   </div>
 

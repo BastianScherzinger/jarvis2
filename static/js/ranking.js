@@ -432,6 +432,30 @@ async function rankReeval(){
   setTimeout(() => { if(live) live.textContent = '● LIVE · 3s'; }, 6000);
 }
 
+// ── Manueller Cloud-Sync ──────────────────────────────────────────────────────
+async function rankCloudSync(){
+  const btn = document.getElementById('sync-btn');
+  const st  = document.getElementById('sync-status');
+  if(btn) btn.disabled = true;
+  if(st)  st.textContent = '↑ Synchronisiere…';
+  try{
+    const r = await(await fetch('/api/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({full: false}),
+    })).json();
+    if(r.ok){
+      if(st) st.textContent = `✓ ${r.uploaded} hochgeladen, ${r.skipped} synchron (${r.total} gesamt)`;
+    }else{
+      if(st) st.textContent = `✕ ${r.reason || 'Fehler — SUPABASE_SERVICE_KEY in .env?'}`;
+    }
+  }catch(e){
+    if(st) st.textContent = '✕ Netzwerkfehler';
+  }finally{
+    if(btn) btn.disabled = false;
+    setTimeout(() => { if(st) st.textContent = ''; }, 8000);
+  }
+}
+
 // ── Gesamte Datenbank leeren ────────────────────────────────────────────────────
 async function rankClearDb(){
   if(!confirm('WIRKLICH die GESAMTE Datenbank leeren? Alle gefundenen und bewerteten Leads werden gelöscht — das kann NICHT rückgängig gemacht werden.')) return;
