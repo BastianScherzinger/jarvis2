@@ -90,6 +90,13 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
             db_evaluated.insert_evaluated(row)
             db_raw.update_eval_status(raw_id, "done")
 
+            # Sofort in Supabase pushen (async, fire-and-forget)
+            try:
+                from cloud_sync import push_lead
+                push_lead(row)
+            except Exception:
+                pass
+
             logger.success(
                 "Evaluator",
                 f"✓ {lead.get('name')}: Score {row.get('score')} ({row.get('lead_typ')}) | "

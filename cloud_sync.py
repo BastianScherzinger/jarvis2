@@ -1,18 +1,18 @@
 """
-Cloud-Sync — überträgt bewertete Leads inkrementell nach Supabase.
+Cloud-Sync — Supabase als primärer Lead-Speicher.
 
-Start: beim App-Launch (10s verzögert, damit Flask fertig initialisiert).
-Danach: alle 10 Minuten — nur Leads mit raw_id > max(remote raw_id).
-Manuell: POST /api/sync  (full=true für vollständige Neusynchronisation).
+Schreiben:  Sofort nach jeder Evaluierung (async, fire-and-forget).
+Lesen:      Beim App-Start werden alle remote Leads in den lokalen Cache gezogen.
+Batch-Sync: Alle 10 Min werden fehlende Leads nachgeschoben (Fallback).
 
 Sicherheit:
-  - SUPABASE_SERVICE_KEY wird NUR aus .env gelesen, nie geloggt
-  - Service-Role-Key umgeht RLS (Schreibzugriff) — Anon-Key liest nur
-  - HTTPS erzwungen (Supabase-URLs beginnen immer mit https://)
-  - Keine sensitiven Daten in Logs (kein Key, keine E-Mails in Fehlermeldungen)
+  - SUPABASE_SERVICE_KEY nur aus .env, niemals geloggt
+  - HTTPS erzwungen (URL beginnt immer https://)
+  - Keine sensiblen Felder in Fehlermeldungen
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -23,16 +23,13 @@ import urllib.request
 import db_evaluated
 import logger
 
-# ── Konfiguration ──────────────────────────────────────────────────────────────
-SYNC_INTERVAL = 600          # Sekunden zwischen zwei Sync-Läufen
+SYNC_INTERVAL = 600          # Sekunden zwischen Batch-Syncs
 _BATCH        = 100          # Leads pro API-Request
-_TIMEOUT      = 20           # HTTP-Timeout in Sekunden
+_TIMEOUT      = 20           # HTTP-Timeout
 _TABLE        = "jarvis_leads"
 
-# Spalten die übertragen werden — kein email_entwurf, score_breakdown, verify_log
-# (interne Langfelder, die die Railway-Seite nicht braucht)
 _SYNC_COLS = [
-    "raw_id", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
+    "raw_id", "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
     "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
     "has_website", "website_url", "discovered_website",
     "website_veraltet", "website_alter_jahre",
@@ -46,10 +43,15 @@ _started = False
 _lock    = threading.Lock()
 
 
-# ── Interne Helfer ─────────────────────────────────────────────────────────────
+# ── Helfer ─────────────────────────────────────────────────────────────────────
+
+def make_lead_key(name: str, stadt: str) -> str:
+    """Globaler Unique-Key über alle PCs: MD5(lower(name)|lower(stadt))."""
+    s = f"{(name or '').strip().lower()}|{(stadt or '').strip().lower()}"
+    return hashlib.md5(s.encode("utf-8")).hexdigest()
+
 
 def _cfg() -> tuple[str, str]:
-    """(supabase_url, service_key) — leere Strings wenn nicht konfiguriert."""
     url = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
     key =  os.environ.get("SUPABASE_SERVICE_KEY") or ""
     return url, key
@@ -69,62 +71,136 @@ def _headers(key: str) -> dict:
     }
 
 
-def _get_max_remote_id(url: str, key: str) -> int:
-    """Höchste raw_id in Supabase — bestimmt den Startpunkt des inkrementellen Uploads."""
-    endpoint = f"{url}/rest/v1/{_TABLE}?select=raw_id&order=raw_id.desc&limit=1"
-    req = urllib.request.Request(endpoint, headers=_headers(key))
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-            data = json.loads(r.read())
-            return int(data[0]["raw_id"]) if data else 0
-    except Exception as e:
-        logger.warn("CloudSync", f"Konnte max raw_id nicht abrufen: {type(e).__name__}")
-        return 0
-
-
 def _upsert_batch(url: str, key: str, leads: list[dict]) -> int:
-    """UPSERT einer Batch. Gibt Anzahl erfolgreich gesendeter Leads zurück."""
-    rows = [{k: lead.get(k) for k in _SYNC_COLS if k in lead} for lead in leads]
+    rows = []
+    for lead in leads:
+        row = {k: lead.get(k) for k in _SYNC_COLS if k in lead}
+        # lead_key immer mitschicken (Dedup-Schlüssel in Supabase)
+        if not row.get("lead_key"):
+            row["lead_key"] = make_lead_key(lead.get("name", ""), lead.get("stadt", ""))
+        rows.append(row)
     payload = json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
     req = urllib.request.Request(
         f"{url}/rest/v1/{_TABLE}",
-        data=payload,
-        headers=_headers(key),
-        method="POST",
+        data=payload, headers=_headers(key), method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT):
-            return len(leads)
+            return len(rows)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")[:300]
-        logger.error("CloudSync", f"HTTP {e.code} beim Upload: {body}")
+        logger.error("CloudSync", f"HTTP {e.code}: {body}")
         return 0
     except Exception as e:
-        logger.error("CloudSync", f"Netzwerkfehler: {type(e).__name__}: {e}")
+        logger.error("CloudSync", f"Upload-Fehler: {type(e).__name__}")
         return 0
 
 
-# ── Öffentliche API ────────────────────────────────────────────────────────────
+def _fetch_all_remote(url: str, key: str) -> list[dict]:
+    """Alle lead_keys aus Supabase laden (für Dedup beim Pull)."""
+    endpoint = f"{url}/rest/v1/{_TABLE}?select=lead_key,name,stadt&limit=50000"
+    req = urllib.request.Request(endpoint, headers=_headers(key))
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
 
-def sync_once(full: bool = False) -> dict:
+
+def _fetch_remote_full(url: str, key: str, offset: int = 0) -> list[dict]:
+    """Vollständige Lead-Daten aus Supabase (für lokalen Cache)."""
+    endpoint = (
+        f"{url}/rest/v1/{_TABLE}"
+        f"?select=*&order=score.desc&limit={_BATCH}&offset={offset}"
+    )
+    req = urllib.request.Request(endpoint, headers=_headers(key))
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+
+# ── Sofort-Push (nach jeder Evaluierung) ──────────────────────────────────────
+
+def push_lead(row: dict) -> None:
+    """Fire-and-forget: einen einzelnen Lead sofort nach Supabase pushen."""
+    threading.Thread(target=_push_one, args=(row,), daemon=True).start()
+
+
+def _push_one(row: dict) -> None:
+    if not is_configured():
+        return
+    url, key = _cfg()
+    _upsert_batch(url, key, [row])
+
+
+# ── Startup-Pull: Supabase → lokaler Cache ─────────────────────────────────────
+
+def pull_and_cache() -> dict:
     """
-    Einmalige Synchronisation.
-    full=True  → alle Leads übertragen (ignoriert remote max_id).
-    full=False → nur Leads mit raw_id > höchster bekannter remote raw_id.
-
-    Gibt Status-Dict zurück:
-      {ok, uploaded, skipped, total, reason?}
+    Zieht alle remote Leads in den lokalen Cache (db_evaluated).
+    Wird beim App-Start aufgerufen — füllt den Cache mit Leads von allen PCs.
     """
     if not is_configured():
-        return {
-            "ok":     False,
-            "reason": "SUPABASE_URL oder SUPABASE_SERVICE_KEY fehlen in .env",
-        }
+        return {"ok": False, "reason": "nicht konfiguriert"}
+    url, key = _cfg()
+
+    # Lokale lead_keys kennen (für schnellen Abgleich)
+    local_leads = db_evaluated.get_all(limit=200_000)
+    local_keys  = {make_lead_key(l.get("name", ""), l.get("stadt", "")) for l in local_leads}
+    logger.info("CloudSync", f"Pull: {len(local_keys)} Leads lokal, lade remote Daten…")
+
+    pulled = 0
+    offset = 0
+    while True:
+        remote_batch = _fetch_remote_full(url, key, offset)
+        if not remote_batch:
+            break
+        for remote in remote_batch:
+            rk = remote.get("lead_key") or make_lead_key(remote.get("name",""), remote.get("stadt",""))
+            if rk in local_keys:
+                continue
+            # Remote Lead in lokalen Cache schreiben
+            cache_row = {k: remote.get(k) for k in db_evaluated._COLUMNS if k in remote}
+            cache_row["lead_key"] = rk
+            cache_row["raw_id"]   = None   # kein lokaler raw_id für remote Leads
+            try:
+                db_evaluated.insert_evaluated(cache_row)
+                local_keys.add(rk)
+                pulled += 1
+            except Exception:
+                pass
+        if len(remote_batch) < _BATCH:
+            break
+        offset += _BATCH
+
+    if pulled:
+        logger.success("CloudSync", f"↓ {pulled} neue Leads aus Cloud in Cache geladen")
+    else:
+        logger.info("CloudSync", "Cache aktuell — keine neuen remote Leads")
+    return {"ok": True, "pulled": pulled}
+
+
+# ── Batch-Sync (alle 10 Min, Fallback) ────────────────────────────────────────
+
+def sync_once(full: bool = False) -> dict:
+    if not is_configured():
+        return {"ok": False, "reason": "SUPABASE_URL / SUPABASE_SERVICE_KEY fehlen in .env"}
 
     url, key = _cfg()
-    min_id   = 0 if full else _get_max_remote_id(url, key)
+    remote_keys: set[str] = set()
+    if not full:
+        for r in _fetch_all_remote(url, key):
+            k = r.get("lead_key") or make_lead_key(r.get("name",""), r.get("stadt",""))
+            remote_keys.add(k)
+
     all_local = db_evaluated.get_all(limit=100_000, sort="datum")
-    to_upload = [l for l in all_local if (l.get("raw_id") or 0) > min_id]
+    to_upload = []
+    for l in all_local:
+        lk = l.get("lead_key") or make_lead_key(l.get("name",""), l.get("stadt",""))
+        if full or lk not in remote_keys:
+            to_upload.append(l)
 
     if not to_upload:
         return {"ok": True, "uploaded": 0, "skipped": len(all_local), "total": len(all_local)}
@@ -133,37 +209,31 @@ def sync_once(full: bool = False) -> dict:
     for i in range(0, len(to_upload), _BATCH):
         uploaded += _upsert_batch(url, key, to_upload[i : i + _BATCH])
 
-    return {
-        "ok":       True,
-        "uploaded": uploaded,
-        "skipped":  len(all_local) - len(to_upload),
-        "total":    len(all_local),
-    }
+    return {"ok": True, "uploaded": uploaded,
+            "skipped": len(all_local) - len(to_upload), "total": len(all_local)}
 
 
 def _sync_loop() -> None:
-    time.sleep(10)  # App-Start abwarten
+    time.sleep(12)  # App-Start abwarten
     while True:
         try:
             r = sync_once()
             if r.get("ok"):
                 if r["uploaded"]:
-                    logger.success(
-                        "CloudSync",
+                    logger.success("CloudSync",
                         f"↑ {r['uploaded']} Leads hochgeladen "
-                        f"({r['skipped']} bereits synchron, {r['total']} gesamt)",
-                    )
+                        f"({r['skipped']} synchron, {r['total']} gesamt)")
                 else:
                     logger.info("CloudSync", f"Alles synchron — {r['total']} Leads in Cloud")
             else:
-                logger.warn("CloudSync", f"Sync übersprungen: {r.get('reason', '?')}")
+                logger.warn("CloudSync", f"Sync übersprungen: {r.get('reason','?')}")
         except Exception as e:
             logger.error("CloudSync", f"Unerwarteter Fehler: {e}")
         time.sleep(SYNC_INTERVAL)
 
 
 def start() -> None:
-    """Startet den Sync-Daemon-Thread. Mehrfachaufruf sicher (idempotent)."""
+    """Startet Sync-Thread. Idempotent."""
     global _started
     with _lock:
         if _started:
@@ -171,4 +241,4 @@ def start() -> None:
         _started = True
     t = threading.Thread(target=_sync_loop, name="CloudSync", daemon=True)
     t.start()
-    logger.info("CloudSync", "Sync-Thread gestartet — erster Upload in 10s")
+    logger.info("CloudSync", "Sync-Thread gestartet — Push nach jeder Evaluierung + Batch alle 10 Min")

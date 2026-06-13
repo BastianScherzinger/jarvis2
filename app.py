@@ -42,8 +42,10 @@ def _auto_start_evaluator():
 import threading as _startup_t
 _startup_t.Thread(target=_auto_start_evaluator, daemon=True).start()
 
-# Cloud-Sync starten (10s verzögert — wartet auf App-Init)
+# Cloud-Sync starten (batch alle 10 Min)
 cloud_sync.start()
+# Startup-Pull: alle Supabase-Leads in lokalen Cache laden (andere PCs)
+_startup_t.Thread(target=cloud_sync.pull_and_cache, daemon=True).start()
 
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 

@@ -10,7 +10,7 @@ _lock   = threading.Lock()
 
 # Alle bekannten Spalten — fremde Keys werden beim Insert gefiltert.
 _COLUMNS = [
-    "raw_id", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
+    "raw_id", "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
     "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
     "has_website", "website_url", "discovered_website", "website_veraltet",
     "website_alter_jahre", "website_probleme", "fotos_in_maps", "bilder_vorhanden",
@@ -28,6 +28,7 @@ _NEW_COLUMNS = {
     "score_breakdown":    "TEXT",
     "verify_log":         "TEXT",
     "verifiziert":        "INTEGER DEFAULT 1",
+    "lead_key":           "TEXT",
 }
 
 
@@ -86,8 +87,10 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_score "
             "ON evaluated_leads(score DESC, lead_typ, ist_privat_zahler)"
         )
-        c.execute("CREATE INDEX IF NOT EXISTS idx_status ON evaluated_leads(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_status  ON evaluated_leads(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_branche ON evaluated_leads(branche, bundesland)")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_key ON evaluated_leads(lead_key) "
+                  "WHERE lead_key IS NOT NULL")
         c.commit()
     migrate()
 
@@ -103,9 +106,14 @@ def migrate() -> None:
 
 
 def insert_evaluated(data: dict) -> int | None:
-    """INSERT OR REPLACE — raw_id ist UNIQUE, Re-Evaluierung überschreibt."""
+    """INSERT OR REPLACE — nutzt lead_key (global) oder raw_id (lokal) für Dedup."""
+    from cloud_sync import make_lead_key as _mlk
     row = {k: data[k] for k in _COLUMNS if k in data}
-    if not row.get("raw_id"):
+    # lead_key immer befüllen (Dedup-Schlüssel über alle PCs)
+    if not row.get("lead_key"):
+        row["lead_key"] = _mlk(data.get("name", ""), data.get("stadt", ""))
+    # raw_id ist optional (None für remote Leads aus Pull)
+    if not row.get("raw_id") and not row.get("lead_key"):
         return None
     cols = ", ".join(row.keys())
     ph   = ", ".join("?" for _ in row)
