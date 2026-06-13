@@ -93,7 +93,8 @@ def api_export_csv():
 
 @app.route("/api/top")
 def api_top():
-    return jsonify({"top": db.get_top_opportunities(10)})
+    # Nutze db_evaluated statt altem Verifier-Status (war immer 'pending')
+    return jsonify({"top": db_evaluated.get_top(10)})
 
 
 @app.route("/api/lead/<int:lead_id>/status", methods=["POST"])

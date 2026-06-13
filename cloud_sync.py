@@ -171,7 +171,4 @@ def start() -> None:
         _started = True
     t = threading.Thread(target=_sync_loop, name="CloudSync", daemon=True)
     t.start()
-    if is_configured():
-        logger.info("CloudSync", "Sync-Thread aktiv — Upload alle 10 Min (inkrementell)")
-    else:
-        logger.warn("CloudSync", "SUPABASE_URL / SUPABASE_SERVICE_KEY fehlen — Sync deaktiviert")
+    logger.info("CloudSync", "Sync-Thread gestartet — erster Upload in 10s")

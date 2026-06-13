@@ -329,7 +329,7 @@ function _addHotCard(lead){
   if(list.querySelectorAll('.hot-card').length>40) list.lastChild?.remove();
 }
 
-// ── Top 10 Opportunities ────────────────────────────────────────────────────
+// ── Top 10 Opportunities (aus db_evaluated — KI-bewertet) ──────────────────
 async function loadTop(){
   let top = [];
   try{ top = (await(await fetch('/api/top')).json()).top || []; }catch{ return; }
@@ -337,17 +337,15 @@ async function loadTop(){
   if(!el) return;
   if(!top.length){ el.innerHTML = '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>'; return; }
   el.innerHTML = top.map((l,i) => {
-    const verified = l.verify_status === 'verified';
-    const sc   = (verified && l.end_score >= 0) ? l.end_score : l.score;
-    const badge = verified
-      ? '<span class="v-badge verified">✓ verified</span>'
-      : '<span class="v-badge pending">⏳ pending</span>';
+    const sc   = Number(l.score) || 0;
+    const typ  = l.lead_typ || 'Cold';
+    const badge = `<span class="v-badge verified">✓ KI-bewertet</span>`;
     const hook = l.pitch_hook ? `<div class="tc-hook">${_e(l.pitch_hook)}</div>` : '';
     const jl   = JSON.stringify(l).replace(/"/g,'&quot;');
-    return `<div class="top-card ${l.lead_typ||''}" onclick='openModal(${jl})'>
+    return `<div class="top-card ${typ}" onclick='openRankDetail ? openRankDetail(${jl}) : openModal(${jl})'>
       <div class="tc-rank">${i+1}</div>
       <div class="tc-body">
-        <div class="tc-top"><span class="tc-name">${_e(l.name)}</span><span class="tc-score">${sc}</span></div>
+        <div class="tc-top"><span class="tc-name">${_e(l.name)}</span><span class="tc-score ${typ}">${sc}</span></div>
         <div class="tc-meta">${badge}${l.branche?`<span class="tc-br">${_e(l.branche)}</span>`:''}</div>
         ${hook}
       </div>
@@ -808,16 +806,18 @@ function _pollSet(jobId, total){
   const statusEl = document.getElementById('img-job-status');
   statusEl.style.display = 'block';
   statusEl.classList.add('running');
-  let elapsed = 0;
+
   _activePolls['img'] = setInterval(async () => {
     let job;
     try{ job = await(await fetch('/api/media/job/' + jobId)).json(); }
     catch{ return; }
-    const done = job.done_count || 0;
-    const tot  = job.total || total || 5;
-    elapsed += 2;
 
-    // Bereits fertige Assets des Sets live anzeigen — mit Label (Logo, Hero…)
+    const done  = job.done_count || 0;
+    const tot   = job.total  || total || 5;
+    const pct   = job.progress != null ? Number(job.progress) : Math.round(done / tot * 100);
+    const secs  = job.elapsed ? `${job.elapsed}s` : '';
+
+    // Fertige Assets live ins Grid
     const items = job.result_items || (job.result_urls || []).map(u => ({label:'', url:u}));
     const grid  = document.getElementById('set-grid');
     if(grid && items.length){
@@ -829,14 +829,19 @@ function _pollSet(jobId, total){
 
     if(job.status === 'running' || job.status === 'queued'){
       statusEl.classList.add('running'); statusEl.classList.remove('err');
-      statusEl.innerHTML = `<div class="jc-row"><span class="jc-spin"></span>
-        <span>Generiere Assets… <b>${done}/${tot}</b> · ${Math.round(elapsed)}s</span></div>
-        <div class="jc-bar"><div class="jc-fill" style="width:${Math.round(done/tot*100)}%"></div></div>`;
+      statusEl.innerHTML = `
+        <div class="jc-row">
+          <span class="jc-spin"></span>
+          <span>Generiere Assets… <b>${done}/${tot}</b>${secs ? ' · ' + secs : ''}</span>
+          <span style="margin-left:auto;font-weight:700;color:var(--c)">${pct}%</span>
+        </div>
+        <div class="jc-bar"><div class="jc-fill" style="width:${pct}%"></div></div>`;
     }else if(job.status === 'done'){
       clearInterval(_activePolls['img']); _activePolls['img'] = null;
       statusEl.classList.remove('running');
       statusEl.innerHTML = `<div class="jc-row"><span class="jc-ok">✓</span>
-        <span>Asset-Set fertig — ${items.length} Bilder in ${job.elapsed||0}s</span></div>`;
+        <span>Asset-Set fertig — ${items.length} Bilder in ${job.elapsed||0}s</span>
+        <span style="margin-left:auto;font-weight:700;color:var(--g)">100%</span></div>`;
       loadGallery();
       setTimeout(() => { statusEl.style.display = 'none'; }, 6000);
     }else if(job.status === 'error'){

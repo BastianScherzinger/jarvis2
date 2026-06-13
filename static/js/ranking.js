@@ -300,12 +300,19 @@ function openRankDetail(lead){
 
   const eur = n => (Number(n)||0).toLocaleString('de-DE') + ' €';
 
+  // Foto-URL validieren (nur http/https)
+  const fotoUrl = (lead.foto_url || '').startsWith('http') ? lead.foto_url : '';
+
   inner.innerHTML = `
     <div class="m-hdr">
       <div class="m-badge ${typ}">${typ}</div>
       <div class="m-title">${_re(lead.name)}</div>
       <button class="m-close" onclick="closeModal()">✕</button>
     </div>
+    ${fotoUrl ? `<div class="m-foto-wrap">
+      <img class="m-foto" src="${_re(fotoUrl)}" alt="${_re(lead.name)}"
+           onerror="this.parentElement.style.display='none'"/>
+    </div>` : ''}
     <div class="m-score-row">
       <span style="font-size:10px;color:var(--tx2)">Score</span>
       <div class="m-bar"><div class="m-fill ${typ}" style="width:${Number(lead.score)||0}%"></div></div>
