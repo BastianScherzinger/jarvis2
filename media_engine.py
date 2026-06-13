@@ -27,43 +27,32 @@ for _d in [WORKSPACE_IMAGES, WORKSPACE_VIDEOS]:
 
 IMAGE_MODELS: dict[str, dict] = {
     "sdxl": {
-        "hf_id":     "stabilityai/stable-diffusion-xl-base-1.0",
-        "name":      "Stable Diffusion XL",
-        "pipeline":  "StableDiffusionXLPipeline",
-        "size_gb":   6.5,
-        "min_vram":  8,
-        "default_w": 1024,
-        "default_h": 1024,
-        "supports_neg": True,
-        "gated":     False,
-        "default_steps": 25,
-        "desc":      "Empfohlen: hohe Qualität, 1024×1024, offen (kein Token nötig)",
-    },
-    "sd21": {
-        "hf_id":     "stabilityai/stable-diffusion-2-1",
-        "name":      "Stable Diffusion 2.1",
-        "pipeline":  "StableDiffusionPipeline",
-        "size_gb":   2.5,
-        "min_vram":  4,
-        "default_w": 768,
-        "default_h": 768,
-        "supports_neg": True,
-        "gated":     False,
-        "default_steps": 25,
-        "desc":      "Leicht & schnell, ab 4 GB — gut für schwächere Hardware, offen",
+        "hf_id":          "stabilityai/stable-diffusion-xl-base-1.0",
+        "name":           "Stable Diffusion XL 1.0",
+        "pipeline":       "StableDiffusionXLPipeline",
+        "size_gb":        6.5,
+        "min_vram":       8,
+        "default_w":      1024,
+        "default_h":      1024,
+        "supports_neg":   True,
+        "gated":          False,
+        "default_steps":  30,
+        "guidance_scale": 7.5,
+        "desc":           "Beste offene Qualität — 1024×1024, realistisch, kein Token nötig",
     },
     "flux-schnell": {
-        "hf_id":     "black-forest-labs/FLUX.1-schnell",
-        "name":      "FLUX.1 Schnell (Token nötig)",
-        "pipeline":  "FluxPipeline",
-        "size_gb":   15,
-        "min_vram":  8,
-        "default_w": 1024,
-        "default_h": 1024,
-        "supports_neg": False,
-        "gated":     True,
-        "default_steps": 4,
-        "desc":      "Beste Qualität — GESPERRT: Lizenz auf huggingface.co akzeptieren + HF_TOKEN in .env",
+        "hf_id":          "black-forest-labs/FLUX.1-schnell",
+        "name":           "FLUX.1 Schnell",
+        "pipeline":       "FluxPipeline",
+        "size_gb":        15,
+        "min_vram":       8,
+        "default_w":      1024,
+        "default_h":      1024,
+        "supports_neg":   False,
+        "gated":          True,
+        "default_steps":  4,
+        "guidance_scale": 3.5,
+        "desc":           "Höchste Qualität — Lizenz auf huggingface.co akzeptieren + HF_TOKEN in .env",
     },
 }
 
@@ -247,33 +236,43 @@ def _open_image_model() -> str:
 def generate_image(
     prompt: str,
     model_key: str | None = None,
-    negative_prompt: str = "blurry, low quality, watermark, text, deformed, ugly, bad anatomy",
+    negative_prompt: str = "",
     steps: int = 0,
     width: int | None = None,
     height: int | None = None,
+    guidance_scale: float = 0.0,
+    output_dir: "Path | None" = None,
+    filename: str = "",
 ) -> dict:
     """
     Generiert ein Bild. Gibt dict zurück:
       {'path': str, 'web_url': str, 'model': str, 'prompt': str, 'elapsed': float}
+
+    output_dir: optionales Zielverzeichnis (z.B. für Set-Unterordner).
+    filename:   optionaler Dateiname ohne Pfad (z.B. "logo.png").
     """
     key = model_key or get_active_image_model()
     m   = IMAGE_MODELS.get(key)
     if m is None:
         raise ValueError(f"Bildmodell '{key}' nicht bekannt. Verfügbar: {list(IMAGE_MODELS)}")
 
-    # Gesperrtes Modell (z.B. FLUX) ohne HF-Token → automatisch auf ein offenes
-    # Modell ausweichen, statt den User mit einem Fehler zu blockieren.
+    # Gesperrtes Modell (z.B. FLUX) ohne HF-Token → offenes Modell
     if m.get("gated") and not _hf_token():
         fallback = _open_image_model()
         if fallback and fallback != key:
             key = fallback
             m   = IMAGE_MODELS[key]
 
-    w    = width  or m["default_w"]
-    h    = height or m["default_h"]
-    # Schritte: explizit übergeben > Modell-Default (FLUX nur 4!, SDXL 25)
+    w   = width  or m["default_w"]
+    h   = height or m["default_h"]
     if not steps or steps <= 0:
-        steps = m.get("default_steps", 25)
+        steps = m.get("default_steps", 30)
+    gs  = guidance_scale if guidance_scale > 0 else m.get("guidance_scale", 7.5)
+    neg = negative_prompt or (
+        "blurry, low quality, watermark, text, deformed, ugly, bad anatomy, "
+        "distorted, disfigured, cropped, out of frame"
+    )
+
     t0   = time.time()
     pipe = _load_image_pipe(key)
 
@@ -284,17 +283,23 @@ def generate_image(
         "height":              h,
     }
     if m["supports_neg"]:
-        kwargs["negative_prompt"] = negative_prompt
+        kwargs["negative_prompt"]  = neg
+        kwargs["guidance_scale"]   = gs
 
-    result  = pipe(**kwargs)
-    image   = result.images[0]
-    ts      = time.strftime("%Y%m%d_%H%M%S")
-    out     = WORKSPACE_IMAGES / f"img_{ts}.png"
+    result = pipe(**kwargs)
+    image  = result.images[0]
+
+    dest = output_dir if output_dir else WORKSPACE_IMAGES
+    dest.mkdir(parents=True, exist_ok=True)
+    fn   = filename if filename else f"img_{time.strftime('%Y%m%d_%H%M%S')}.png"
+    out  = dest / fn
     image.save(str(out))
 
+    # Web-URL relativ zu WORKSPACE_IMAGES
+    rel = out.relative_to(WORKSPACE_IMAGES)
     return {
         "path":    str(out),
-        "web_url": f"/workspace/media/images/{out.name}",
+        "web_url": f"/workspace/media/images/{rel.as_posix()}",
         "model":   m["name"],
         "prompt":  prompt,
         "elapsed": round(time.time() - t0, 1),

@@ -666,6 +666,26 @@ body::after{
 .media-card img,
 .media-card video{ width:100%; display:block; border-radius:10px; }
 
+/* Gallery: Set-Gruppen */
+.gallery-set{
+  margin-bottom:28px;
+  border:1px solid var(--bdr2); border-radius:12px;
+  padding:14px 16px 16px; background:var(--bg2);
+}
+.gallery-set-head{
+  display:flex; align-items:baseline; gap:12px; margin-bottom:12px;
+}
+.gsh-title{
+  font-family:var(--fh); font-size:10px; letter-spacing:.14em;
+  color:var(--c); text-transform:uppercase;
+}
+.gsh-sub{
+  font-size:10px; color:var(--tx2);
+}
+.gallery-set-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px;
+}
+
 /* ── Graph Tab ─────────────────────────────────────────────────────────── */
 .graph-page {
   display: flex;

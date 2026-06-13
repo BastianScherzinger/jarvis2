@@ -659,7 +659,7 @@ function showPage(name){
     b.classList.toggle('active', b.dataset.page === name));
   location.hash = name;
   if(name === 'images' || name === 'videos') loadGallery();
-  if(name === 'images') loadImageLeads();
+  if(name === 'images'){ loadImageLeads(); _restoreActiveJob(); }
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
 }
@@ -927,14 +927,42 @@ async function loadGallery(){
   try{ g = await(await fetch('/api/media/gallery')).json(); }
   catch{ return; }
 
+  // ── Bild-Galerie: erst Sets als Gruppen, dann Einzelbilder ──────────────
   const imgEl = document.getElementById('img-gallery');
   if(imgEl){
-    const imgs = g.images || [];
-    imgEl.innerHTML = imgs.length
-      ? imgs.map(it => `<div class="media-card" onclick="openMediaFull('${_e(it.url)}','image')">
+    const sets   = g.sets   || [];
+    const singles = g.images || [];
+    let html = '';
+
+    // Sets als Gruppen
+    for(const s of sets){
+      const head  = _e(s.summary || `Set ${s.set_id}`);
+      const items = (s.items || []).map(it =>
+        `<div class="media-card asset-card" onclick="openMediaFull('${_e(it.url)}','image')">
+          <img src="${_e(it.url)}" loading="lazy"/>
+          ${it.label ? `<div class="asset-label">${_e(it.label)}</div>` : ''}
+        </div>`
+      ).join('');
+      html += `<div class="gallery-set">
+        <div class="gallery-set-head">
+          <span class="gsh-title">${head}</span>
+          <span class="gsh-sub">${_e(s.ts ? s.ts.slice(0,10) : '')} · ${(s.items||[]).length} Assets</span>
+        </div>
+        <div class="gallery-set-grid">${items}</div>
+      </div>`;
+    }
+
+    // Einzelbilder (falls vorhanden)
+    if(singles.length){
+      html += `<div class="gallery-set-head" style="margin-top:24px"><span class="gsh-title">Einzelbilder</span></div>`;
+      html += `<div class="media-grid">` + singles.map(it =>
+        `<div class="media-card" onclick="openMediaFull('${_e(it.url)}','image')">
           <img src="${_e(it.url)}" loading="lazy" alt="${_e(it.name)}"/>
-        </div>`).join('')
-      : '<div class="media-empty">Noch keine Bilder generiert</div>';
+        </div>`
+      ).join('') + `</div>`;
+    }
+
+    imgEl.innerHTML = html || '<div class="media-empty">Noch keine Bilder generiert</div>';
   }
 
   const vidEl = document.getElementById('vid-gallery');
@@ -946,6 +974,30 @@ async function loadGallery(){
         </div>`).join('')
       : '<div class="media-empty">Noch keine Videos generiert</div>';
   }
+}
+
+// ── Aktiven Job nach Seitenreload wiederherstellen ────────────────────────
+async function _restoreActiveJob(){
+  let jobs;
+  try{ jobs = (await(await fetch('/api/media/jobs')).json()).jobs || []; }
+  catch{ return; }
+  // Ersten laufenden oder wartenden Asset-Set-Job suchen
+  const active = jobs.find(j => j.kind === 'asset_set' && (j.status === 'running' || j.status === 'queued'));
+  if(!active) return;
+  // Fortschrittsanzeige und bereits fertige Bilder wiederherstellen
+  const sr = document.getElementById('set-result');
+  if(sr) sr.style.display = 'block';
+  const grid = document.getElementById('set-grid');
+  if(grid){
+    const items = active.result_items || (active.result_urls||[]).map(u=>({label:'',url:u}));
+    grid.innerHTML = items.map(it =>
+      `<div class="media-card asset-card" onclick="openMediaFull('${_e(it.url)}','image')">
+        <img src="${_e(it.url)}" loading="lazy"/>
+        ${it.label ? `<div class="asset-label">${_e(it.label)}</div>` : ''}
+      </div>`
+    ).join('');
+  }
+  _pollSet(active.id, active.total || 5);
 }
 
 function openMediaFull(url, kind){

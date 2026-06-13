@@ -8,13 +8,16 @@ Basis-Prompt sorgt für Werbe-Qualität, die Formular-Antworten ergänzen ihn.
 """
 from __future__ import annotations
 
+# Qualitäts-Präfix der jedem Prompt vorangestellt wird
+_QUALITY = "masterpiece, best quality, ultra-detailed, ultra-realistic, 8K UHD, HDR, sharp focus, "
+
 # ── Stil ─────────────────────────────────────────────────────────────────────
 _STIL = {
-    "fotorealistisch": "professional advertising photography, photorealistic, ultra detailed, natural soft lighting, shot on 50mm lens, shallow depth of field",
-    "modern_clean":    "modern clean commercial design, minimalist, bright and airy, crisp professional photography",
-    "cinematisch":     "cinematic photography, dramatic lighting, rich colors, film look, high dynamic range, depth of field",
-    "illustrativ":     "modern flat vector illustration, clean geometric shapes, smooth gradients, corporate illustration style",
-    "minimalistisch":  "minimalist composition, generous negative space, simple elegant, refined, premium aesthetic",
+    "fotorealistisch": "professional advertising photography, photorealistic, DSLR photo, natural soft diffused lighting, 50mm portrait lens, shallow depth of field, lifelike textures, true-to-life colors",
+    "modern_clean":    "modern clean commercial photography, minimalist, bright airy studio lighting, crisp sharp professional photo, fresh contemporary look",
+    "cinematisch":     "cinematic photography, dramatic atmospheric lighting, rich deep colors, anamorphic lens flare, film grain, high dynamic range, bokeh",
+    "illustrativ":     "modern flat vector illustration, clean geometric shapes, smooth gradients, polished corporate illustration, vibrant brand colors",
+    "minimalistisch":  "minimalist composition, generous negative space, simple elegant design, refined premium aesthetic, muted sophisticated palette",
 }
 
 # ── Stimmung / Farben ────────────────────────────────────────────────────────
@@ -87,9 +90,18 @@ _BRANCHE_EN = {
     "insektenschutz": "insect screen on a window",
 }
 
-_NEGATIV = ("text, words, letters, typography, watermark, logo, signature, "
-            "blurry, low quality, jpeg artifacts, distorted, deformed, ugly, "
-            "extra limbs, bad anatomy, disfigured, cropped, out of frame")
+_NEGATIV = (
+    "text, words, letters, typography, watermark, logo, signature, title, caption, "
+    "blurry, blur, out of focus, soft focus, low quality, bad quality, worst quality, "
+    "jpeg artifacts, compression artifacts, pixelated, grainy, noisy, "
+    "distorted, deformed, ugly, disfigured, mutated, mutation, "
+    "extra limbs, extra arms, extra legs, bad hands, bad anatomy, malformed, "
+    "floating limbs, disconnected limbs, gross, obese, "
+    "poorly drawn, poorly rendered, bad proportions, "
+    "cropped, out of frame, cut off, duplicate, clone, "
+    "oversaturated, overexposed, underexposed, dark, flat lighting, "
+    "cartoon, anime, illustration, painting, drawing, sketch, 3d render, cgi"
+)
 
 
 def _branche_kontext(branche: str, motiv: str) -> str:
@@ -121,39 +133,47 @@ ASSET_TYPES = [
      "w": 1024, "h": 1024, "logo": False},
 ]
 
-# Kurzfassungen für knappe Prompts (Token-Budget 77).
+# Kurzfassungen für knappe Prompts (SDXL CLIP ≈ 77 Tokens).
 _STIL_SHORT = {
-    "fotorealistisch": "professional photo, photorealistic, natural light",
-    "modern_clean":    "modern clean commercial style, bright",
-    "cinematisch":     "cinematic, dramatic lighting",
-    "illustrativ":     "flat vector illustration, clean",
-    "minimalistisch":  "minimalist, lots of space",
+    "fotorealistisch": "professional photorealistic advertising photo, DSLR, sharp, natural light",
+    "modern_clean":    "modern clean commercial photo, bright studio, crisp sharp",
+    "cinematisch":     "cinematic photo, dramatic lighting, film quality",
+    "illustrativ":     "flat vector illustration, clean geometric, vibrant",
+    "minimalistisch":  "minimalist photo, elegant, premium, negative space",
 }
 _STIMMUNG_SHORT = {
-    "professionell": "professional blue tones, corporate",
-    "warm":          "warm inviting tones",
-    "edel":          "dark elegant premium tones",
-    "frisch":        "fresh natural light tones",
-    "kraftvoll":     "bold strong colors",
+    "professionell": "professional corporate blue-white tones, trustworthy",
+    "warm":          "warm golden tones, inviting, cozy",
+    "edel":          "dark elegant premium, sophisticated, luxury",
+    "frisch":        "fresh natural light tones, clean, organic",
+    "kraftvoll":     "bold high-contrast colors, energetic, eye-catching",
 }
+
+# Asset-spezifische Negativ-Prompts
+_NEG_LOGO = (_NEGATIV +
+             ", photo, realistic, 3d, background clutter, multiple logos, busy")
+_NEG_PHOTO = _NEGATIV
 
 
 def build_asset_set(brief: dict) -> list[dict]:
-    """5 Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social) je mit eigenem,
-    KURZEM Prompt (≤77 Tokens) + Format."""
+    """5 Werbe-Assets (Logo, Hero, Flyer, Anzeige, Social) je mit eigenem
+    realistischen Prompt + Format."""
     stil_f     = _STIL_SHORT.get(brief.get("stil", ""), _STIL_SHORT["fotorealistisch"])
     stimmung_f = _STIMMUNG_SHORT.get(brief.get("stimmung", ""), _STIMMUNG_SHORT["professionell"])
-    subject    = _branche_kontext(brief.get("branche", ""), brief.get("motiv", ""))[:80]
-    cs         = ", copy space for text" if brief.get("text_platz", True) else ""
+    subject    = _branche_kontext(brief.get("branche", ""), brief.get("motiv", ""))[:90]
+    cs         = ", empty copy space for text overlay" if brief.get("text_platz", True) else ""
 
     out: list[dict] = []
     for a in ASSET_TYPES:
         if a.get("logo"):
-            prompt = f"{a['frag']}, {subject}, {stimmung_f}, no text"
-            neg = _NEGATIV + ", photo, busy background"
+            prompt = (f"minimalist flat logo icon design, {subject}, "
+                      f"{stimmung_f}, simple clean icon, white background, no text, no words")
+            neg = _NEG_LOGO
         else:
-            prompt = f"{stil_f}, {a['frag']}, {subject}, {stimmung_f}, advertising, high quality{cs}"
-            neg = _NEGATIV
+            prompt = (f"{_QUALITY}{stil_f}, {a['frag']}, {subject}, "
+                      f"{stimmung_f}, professional advertising visual, "
+                      f"high-end commercial photography{cs}")
+            neg = _NEG_PHOTO
         out.append({
             "asset": a["key"], "label": a["label"],
             "prompt": prompt, "negative_prompt": neg,
@@ -179,11 +199,11 @@ def build_ad_prompt(brief: dict) -> dict:
     if brief.get("text_platz"):
         text_frag = ", clean uncluttered area with empty copy space for headline and logo"
 
-    # Fester Basis-Prompt + Formular-Ergänzungen
+    # Qualitäts-Präfix + Formular-Ergänzungen
     prompt = (
-        f"{stil_f}, {subject}, {stimmung_f}, {verw_f}, "
-        f"professional marketing image, advertising quality, "
-        f"high resolution, sharp focus, well composed, appealing{text_frag}"
+        f"{_QUALITY}{stil_f}, {subject}, {stimmung_f}, {verw_f}, "
+        f"professional marketing image, advertising campaign quality, "
+        f"award-winning commercial photography, perfectly composed{text_frag}"
     )
 
     betrieb = (brief.get("betrieb") or "").strip()
