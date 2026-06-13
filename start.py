@@ -96,7 +96,7 @@ def _ensure_model(model: str) -> None:
     except (EOFError, KeyboardInterrupt):
         ans = ""
     if ans in ("j", "ja", "y", "yes"):
-        print(f"  {CY}[>]{R}  Lade {model} … (kann je nach Größe einige Minuten dauern)")
+        print(f"  {C}[>]{R}  Lade {model} … (kann je nach Größe einige Minuten dauern)")
         subprocess.run(["ollama", "pull", model], check=False)
     else:
         print(f"  {GY}     Übersprungen — bestehendes Modell wird genutzt.{R}")
