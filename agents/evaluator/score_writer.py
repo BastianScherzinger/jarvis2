@@ -16,6 +16,42 @@ POTENZIAL_STUFEN = [500, 1500, 3000, 5000]
 _GASTRO = ["restaurant", "café", "cafe", "bäckerei", "baeckerei", "catering",
            "einzelhandel", "laden", "shop", "kiosk"]
 
+# ── Sicherheits-Gewichte (Confidence 0-100) — kalibrierbar "für uns" ─────────
+# Der Bedarfs-Score (oben) sagt, wie SEHR ein Betrieb Webdesign braucht. Die
+# Sicherheit sagt, wie BELASTBAR der Lead ist: erreichbar (E-Mail/Telefon),
+# zahlungsfähig (Privatzahler/KMU) und eindeutig verifiziert. Zusammen ergeben
+# sie den Erwartungswert (€) = "wo verdienen wir am sichersten Geld".
+# Werte hier anpassen, um die Rangliste an die eigene Verkaufsrealität zu eichen.
+SICHERHEIT_GEWICHTE = {
+    "email":             35,   # E-Mail gefunden → direkt anschreibbar (wichtigster Faktor)
+    "telefon":           20,   # Telefon verifiziert → erreichbar
+    "online_auffindbar": 10,   # Website oder Social vorhanden → real existent
+    "adresse":            8,   # Postadresse bekannt
+    "aktiv":             12,   # >=5 Bewertungen → aktiver, lebendiger Betrieb
+    "privatzahler":      15,   # Einzelbetrieb/KMU entscheidet selbst & zahlt privat
+    "kette_malus":      -45,   # Kette/Konzern → zentrale Beschaffung, kaum direkter Abschluss
+}
+
+# Mindest-Sicherheit, ab der ein bedarfsstarker Lead als "Hot" gilt (sonst "Warm").
+HOT_MIN_SICHERHEIT = 50
+
+
+def _sicherheit(lead: dict, web: dict, social_media: dict, rev: int,
+                ist_privat: int, firmengroesse: str) -> tuple[int, dict]:
+    """Belastbarkeit des Leads (0-100) + nachvollziehbare Aufschlüsselung."""
+    g  = SICHERHEIT_GEWICHTE
+    bd: dict[str, int] = {}
+    if web.get("email_vorhanden"):       bd["E-Mail erreichbar"]   = g["email"]
+    if web.get("telefon_verifiziert"):   bd["Telefon verifiziert"] = g["telefon"]
+    if web.get("has_website") or social_media:
+        bd["Online auffindbar"] = g["online_auffindbar"]
+    if (lead.get("adresse") or "").strip():
+        bd["Adresse bekannt"] = g["adresse"]
+    if rev >= 5:                          bd["Aktiver Betrieb"]     = g["aktiv"]
+    if ist_privat == 1:                   bd["Privatzahler/KMU"]    = g["privatzahler"]
+    elif firmengroesse == "Kette":        bd["Kette (unsicher)"]    = g["kette_malus"]
+    return _clamp(sum(bd.values())), bd
+
 
 def _potenzial_fuer_branche(branche: str) -> int:
     """Basis-Schätzung ohne KI — als Plausibilitäts-Anker."""
@@ -165,7 +201,22 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     if ist_privat not in (0, 1):
         ist_privat = heur_privat
 
-    lead_typ = "Hot" if score >= 72 else "Warm" if score >= 48 else "Cold"
+    # ── Sicherheit + Erwartungswert ─────────────────────────────────────────
+    sicherheit, sicherheit_bd = _sicherheit(
+        lead, web, social_media, rev, ist_privat, firmengroesse
+    )
+    # Abschlusswahrscheinlichkeit ≈ Bedarf × Sicherheit (0..1). Erwartungswert =
+    # potenzieller Auftragswert × Abschlusswahrscheinlichkeit → "sicherstes Geld".
+    abschluss      = round((score / 100.0) * (sicherheit / 100.0), 3)
+    erwartungswert = int(round(potenzial * abschluss))
+
+    # Hot nur bei hohem Bedarf UND ausreichender Sicherheit (sonst max. Warm).
+    if score >= 72 and sicherheit >= HOT_MIN_SICHERHEIT:
+        lead_typ = "Hot"
+    elif score >= 48:
+        lead_typ = "Warm"
+    else:
+        lead_typ = "Cold"
 
     email_draft = ""
     if data.get("email_betreff") and data.get("email_text"):
@@ -176,11 +227,14 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
 
     logger.eval_(
         "ScoreWriter",
-        f"→ Basis {base} + Ollama {anpassung:+d} = {score} | {lead_typ} | {potenzial}€",
+        f"→ Basis {base} + Ollama {anpassung:+d} = {score} | {lead_typ} | "
+        f"Sicherheit {sicherheit} | EW {erwartungswert}€ (von {potenzial}€)",
     )
 
     return {
         "score":                 score,
+        "sicherheit":            sicherheit,
+        "erwartungswert_euro":   erwartungswert,
         "lead_typ":              lead_typ,
         "beschreibung":          str(data.get("beschreibung") or "")[:400],
         "ist_privat_zahler":     ist_privat,
@@ -190,6 +244,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         "pitch_hook":            str(data.get("pitch_hook") or "")[:200],
         "email_entwurf":         email_draft,
         "score_breakdown":       json.dumps(breakdown, ensure_ascii=False),
+        "sicherheit_breakdown":  json.dumps(sicherheit_bd, ensure_ascii=False),
         "discovered_website":    web.get("discovered_website", ""),
         "bilder_vorhanden":      bilder,
     }

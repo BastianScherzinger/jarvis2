@@ -303,6 +303,37 @@ function openRankDetail(lead){
   // Foto-URL validieren (nur http/https)
   const fotoUrl = (lead.foto_url || '').startsWith('http') ? lead.foto_url : '';
 
+  // Bilder-Galerie (öffenbarer Ordner) — alle gefundenen Bilder des Betriebs
+  let fotos = _rjson(lead.foto_urls, []);
+  if(!Array.isArray(fotos)) fotos = [];
+  fotos = fotos.filter(u => typeof u === 'string' && u.startsWith('http'));
+  window._rankFotos = fotos;
+  let galerieHtml = '';
+  if(fotos.length){
+    const thumbs = fotos.map((u,i) =>
+      `<img class="m-gal-thumb" src="${_re(u)}" loading="lazy" alt="Bild ${i+1}"
+            onclick="rankLightbox(${i})" onerror="this.style.display='none'"/>`
+    ).join('');
+    galerieHtml = `<div class="m-sec">
+      <div class="m-sec-t">📷 Bilder des Betriebs · ${fotos.length}</div>
+      <div class="m-gallery">${thumbs}</div></div>`;
+  }
+
+  // Sicherheits-Aufschlüsselung
+  const sBd = _rjson(lead.sicherheit_breakdown, {});
+  let sBdHtml = '';
+  if(sBd && typeof sBd === 'object' && Object.keys(sBd).length){
+    const entries = Object.entries(sBd);
+    const maxAbs  = Math.max(1, ...entries.map(([,v]) => Math.abs(Number(v)||0)));
+    sBdHtml = entries.map(([sig,pts]) => {
+      const p = Number(pts)||0, w = Math.round(Math.abs(p)/maxAbs*100), neg = p<0;
+      return `<div class="score-comp${neg?' neg':''}">
+        <span class="sc-sig">${_re(sig)}</span>
+        <span class="sc-bar-wrap"><span class="sc-bar" style="width:${w}%"></span></span>
+        <span class="sc-pts">${p>0?'+':''}${p}</span></div>`;
+    }).join('');
+  }
+
   inner.innerHTML = `
     <div class="m-hdr">
       <div class="m-badge ${typ}">${typ}</div>
@@ -314,12 +345,25 @@ function openRankDetail(lead){
            onerror="this.parentElement.style.display='none'"/>
     </div>` : ''}
     <div class="m-score-row">
-      <span style="font-size:10px;color:var(--tx2)">Score</span>
+      <span style="font-size:10px;color:var(--tx2)">Bedarf</span>
       <div class="m-bar"><div class="m-fill ${typ}" style="width:${Number(lead.score)||0}%"></div></div>
       <span class="m-score-num ${typ}">${Number(lead.score)||0}</span>
     </div>
+    <div class="m-score-row">
+      <span style="font-size:10px;color:var(--tx2)">Sicherheit</span>
+      <div class="m-bar"><div class="m-fill-sec" style="width:${Number(lead.sicherheit)||0}%"></div></div>
+      <span class="m-score-num sec">${Number(lead.sicherheit)||0}</span>
+    </div>
+    <div class="m-ew-row">
+      <span class="m-ew-lbl">Erwartungswert (sicheres Geld)</span>
+      <span class="m-ew-val">${eur(lead.erwartungswert_euro)}</span>
+      <span class="m-ew-sub">von ${eur(lead.potenzial_euro)} Potenzial</span>
+    </div>
 
-    ${bdHtml ? `<div class="m-sec"><div class="m-sec-t">Score-Aufschlüsselung</div>${bdHtml}</div>` : ''}
+    ${galerieHtml}
+
+    ${bdHtml ? `<div class="m-sec"><div class="m-sec-t">Bedarf — Aufschlüsselung</div>${bdHtml}</div>` : ''}
+    ${sBdHtml ? `<div class="m-sec"><div class="m-sec-t">Sicherheit — Aufschlüsselung</div>${sBdHtml}</div>` : ''}
     ${vlogHtml ? `<div class="m-sec"><div class="m-sec-t">Prüf-Protokoll</div>${vlogHtml}</div>` : ''}
 
     <div class="m-sec">
@@ -344,8 +388,10 @@ function openRankDetail(lead){
       ${lead.adresse?`<div class="m-row"><span class="m-k">Adresse</span><span class="m-v">${_re(lead.adresse)}</span></div>`:''}
       <div class="m-row"><span class="m-k">Stadt</span><span class="m-v">${_re(lead.stadt||'')} · ${_re(lead.bundesland||'')}</span></div>
       <div class="m-row"><span class="m-k">Branche</span><span class="m-v">${_re(lead.branche||'—')}</span></div>
+      ${lead.ansprechpartner?`<div class="m-row"><span class="m-k">Ansprechpartner</span><span class="m-v ok">${_re(lead.ansprechpartner)}</span></div>`:''}
       ${lead.telefon?`<div class="m-row"><span class="m-k">Telefon</span><span class="m-v ok">${_re(lead.telefon)}${Number(lead.telefon_verifiziert)?' ✓':''}</span></div>`:''}
       ${Number(lead.email_vorhanden)?`<div class="m-row"><span class="m-k">E-Mail</span><span class="m-v ok">${_re(lead.email_adresse||'vorhanden')}</span></div>`:''}
+      ${(()=>{const ea=_rjson(lead.email_alle,[]);return (Array.isArray(ea)&&ea.length>1)?`<div class="m-row"><span class="m-k">Weitere E-Mails</span><span class="m-v">${ea.slice(1,5).map(e=>_re(e)).join('<br>')}</span></div>`:'';})()}
     </div>
 
     <div class="m-sec">
@@ -363,6 +409,7 @@ function openRankDetail(lead){
     ${lead.schluessel?`<div class="rr-key">${_re(lead.schluessel)}</div>`:''}
 
     <div class="m-sec m-actions" style="margin-top:10px">
+      ${Number(lead.email_vorhanden)?`<button class="rank-mail-btn" onclick="rankSendEmail(${Number(lead.id)||0}, this)">✉ E-Mail an Lead senden</button>`:''}
       <button class="rank-img-btn" onclick="rankCreateImages()">
         🎨 Werbe-Bilder für diesen Lead erstellen
       </button>
@@ -370,6 +417,42 @@ function openRankDetail(lead){
 
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
+}
+
+// ── E-Mail an Lead senden (Trockenlauf solange JARVIS_EMAIL_ENABLED=false) ─────
+async function rankSendEmail(id, btn){
+  if(!id) return;
+  const orig = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '… sende'; }
+  try{
+    const r = await fetch(`/api/lead/${id}/send-email`, {method:'POST'});
+    const d = await r.json();
+    if(d.status === 'deaktiviert'){
+      alert('Versand ist deaktiviert (JARVIS_EMAIL_ENABLED=false).\nTrockenlauf — es wurde nichts gesendet.');
+    } else if(d.ok){
+      alert('E-Mail gesendet ✓');
+    } else {
+      alert('Fehler: ' + (d.fehler || d.reason || 'unbekannt'));
+    }
+  }catch(e){ alert('Netzwerkfehler beim Senden'); }
+  if(btn){ btn.disabled = false; btn.textContent = orig; }
+}
+
+// ── Lightbox: einzelnes Lead-Bild groß öffnen ─────────────────────────────────
+function rankLightbox(i){
+  const fotos = window._rankFotos || [];
+  const url   = (typeof i === 'number') ? fotos[i] : i;
+  if(!url) return;
+  let lb = document.getElementById('rank-lightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'rank-lightbox';
+    lb.className = 'rank-lightbox';
+    lb.onclick = () => lb.classList.remove('open');
+    document.body.appendChild(lb);
+  }
+  lb.innerHTML = `<img src="${_re(url)}" alt="Bild"/>`;
+  lb.classList.add('open');
 }
 
 // ── Zu Bilder-Tab wechseln und Lead vorausfüllen ──────────────────────────────

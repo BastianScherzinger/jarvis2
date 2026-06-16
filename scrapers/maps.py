@@ -4,6 +4,7 @@ Ein Browser für alle Suchen = schneller, weniger Detection-Risiko.
 """
 import os
 import re
+import json
 import time
 import itertools
 
@@ -222,6 +223,20 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
             "div[aria-label*='Fotos']"
         ))
 
+        # Mehrere Maps-Bilder sammeln (öffenbarer Bilder-Ordner im Modal)
+        foto_urls: list[str] = []
+        if foto_url:
+            foto_urls.append(foto_url)
+        try:
+            for img in page.query_selector_all("img[src*='googleusercontent']"):
+                src = (img.get_attribute("src") or "").strip()
+                if src and "googleusercontent" in src and src not in foto_urls:
+                    foto_urls.append(src)
+                if len(foto_urls) >= 8:
+                    break
+        except Exception:
+            pass
+
         adresse = _text(
             page,
             "button[data-item-id='address']",
@@ -281,6 +296,7 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
             "anz_bewertungen": anz_rev,
             "bilder":         int(bilder),
             "foto_url":       foto_url,
+            "foto_urls":      json.dumps(foto_urls, ensure_ascii=False),
             "finder":         "maps_playwright",
             "maps_url":       page.url,
         }

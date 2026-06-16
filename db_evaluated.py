@@ -18,24 +18,40 @@ _lock   = threading.Lock()
 # Alle bekannten Spalten — fremde Keys werden beim Insert gefiltert.
 _COLUMNS = [
     "raw_id", "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
-    "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
+    "telefon", "email_vorhanden", "email_adresse", "email_alle", "ansprechpartner",
+    "telefon_verifiziert",
     "has_website", "website_url", "discovered_website", "website_veraltet",
     "website_alter_jahre", "website_probleme", "fotos_in_maps", "bilder_vorhanden",
-    "foto_url", "social_media", "hat_nur_social",
+    "foto_url", "foto_urls", "social_media", "hat_nur_social",
     "beschreibung", "ist_privat_zahler", "firmengroesse", "potenzial_euro",
+    "erwartungswert_euro", "sicherheit", "sicherheit_breakdown",
     "potenzial_begruendung", "pitch_hook", "score", "lead_typ", "email_entwurf",
+    "email_status", "email_gesendet_am", "email_fehler", "email_opt_out",
     "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
 ]
 
 # Neue Spalten (Name → SQL-Definition) für die Migration bestehender DBs.
 _NEW_COLUMNS = {
-    "discovered_website": "TEXT",
-    "bilder_vorhanden":   "INTEGER DEFAULT 0",
-    "foto_url":           "TEXT",
-    "score_breakdown":    "TEXT",
-    "verify_log":         "TEXT",
-    "verifiziert":        "INTEGER DEFAULT 1",
-    "lead_key":           "TEXT",
+    "discovered_website":  "TEXT",
+    "bilder_vorhanden":    "INTEGER DEFAULT 0",
+    "foto_url":            "TEXT",
+    "foto_urls":           "TEXT",            # JSON-Liste aller gefundenen Bild-URLs
+    "score_breakdown":     "TEXT",
+    "verify_log":          "TEXT",
+    "verifiziert":         "INTEGER DEFAULT 1",
+    "lead_key":            "TEXT",
+    # Säule 3 — echte Bewertung
+    "sicherheit":          "INTEGER DEFAULT 0",
+    "erwartungswert_euro": "INTEGER DEFAULT 0",
+    "sicherheit_breakdown":"TEXT",
+    # Säule 3 — tiefere Info-Findung
+    "email_alle":          "TEXT",            # JSON-Liste aller gefundenen E-Mails
+    "ansprechpartner":     "TEXT",            # Inhaber/GF aus Impressum
+    # Säule 6 — Auto-E-Mail (Gerüst, Versand vorerst deaktiviert)
+    "email_status":        "TEXT DEFAULT 'entwurf'",
+    "email_gesendet_am":   "TEXT",
+    "email_fehler":        "TEXT",
+    "email_opt_out":       "INTEGER DEFAULT 0",
 }
 
 
@@ -149,9 +165,11 @@ def get_top(limit: int = 10) -> list[dict]:
 
 
 _SORT_CLAUSES = {
-    "score":     "score DESC",
-    "potenzial": "potenzial_euro DESC",
-    "datum":     "bewertet_am DESC",
+    "score":         "score DESC",
+    "sicherheit":    "sicherheit DESC, score DESC",
+    "erwartungswert":"erwartungswert_euro DESC, sicherheit DESC",
+    "potenzial":     "potenzial_euro DESC",
+    "datum":         "bewertet_am DESC",
 }
 
 
@@ -223,6 +241,39 @@ def get_stats() -> dict:
 def update_status(eval_id: int, status: str) -> None:
     with _lock, _conn() as c:
         c.execute("UPDATE evaluated_leads SET status=? WHERE id=?", (status, eval_id))
+        c.commit()
+        row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
+    # Status-Änderung auch in die Cloud spiegeln (fire-and-forget, beste Mühe)
+    if row:
+        try:
+            from cloud_sync import push_lead
+            push_lead(dict(row))
+        except Exception:
+            pass
+
+
+def get_by_id(eval_id: int) -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_email_status(eval_id: int, status: str, fehler: str = "") -> None:
+    """Setzt den E-Mail-Versandstatus eines Leads (entwurf|gesendet|fehler|opt_out|…)."""
+    from datetime import datetime
+    ts = datetime.now().isoformat(timespec="seconds") if status == "gesendet" else None
+    with _lock, _conn() as c:
+        c.execute(
+            "UPDATE evaluated_leads SET email_status=?, "
+            "email_gesendet_am=COALESCE(?, email_gesendet_am), email_fehler=? WHERE id=?",
+            (status, ts, fehler, eval_id),
+        )
+        c.commit()
+
+
+def set_opt_out(eval_id: int, opt_out: int = 1) -> None:
+    with _lock, _conn() as c:
+        c.execute("UPDATE evaluated_leads SET email_opt_out=? WHERE id=?", (int(opt_out), eval_id))
         c.commit()
 
 
@@ -300,6 +351,8 @@ _CSV_SPALTEN = [
     ("Rang",             None),
     ("Schlüssel",        "schluessel"),
     ("Score",            "score"),
+    ("Sicherheit",       "sicherheit"),
+    ("Erwartungswert (€)","erwartungswert_euro"),
     ("Typ",              "lead_typ"),
     ("Potenzial (€)",    "potenzial_euro"),
     ("Name",             "name"),
@@ -309,6 +362,7 @@ _CSV_SPALTEN = [
     ("Adresse",          "adresse"),
     ("Telefon",          "telefon"),
     ("E-Mail",           "email_adresse"),
+    ("Ansprechpartner",  "ansprechpartner"),
     ("Website?",         "_website_status"),
     ("Website-URL",      "_website_url"),
     ("Website-Alter (J)","website_alter_jahre"),
@@ -347,9 +401,9 @@ def _csv_value(lead: dict, key: str) -> str:
 
 
 def export_csv() -> str:
-    """Sortierter CSV-Export (Score absteigend) mit sprechenden Spalten + BOM."""
+    """Sortierter CSV-Export (Erwartungswert absteigend = sicherstes Geld zuerst) + BOM."""
     import csv, io
-    rows = get_all(limit=100000, sort="score")
+    rows = get_all(limit=100000, sort="erwartungswert")
     buf = io.StringIO()
     buf.write("﻿")   # UTF-8-BOM für Excel
     w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL,

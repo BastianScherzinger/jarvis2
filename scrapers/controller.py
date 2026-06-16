@@ -9,7 +9,7 @@ import threading
 import itertools
 import time
 
-from scrapers.regions import ALLE_REGIONEN, BRANCHEN
+from scrapers.regions import ALLE_REGIONEN, BRANCHEN, HIGH_VALUE
 from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal, verifier
 from agents import ai_worker
 from agents.evaluator import pipeline as evaluator_pipeline
@@ -111,12 +111,21 @@ def start() -> None:
 
     n  = len(combos)
     k  = n // 6
-    c1 = combos[:k]
-    c2 = combos[k:2 * k]
-    c3 = combos[2 * k:3 * k]
-    c4 = combos[3 * k:4 * k]
-    c5 = combos[4 * k:5 * k]
-    c6 = combos[5 * k:]
+    chunks = [
+        combos[:k], combos[k:2 * k], combos[2 * k:3 * k],
+        combos[3 * k:4 * k], combos[4 * k:5 * k], combos[5 * k:],
+    ]
+
+    # Priorisierung: jeder Worker beginnt mit High-Value-Branchen in großen Städten
+    # (ALLE_REGIONEN ist groß-zuerst sortiert) → früh viele Hot-Leads, gleichmäßig
+    # über alle 6 Worker verteilt, ohne Überlappung.
+    _stadt_rang = {stadt: i for i, stadt in enumerate(ALLE_REGIONEN)}
+    def _prio(combo):
+        stadt, branche = combo
+        return (0 if branche in HIGH_VALUE else 1, _stadt_rang.get(stadt, 99999))
+    for ch in chunks:
+        ch.sort(key=_prio)
+    c1, c2, c3, c4, c5, c6 = chunks
 
     # Worker 1: Google Maps (persistenter Browser)
     _spawn("Maps",         maps.run_continuous,          c1, max_per=20)

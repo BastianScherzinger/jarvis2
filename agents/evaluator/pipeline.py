@@ -53,6 +53,14 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
             verify_log = list(web.get("verify_steps", []))
             verify_log.append(f"Score: {scored.get('score')} ({scored.get('lead_typ')})")
 
+            # Bilder zusammenführen: Website-Bilder (Agent 1) + Maps-Galerie (DB1)
+            try:
+                maps_urls = json.loads(lead.get("foto_urls") or "[]")
+            except Exception:
+                maps_urls = []
+            alle_bilder = [u for u in (list(web.get("foto_urls", [])) + maps_urls) if u]
+            alle_bilder = list(dict.fromkeys(alle_bilder))[:12]
+
             # DB2 befüllen
             row = {
                 # Basis aus DB1
@@ -72,8 +80,11 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 "discovered_website":  web.get("discovered_website", ""),
                 "bilder_vorhanden":    bilder,
                 "foto_url":            web.get("foto_url") or lead.get("foto_url", ""),
+                "foto_urls":           json.dumps(alle_bilder, ensure_ascii=False),
                 "email_vorhanden":     web.get("email_vorhanden", 0),
                 "email_adresse":       web.get("email_adresse", ""),
+                "email_alle":          json.dumps(web.get("email_alle", []), ensure_ascii=False),
+                "ansprechpartner":     web.get("ansprechpartner", ""),
                 "telefon_verifiziert": web.get("telefon_verifiziert", 0),
                 "website_veraltet":    web.get("website_veraltet", 0),
                 "website_alter_jahre": web.get("website_alter_jahre", -1),

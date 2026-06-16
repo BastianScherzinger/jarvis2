@@ -23,21 +23,28 @@ import urllib.request
 import db_evaluated
 import logger
 
-SYNC_INTERVAL = 600          # Sekunden zwischen Batch-Syncs
+SYNC_INTERVAL = 600          # Sekunden zwischen Batch-Push-Syncs (Upload-Fallback)
+PULL_INTERVAL = 300          # Sekunden zwischen periodischen Pulls (Multi-PC-Abgleich)
 _BATCH        = 100          # Leads pro API-Request
 _TIMEOUT      = 20           # HTTP-Timeout
 _TABLE        = "jarvis_leads"
 
 _SYNC_COLS = [
     "raw_id", "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
-    "telefon", "email_vorhanden", "email_adresse", "telefon_verifiziert",
+    "telefon", "email_vorhanden", "email_adresse", "email_alle", "ansprechpartner",
+    "telefon_verifiziert",
     "has_website", "website_url", "discovered_website",
     "website_veraltet", "website_alter_jahre",
-    "fotos_in_maps", "bilder_vorhanden", "foto_url",
+    "fotos_in_maps", "bilder_vorhanden", "foto_url", "foto_urls",
     "hat_nur_social", "beschreibung", "ist_privat_zahler", "firmengroesse",
-    "potenzial_euro", "potenzial_begruendung", "pitch_hook",
-    "score", "lead_typ", "verifiziert", "status", "bewertet_am",
+    "potenzial_euro", "erwartungswert_euro", "sicherheit", "sicherheit_breakdown",
+    "potenzial_begruendung", "pitch_hook",
+    "score", "lead_typ", "verifiziert",
+    "email_status", "email_opt_out", "status", "bewertet_am",
 ]
+
+# Status-Funnel: höherer Rang gewinnt beim Merge (verkauft schlägt neu usw.).
+_FUNNEL_RANG = {"tot": 0, "neu": 1, "kontaktiert": 2, "termin": 3, "verkauft": 4}
 
 _started = False
 _lock    = threading.Lock()
@@ -147,12 +154,13 @@ def pull_and_cache() -> dict:
         return {"ok": False, "reason": "nicht konfiguriert"}
     url, key = _cfg()
 
-    # Lokale lead_keys kennen (für schnellen Abgleich)
-    local_leads = db_evaluated.get_all(limit=200_000)
-    local_keys  = {make_lead_key(l.get("name", ""), l.get("stadt", "")) for l in local_leads}
-    logger.info("CloudSync", f"Pull: {len(local_keys)} Leads lokal, lade remote Daten…")
+    # Lokale Leads indexieren (für Abgleich + Merge)
+    local_leads  = db_evaluated.get_all(limit=200_000)
+    local_by_key = {make_lead_key(l.get("name", ""), l.get("stadt", "")): l
+                    for l in local_leads}
+    logger.info("CloudSync", f"Pull: {len(local_by_key)} Leads lokal, lade remote Daten…")
 
-    pulled = 0
+    pulled = updated = 0
     offset = 0
     while True:
         remote_batch = _fetch_remote_full(url, key, offset)
@@ -160,27 +168,52 @@ def pull_and_cache() -> dict:
             break
         for remote in remote_batch:
             rk = remote.get("lead_key") or make_lead_key(remote.get("name",""), remote.get("stadt",""))
-            if rk in local_keys:
-                continue
-            # Remote Lead in lokalen Cache schreiben
+            local = local_by_key.get(rk)
             cache_row = {k: remote.get(k) for k in db_evaluated._COLUMNS if k in remote}
             cache_row["lead_key"] = rk
-            cache_row["raw_id"]   = None   # kein lokaler raw_id für remote Leads
-            try:
-                db_evaluated.insert_evaluated(cache_row)
-                local_keys.add(rk)
-                pulled += 1
-            except Exception:
-                pass
+
+            if local is None:
+                # Neuer remote Lead → in lokalen Cache schreiben
+                cache_row["raw_id"] = None   # kein lokaler raw_id für remote Leads
+                try:
+                    db_evaluated.insert_evaluated(cache_row)
+                    local_by_key[rk] = cache_row
+                    pulled += 1
+                except Exception:
+                    pass
+            elif _merge_noetig(local, remote):
+                # Bekannter Lead, remote ist neuer/weiter → mergen, lokale Verknüpfung behalten
+                cache_row["raw_id"] = local.get("raw_id")
+                cache_row["status"] = _bester_status(local.get("status"), remote.get("status"))
+                try:
+                    db_evaluated.insert_evaluated(cache_row)
+                    local_by_key[rk] = cache_row
+                    updated += 1
+                except Exception:
+                    pass
         if len(remote_batch) < _BATCH:
             break
         offset += _BATCH
 
-    if pulled:
-        logger.success("CloudSync", f"↓ {pulled} neue Leads aus Cloud in Cache geladen")
+    if pulled or updated:
+        logger.success("CloudSync", f"↓ {pulled} neue + {updated} aktualisierte Leads aus Cloud")
     else:
-        logger.info("CloudSync", "Cache aktuell — keine neuen remote Leads")
-    return {"ok": True, "pulled": pulled}
+        logger.info("CloudSync", "Cache aktuell — keine Änderungen aus der Cloud")
+    return {"ok": True, "pulled": pulled, "updated": updated}
+
+
+def _bester_status(a: str | None, b: str | None) -> str:
+    """Status mit höherem Funnel-Rang gewinnt (verkauft > termin > … > tot)."""
+    a = (a or "neu"); b = (b or "neu")
+    return a if _FUNNEL_RANG.get(a, 1) >= _FUNNEL_RANG.get(b, 1) else b
+
+
+def _merge_noetig(local: dict, remote: dict) -> bool:
+    """True, wenn der remote Lead neuer ist ODER im Funnel weiter als der lokale."""
+    if _FUNNEL_RANG.get(remote.get("status") or "neu", 1) > \
+       _FUNNEL_RANG.get(local.get("status") or "neu", 1):
+        return True
+    return str(remote.get("bewertet_am") or "") > str(local.get("bewertet_am") or "")
 
 
 # ── Batch-Sync (alle 10 Min, Fallback) ────────────────────────────────────────
@@ -233,13 +266,28 @@ def _sync_loop() -> None:
         time.sleep(SYNC_INTERVAL)
 
 
+def _pull_loop() -> None:
+    """Zieht periodisch remote Leads → Multi-PC bleibt ohne Neustart synchron."""
+    time.sleep(PULL_INTERVAL)   # erster Pull läuft bereits beim Start (pull_and_cache)
+    while True:
+        try:
+            pull_and_cache()
+        except Exception as e:
+            logger.error("CloudSync", f"Pull-Fehler: {type(e).__name__}")
+        time.sleep(PULL_INTERVAL)
+
+
 def start() -> None:
-    """Startet Sync-Thread. Idempotent."""
+    """Startet Push- + Pull-Threads. Idempotent."""
     global _started
     with _lock:
         if _started:
             return
         _started = True
-    t = threading.Thread(target=_sync_loop, name="CloudSync", daemon=True)
-    t.start()
-    logger.info("CloudSync", "Sync-Thread gestartet — Push nach jeder Evaluierung + Batch alle 10 Min")
+    threading.Thread(target=_sync_loop, name="CloudSync-Push", daemon=True).start()
+    threading.Thread(target=_pull_loop, name="CloudSync-Pull", daemon=True).start()
+    logger.info(
+        "CloudSync",
+        f"Sync aktiv — Push nach jeder Evaluierung + Batch alle {SYNC_INTERVAL//60} Min, "
+        f"Pull alle {PULL_INTERVAL//60} Min (Multi-PC)",
+    )

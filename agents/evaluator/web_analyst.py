@@ -44,6 +44,33 @@ def _real_emails(html: str) -> list[str]:
     return [e for e in emails if not any(b in e.lower() for b in _BAD_DOMAINS)]
 
 
+# Inhaber/Geschäftsführer aus Impressum (für persönliche Mail-Anrede).
+_AP_PATTERNS = [
+    r'(?:Gesch[äa]ftsf[üu]hrer(?:in)?)\s*[:\-]?\s*'
+    r'([A-ZÄÖÜ][\wäöüß.\-]+(?:\s+[A-ZÄÖÜ][\wäöüß.\-]+){1,2})',
+    r'(?:Inhaber(?:in)?)\s*[:\-]?\s*'
+    r'([A-ZÄÖÜ][\wäöüß.\-]+(?:\s+[A-ZÄÖÜ][\wäöüß.\-]+){1,2})',
+    r'(?:vertreten durch)\s*[:\-]?\s*'
+    r'([A-ZÄÖÜ][\wäöüß.\-]+(?:\s+[A-ZÄÖÜ][\wäöüß.\-]+){1,2})',
+]
+
+
+def _ansprechpartner(html: str) -> str:
+    """Versucht Inhaber/GF-Namen aus (Impressum-)HTML zu ziehen. "" wenn unklar."""
+    text = re.sub(r'<[^>]+>', ' ', html or "")
+    text = re.sub(r'\s+', ' ', text)
+    for pat in _AP_PATTERNS:
+        m = re.search(pat, text)
+        if m:
+            name = m.group(1).strip(' .-')
+            woerter = name.split()
+            if 2 <= len(woerter) <= 3 and not any(
+                w.lower() in _RECHTSFORMEN for w in woerter
+            ):
+                return name[:80]
+    return ""
+
+
 def _ist_eigene_domain(url: str) -> bool:
     """True wenn die URL eine eigene Website sein könnte: kein Verzeichnis/Social
     und eine gängige TLD. RELAXED — keine strenge Namens-Plausibilitätsprüfung."""
@@ -110,11 +137,14 @@ def analyze(lead: dict) -> dict:
         "has_website": 0,
         "website_url": "",
         "email_vorhanden": 0, "email_adresse": "",
+        "email_alle": [],        # alle gefundenen echten E-Mails
+        "ansprechpartner": "",   # Inhaber/GF aus Impressum (für persönliche Anrede)
         "telefon_verifiziert": 0,
         "website_veraltet": 0, "website_alter_jahre": -1,
         "website_probleme": [],
         "bilder_vorhanden": 0,
         "foto_url": "",
+        "foto_urls": [],         # mehrere Bild-URLs → öffenbarer Bilder-Ordner
         "verify_steps": [],
         "search_hits": [],     # für social_researcher wiederverwendbar (spart 2. Suche)
     }
@@ -156,24 +186,34 @@ def analyze(lead: dict) -> dict:
             result["website_veraltet"] = 1
             steps.append("Website: nicht erreichbar")
         else:
-            # E-Mail aus HTML
-            real = _real_emails(html)
-            if real:
-                result["email_vorhanden"] = 1
-                result["email_adresse"]   = real[0][:100]
+            # E-Mail aus HTML — ALLE echten Adressen sammeln (dedupliziert)
+            alle = list(dict.fromkeys(_real_emails(html)))
 
-            # Impressum-Fallback für E-Mail
-            if not result["email_vorhanden"]:
-                imp = re.search(r'href=["\']([^"\']*impressum[^"\']*)["\']', html, re.I)
-                if imp:
-                    imp_url = imp.group(1)
-                    if not imp_url.startswith("http"):
-                        imp_url = urljoin(url, imp_url)
-                    imp_html = http_get(imp_url, timeout=6)
-                    real_imp = _real_emails(imp_html)
-                    if real_imp:
-                        result["email_vorhanden"] = 1
-                        result["email_adresse"]   = real_imp[0][:100]
+            # Impressum laden — weitere E-Mails + Ansprechpartner (Inhaber/GF)
+            imp = re.search(r'href=["\']([^"\']*impressum[^"\']*)["\']', html, re.I)
+            if imp:
+                imp_url = imp.group(1)
+                if not imp_url.startswith("http"):
+                    imp_url = urljoin(url, imp_url)
+                imp_html = http_get(imp_url, timeout=6)
+                if imp_html:
+                    for e in _real_emails(imp_html):
+                        if e not in alle:
+                            alle.append(e)
+                    ap = _ansprechpartner(imp_html)
+                    if ap:
+                        result["ansprechpartner"] = ap
+
+            # Ansprechpartner-Fallback aus der Startseite
+            if not result["ansprechpartner"]:
+                ap = _ansprechpartner(html)
+                if ap:
+                    result["ansprechpartner"] = ap
+
+            if alle:
+                result["email_vorhanden"] = 1
+                result["email_adresse"]   = alle[0][:100]
+                result["email_alle"]      = [e[:100] for e in alle[:8]]
 
             low = html.lower()
 
@@ -253,6 +293,28 @@ def analyze(lead: dict) -> dict:
                     result["foto_url"] = og_url[:300]
         except Exception:
             pass
+
+        # Mehrere Bild-URLs sammeln (öffenbarer Bilder-Ordner im Modal)
+        srcs  = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.I)
+        srcs += re.findall(r'<source[^>]+srcset=["\']([^"\']+)["\']', html, re.I)
+        bild_urls: list[str] = []
+        if result["foto_url"]:
+            bild_urls.append(result["foto_url"])
+        for s in srcs:
+            s = (s or "").split(",")[0].split()[0].strip()   # srcset → erste URL
+            if not s or s.startswith("data:"):
+                continue
+            if not s.startswith("http"):
+                s = urljoin(url, s)
+            low_s = s.lower()
+            if any(b in low_s for b in
+                   ("logo", "icon", "sprite", "pixel", "tracking", "favicon", ".svg")):
+                continue
+            if s not in bild_urls:
+                bild_urls.append(s)
+            if len(bild_urls) >= 8:
+                break
+        result["foto_urls"] = bild_urls[:8]
 
         # Bild-Heuristik: mehrere Signale zusammenzählen
         low = html.lower()

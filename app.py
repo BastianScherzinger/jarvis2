@@ -219,6 +219,75 @@ def api_eval_status(eval_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/claude/status")
+def api_claude_status():
+    """Ist der Claude-Chat einsatzbereit (API-Key vorhanden)?"""
+    import claude_chat
+    return jsonify({"ready": claude_chat.is_ready(), "model": claude_chat.MODEL})
+
+
+@app.route("/api/claude/chat", methods=["POST"])
+def api_claude_chat():
+    """Streamt eine Claude-Antwort als SSE. Body: {messages:[...], think?, search?}."""
+    import claude_chat
+    body     = request.get_json(silent=True) or {}
+    messages = body.get("messages") or []
+    if not isinstance(messages, list) or not messages:
+        return jsonify({"ok": False, "reason": "no_messages"}), 400
+    think  = bool(body.get("think"))
+    search = bool(body.get("search"))
+
+    def event_stream():
+        try:
+            for chunk in claude_chat.stream_chat(messages, think=think, search=search):
+                if "_error" in chunk:
+                    yield _sse({"type": "error", "msg": chunk["_error"]})
+                else:
+                    yield _sse({"type": "token", "text": chunk["text"]})
+        except Exception as e:
+            yield _sse({"type": "error", "msg": f"{type(e).__name__}"})
+        yield _sse({"type": "done"})
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "Connection": "keep-alive"},
+    )
+
+
+@app.route("/api/email/status")
+def api_email_status():
+    """Versand-Bereitschaft fürs Dashboard (ist Auto-Mail scharf?)."""
+    import mailer
+    return jsonify(mailer.status())
+
+
+@app.route("/api/lead/<int:eval_id>/send-email", methods=["POST"])
+def api_lead_send_email(eval_id):
+    """Versendet eine E-Mail an einen bewerteten Lead (DB2). Trockenlauf, solange
+    JARVIS_EMAIL_ENABLED != true. Aktualisiert email_status + spiegelt in die Cloud."""
+    import mailer
+    lead = db_evaluated.get_by_id(eval_id)
+    if not lead:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    res = mailer.send_to_lead(lead)
+    db_evaluated.set_email_status(eval_id, res.get("status", "fehler"), res.get("fehler", ""))
+    try:
+        cloud_sync.push_lead(db_evaluated.get_by_id(eval_id))
+    except Exception:
+        pass
+    return jsonify(res), (200 if res.get("ok") else 400)
+
+
+@app.route("/api/lead/<int:eval_id>/opt-out", methods=["POST"])
+def api_lead_opt_out(eval_id):
+    """Markiert einen Lead als Opt-out (kein Versand mehr)."""
+    db_evaluated.set_opt_out(eval_id, 1)
+    db_evaluated.set_email_status(eval_id, "opt_out", "")
+    return jsonify({"ok": True})
+
+
 @app.route("/api/sync", methods=["GET", "POST"])
 def api_sync():
     """GET: Sync-Status. POST: manueller Sync-Trigger (body: {full: true/false})."""

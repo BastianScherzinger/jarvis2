@@ -59,6 +59,7 @@ def init_db() -> None:
             maps_url        TEXT,
             bilder_maps     INTEGER DEFAULT 0,
             foto_url        TEXT,
+            foto_urls       TEXT,
             bewertung       REAL DEFAULT 0,
             anz_bewertungen INTEGER DEFAULT 0,
             finder          TEXT,
@@ -76,11 +77,13 @@ def init_db() -> None:
 
 
 def _migrate() -> None:
-    """Additive Spalten für Bestands-DBs (foto_url kam später dazu)."""
+    """Additive Spalten für Bestands-DBs (foto_url/foto_urls kamen später dazu)."""
     with _lock, _conn() as c:
         have = {r[1] for r in c.execute("PRAGMA table_info(raw_leads)")}
         if "foto_url" not in have:
             c.execute("ALTER TABLE raw_leads ADD COLUMN foto_url TEXT")
+        if "foto_urls" not in have:
+            c.execute("ALTER TABLE raw_leads ADD COLUMN foto_urls TEXT")
         c.commit()
 
 
@@ -104,7 +107,7 @@ def exists_raw(name: str, stadt: str) -> bool:
 # Spalten die raw_leads kennt — fremde Keys aus dem Scraper-dict werden gefiltert.
 _RAW_COLUMNS = {
     "name", "adresse", "stadt", "bundesland", "branche", "telefon",
-    "website_url", "has_website", "maps_url", "bilder_maps", "foto_url",
+    "website_url", "has_website", "maps_url", "bilder_maps", "foto_url", "foto_urls",
     "bewertung", "anz_bewertungen", "finder", "gefunden_am",
 }
 
