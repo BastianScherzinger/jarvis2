@@ -55,6 +55,23 @@ def status() -> dict:
     return {"stt": stt_available(), "tts": tts_available(), "stt_model": STT_MODEL_NAME}
 
 
+def warmup() -> None:
+    """Lädt das Whisper-Modell vorab. Beim allerersten Start wird es dabei
+    automatisch heruntergeladen (~140 MB für 'base'). Blockiert nichts — wird
+    beim App-Start in einem Hintergrund-Thread aufgerufen."""
+    import logger
+    if not stt_available():
+        logger.warn("Voice", "faster-whisper nicht installiert — Spracheingabe deaktiviert")
+        return
+    try:
+        logger.info("Voice", f"Lade Whisper-Modell '{STT_MODEL_NAME}' "
+                             f"(einmaliger Download beim ersten Start, danach aus dem Cache)…")
+        _get_model()
+        logger.success("Voice", f"Whisper-Modell '{STT_MODEL_NAME}' bereit — Spracheingabe einsatzbereit.")
+    except Exception as e:
+        logger.error("Voice", f"Whisper-Warmup fehlgeschlagen: {type(e).__name__}: {str(e)[:160]}")
+
+
 # ── Spracherkennung ───────────────────────────────────────────────────────────
 
 def transcribe(audio_bytes: bytes, suffix: str = ".webm") -> str:

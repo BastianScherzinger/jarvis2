@@ -47,6 +47,16 @@ cloud_sync.start()
 # Startup-Pull: alle Supabase-Leads in lokalen Cache laden (andere PCs)
 _startup_t.Thread(target=cloud_sync.pull_and_cache, daemon=True).start()
 
+# Whisper-Modell für die Spracheingabe im Hintergrund vorladen (lädt es beim
+# ersten Start automatisch herunter — blockiert den Dashboard-Start nicht).
+def _warmup_voice():
+    try:
+        import voice_web
+        voice_web.warmup()
+    except Exception:
+        pass
+_startup_t.Thread(target=_warmup_voice, daemon=True).start()
+
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
 
