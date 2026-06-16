@@ -8,6 +8,11 @@ let _claudeFile    = null;               // {media_type, data(base64), preview, 
 const _claudeFlags = { search: false, think: false };
 const _CLAUDE_SCENE = 'https://prod.spline.design/kZDDjO5HuC9GJUM2/scene.splinecode';
 
+// Sprache (STT via Whisper-Backend, TTS via edge-tts-Backend)
+let _claudeSpeakOn  = false;
+let _claudeRecorder = null, _claudeChunks = [], _claudeStream = null;
+let _claudeRecording = false, _claudeStarting = false, _claudeAudio = null;
+
 function initClaude(){
   if(_claudeInit) return;
   _claudeInit = true;
@@ -89,7 +94,18 @@ function _claudeWire(){
     file.value = '';
   });
 
-  _claudeWireMic(mic, inp);
+  _claudeWireVoice(mic, inp);
+
+  // Sprachausgabe-Toggle (Antworten vorlesen)
+  const voiceBtn = document.getElementById('cc-voice');
+  if(voiceBtn){
+    voiceBtn.addEventListener('click', ()=>{
+      _claudeSpeakOn = !_claudeSpeakOn;
+      if(!_claudeSpeakOn) _claudeStopAudio();
+      _claudeUpdateVoiceBtn();
+    });
+    _claudeUpdateVoiceBtn();   // Startzustand (aus)
+  }
 }
 
 function _claudeRenderFiles(){
@@ -102,26 +118,124 @@ function _claudeRenderFiles(){
 }
 function claudeRemoveFile(){ _claudeFile = null; _claudeRenderFiles(); }
 
-// Spracheingabe via Web-Speech-API (Chrome). Fehlt sie, Mic ausblenden.
-function _claudeWireMic(mic, inp){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ if(mic) mic.style.display = 'none'; return; }
-  let rec = null, on = false;
+// ── Spracheingabe: Mikrofon aufnehmen → Whisper-Backend → Auto-Senden ─────────
+function _claudeWireVoice(mic, inp){
+  if(!mic) return;
   mic.addEventListener('click', ()=>{
-    if(on){ rec && rec.stop(); return; }
-    rec = new SR(); rec.lang = 'de-DE'; rec.interimResults = true; rec.continuous = false;
-    const base = inp.value;
-    rec.onstart  = ()=>{ on = true;  mic.classList.add('rec'); };
-    rec.onend    = ()=>{ on = false; mic.classList.remove('rec'); };
-    rec.onerror  = ()=>{ on = false; mic.classList.remove('rec'); };
-    rec.onresult = e=>{
-      let txt = '';
-      for(let i=0;i<e.results.length;i++) txt += e.results[i][0].transcript;
-      inp.value = (base ? base + ' ' : '') + txt;
-      inp.dispatchEvent(new Event('input'));
-    };
-    rec.start();
+    if(_claudeRecording) _claudeStopRecording();
+    else _claudeStartRecording(mic, inp);
   });
+}
+
+async function _claudeStartRecording(mic, inp){
+  if(_claudeStarting || _claudeRecording) return;   // Doppelklick-Schutz (synchron)
+  _claudeStarting = true;
+  if(!navigator.mediaDevices || !window.MediaRecorder){
+    _claudeToast('Mikrofon wird vom Browser nicht unterstützt.'); _claudeStarting = false; return;
+  }
+  try{
+    _claudeStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){ _claudeToast('Mikrofon-Zugriff verweigert.'); _claudeStarting = false; return; }
+
+  _claudeChunks = [];
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  _claudeRecorder = new MediaRecorder(_claudeStream, mime ? {mimeType:mime} : undefined);
+  _claudeRecorder.ondataavailable = e=>{ if(e.data && e.data.size) _claudeChunks.push(e.data); };
+  _claudeRecorder.onstop = ()=>_claudeFinishRecording(inp);
+  _claudeRecorder.start();
+  _claudeRecording = true;
+  _claudeStarting = false;
+  mic.classList.add('rec');
+  _claudeStopAudio();   // laufende Sprachausgabe stoppen, wenn der Nutzer redet
+}
+
+function _claudeStopRecording(){
+  if(_claudeRecorder && _claudeRecorder.state !== 'inactive'){
+    try{ _claudeRecorder.stop(); }catch(e){}
+  }
+}
+
+async function _claudeFinishRecording(inp){
+  _claudeRecording = false;
+  const mic = document.getElementById('cc-mic');
+  if(mic) mic.classList.remove('rec');
+  if(_claudeStream){ _claudeStream.getTracks().forEach(t=>t.stop()); _claudeStream = null; }
+
+  if(!_claudeChunks.length){ _claudeToast('Keine Aufnahme erkannt.'); return; }
+  if(mic) mic.classList.add('busy');
+  const blob = new Blob(_claudeChunks, {type:'audio/webm'});
+  _claudeChunks = [];
+  try{
+    const fd = new FormData();
+    fd.append('audio', blob, 'speech.webm');
+    const r = await fetch('/api/voice/transcribe', {method:'POST', body:fd});
+    const d = await r.json();
+    if(d.ok && d.text && d.text.trim()){
+      inp.value = d.text.trim();
+      inp.dispatchEvent(new Event('input'));
+      if(_claudeBusy){
+        _claudeToast('Antwort läuft noch — Frage steht bereit, Enter zum Senden.');
+      } else {
+        _claudeSpeakOn = true; _claudeUpdateVoiceBtn();   // gesprochene Frage → gesprochene Antwort
+        claudeSend();
+      }
+    } else if(d.ok){
+      _claudeToast('Nichts verstanden — bitte erneut sprechen.');
+    } else {
+      _claudeToast('Spracherkennung: ' + (d.reason || 'Fehler'));
+    }
+  }catch(e){
+    _claudeToast('Transkription fehlgeschlagen.');
+  }
+  if(mic) mic.classList.remove('busy');
+}
+
+// ── Sprachausgabe: Antwort vom edge-tts-Backend abspielen ─────────────────────
+function _claudeUpdateVoiceBtn(){
+  const b = document.getElementById('cc-voice');
+  if(!b) return;
+  b.classList.toggle('on', _claudeSpeakOn);
+  const on = b.querySelector('.ic-on'), off = b.querySelector('.ic-off');
+  if(on)  on.style.display  = _claudeSpeakOn ? '' : 'none';
+  if(off) off.style.display = _claudeSpeakOn ? 'none' : '';
+}
+
+function _claudeStopAudio(){
+  if(_claudeAudio){
+    try{ _claudeAudio.pause(); }catch(e){}
+    if(_claudeAudio._url){ try{ URL.revokeObjectURL(_claudeAudio._url); }catch(e){} }
+    _claudeAudio = null;
+  }
+}
+
+async function _claudeSpeak(text){
+  _claudeStopAudio();
+  try{
+    const r = await fetch('/api/voice/speak', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text}),
+    });
+    if(!r.ok) return;
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    a._url = url;
+    a.onended = ()=>{ try{ URL.revokeObjectURL(url); }catch(e){} };
+    _claudeAudio = a;
+    a.play().catch(()=>{});
+  }catch(e){}
+}
+
+function _claudeToast(msg){
+  let t = document.getElementById('claude-toast');
+  if(!t){
+    t = document.createElement('div');
+    t.id = 'claude-toast'; t.className = 'claude-toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2800);
 }
 
 async function claudeSend(){
@@ -152,7 +266,7 @@ async function claudeSend(){
   const body   = bubble.querySelector('.cb-body');
   _claudeBusy = true; _claudeSetBusy(true);
 
-  let acc = '';
+  let acc = '', hadToken = false, hadError = false;
   try{
     const resp = await fetch('/api/claude/chat', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -172,15 +286,16 @@ async function claudeSend(){
         const line = raw.split('\n').find(l=>l.startsWith('data:'));
         if(!line) continue;
         let ev; try{ ev = JSON.parse(line.slice(5).trim()); }catch{ continue; }
-        if(ev.type === 'token'){ acc += ev.text; body.innerHTML = _claudeMd(acc); _claudeScroll(); }
-        else if(ev.type === 'error'){ acc += (acc?'\n\n':'') + '⚠ ' + ev.msg; body.innerHTML = _claudeMd(acc); }
+        if(ev.type === 'token'){ hadToken = true; acc += ev.text; body.innerHTML = _claudeMd(acc); _claudeScroll(); }
+        else if(ev.type === 'error'){ hadError = true; acc += (acc?'\n\n':'') + '⚠ ' + ev.msg; body.innerHTML = _claudeMd(acc); }
       }
     }
   }catch(e){
     body.innerHTML = _claudeMd(acc + (acc?'\n\n':'') + '⚠ Verbindungsfehler: ' + e.message);
   }
-  if(acc.trim()) _claudeHistory.push({role:'assistant', content:acc});
+  if(hadToken && acc.trim()) _claudeHistory.push({role:'assistant', content:acc});
   _claudeBusy = false; _claudeSetBusy(false); _claudeScroll();
+  if(hadToken && !hadError && _claudeSpeakOn) _claudeSpeak(acc);   // Fehlertexte nicht vorlesen
 }
 
 function _claudeSetBusy(b){

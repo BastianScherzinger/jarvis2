@@ -219,6 +219,47 @@ def api_eval_status(eval_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/voice/status")
+def api_voice_status():
+    import voice_web
+    return jsonify(voice_web.status())
+
+
+@app.route("/api/voice/transcribe", methods=["POST"])
+def api_voice_transcribe():
+    """Audio (MediaRecorder, webm/opus) → Text via faster-whisper."""
+    import voice_web
+    if "audio" in request.files:
+        data = request.files["audio"].read()
+    else:
+        data = request.get_data() or b""
+    if not data:
+        return jsonify({"ok": False, "reason": "no_audio"}), 400
+    if len(data) > 5 * 1024 * 1024:   # ~5 Min Opus — schützt vor langer CPU-Blockade
+        return jsonify({"ok": False, "reason": "too_large"}), 413
+    try:
+        text = voice_web.transcribe(data)
+        return jsonify({"ok": True, "text": text})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {str(e)[:160]}"}), 500
+
+
+@app.route("/api/voice/speak", methods=["POST"])
+def api_voice_speak():
+    """Text → gesprochenes Audio (MP3/WAV) via edge-tts."""
+    import voice_web
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "reason": "no_text"}), 400
+    try:
+        audio, mime = voice_web.speak(text)
+        return Response(audio, mimetype=mime,
+                        headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {str(e)[:160]}"}), 500
+
+
 @app.route("/api/claude/status")
 def api_claude_status():
     """Ist der Claude-Chat einsatzbereit (API-Key vorhanden)?"""

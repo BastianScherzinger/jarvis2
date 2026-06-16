@@ -1380,6 +1380,18 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 .cc-icon:hover{color:var(--tx);background:rgba(255,255,255,.04)}
 .cc-mic.rec{color:var(--r);border-color:rgba(255,59,78,.5);background:rgba(255,59,78,.1);animation:ccPulse 1.2s ease-in-out infinite}
 @keyframes ccPulse{50%{box-shadow:0 0 0 5px rgba(255,59,78,.08)}}
+.cc-icon.busy{color:var(--c);pointer-events:none;animation:ccSpin .8s linear infinite}
+@keyframes ccSpin{to{transform:rotate(360deg)}}
+.cc-icon.on{color:var(--c);border-color:rgba(0,212,255,.5);background:rgba(0,212,255,.1);box-shadow:0 0 12px rgba(0,212,255,.18)}
+
+/* Kurz-Hinweis (Sprach-Feedback) */
+.claude-toast{
+  position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(8px);
+  z-index:9998;padding:9px 16px;border-radius:11px;pointer-events:none;
+  background:rgba(13,20,32,.96);border:1px solid var(--bdr2);color:var(--tx);
+  font-size:12.5px;box-shadow:var(--sh-2);opacity:0;transition:opacity .2s,transform .2s;
+}
+.claude-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 .cc-toggle{
   display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:18px;
