@@ -1350,6 +1350,15 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 .cb-cursor{color:var(--c);animation:ccBlink 1s step-end infinite}
 @keyframes ccBlink{50%{opacity:0}}
 
+/* Tool-Aktivitaet (Agent nutzt ein Werkzeug) */
+.cb-tool{
+  display:flex;align-items:center;gap:7px;margin:0 0 7px;padding:6px 11px;
+  border-radius:9px;font-size:12px;color:var(--tx2);
+  background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);
+}
+.cb-tool b{color:var(--c);font-weight:600}
+.cb-tool-i{color:var(--c);animation:ccSpin 1.4s linear infinite;display:inline-block}
+
 /* ── Prompt-Box ───────────────────────────────────────────────────────── */
 .claude-composer{
   flex:0 0 auto;border-radius:22px;padding:10px 12px;

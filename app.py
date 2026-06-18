@@ -298,7 +298,11 @@ def api_claude_chat():
             for chunk in claude_chat.stream_chat(messages, think=think, search=search):
                 if "_error" in chunk:
                     yield _sse({"type": "error", "msg": chunk["_error"]})
-                else:
+                elif "tool" in chunk:
+                    yield _sse({"type": "tool", "name": chunk["tool"], "input": chunk.get("input", {})})
+                elif "tool_result" in chunk:
+                    yield _sse({"type": "tool_result", "text": chunk["tool_result"]})
+                elif "text" in chunk:
                     yield _sse({"type": "token", "text": chunk["text"]})
         except Exception as e:
             yield _sse({"type": "error", "msg": f"{type(e).__name__}"})

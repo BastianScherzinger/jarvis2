@@ -266,7 +266,12 @@ async function claudeSend(){
   const body   = bubble.querySelector('.cb-body');
   _claudeBusy = true; _claudeSetBusy(true);
 
-  let acc = '', hadToken = false, hadError = false;
+  let acc = '', toolHtml = '', hadToken = false, hadError = false;
+  const _render = () => {
+    body.innerHTML = toolHtml +
+      (acc ? _claudeMd(acc) : (toolHtml ? '' : '<span class="cb-cursor">▌</span>'));
+    _claudeScroll();
+  };
   try{
     const resp = await fetch('/api/claude/chat', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -286,8 +291,10 @@ async function claudeSend(){
         const line = raw.split('\n').find(l=>l.startsWith('data:'));
         if(!line) continue;
         let ev; try{ ev = JSON.parse(line.slice(5).trim()); }catch{ continue; }
-        if(ev.type === 'token'){ hadToken = true; acc += ev.text; body.innerHTML = _claudeMd(acc); _claudeScroll(); }
-        else if(ev.type === 'error'){ hadError = true; acc += (acc?'\n\n':'') + '⚠ ' + ev.msg; body.innerHTML = _claudeMd(acc); }
+        if(ev.type === 'token'){ hadToken = true; acc += ev.text; _render(); }
+        else if(ev.type === 'tool'){ toolHtml += _claudeToolLine(ev.name, ev.input); _render(); }
+        else if(ev.type === 'tool_result'){ /* Tool-Zeile genügt als Aktivitäts-Anzeige */ }
+        else if(ev.type === 'error'){ hadError = true; acc += (acc?'\n\n':'') + '⚠ ' + ev.msg; _render(); }
       }
     }
   }catch(e){
@@ -322,6 +329,26 @@ function _claudeAppendBubble(role, text, img){
 function _claudeScroll(){
   const l = document.getElementById('claude-log');
   if(l) l.scrollTop = l.scrollHeight;
+}
+
+// Tool-Aktivität als Chip im Chat anzeigen
+const _CLAUDE_TOOL_LABELS = {
+  maps_search:'Maps-Suche', maps_geocode:'Geocoding', maps_place_details:'Ort-Details',
+  maps_directions:'Route', browser_open:'Browser öffnen', browser_click:'Klicken',
+  browser_type:'Tippen', browser_scroll:'Scrollen', browser_read:'Seite lesen',
+  browser_links:'Links', browser_back:'Zurück', browser_screenshot:'Screenshot',
+  generate_image:'Bild erzeugen', generate_video:'Video erzeugen', media_job_status:'Job-Status',
+  leads_top:'Top-Leads', leads_search:'Lead-Suche', web_search:'Websuche',
+};
+function _claudeToolLine(name, input){
+  const label = _CLAUDE_TOOL_LABELS[name] || name;
+  let arg = '';
+  if(input && typeof input === 'object'){
+    const v = input.query || input.url || input.address || input.target ||
+              input.prompt || input.origin || '';
+    if(v) arg = ' · ' + String(v).slice(0, 60);
+  }
+  return `<div class="cb-tool"><span class="cb-tool-i">⚙</span><b>${_e(label)}</b>${_e(arg)}</div>`;
 }
 
 // Minimaler, SICHERER Markdown-Renderer: erst escapen, dann formatieren.
