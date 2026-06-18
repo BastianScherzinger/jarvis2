@@ -193,7 +193,10 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
 
     score = _clamp(base + anpassung)
 
-    potenzial = data.get("potenzial_euro")
+    try:
+        potenzial = int(data.get("potenzial_euro"))   # Ollama liefert manchmal "1500" als String
+    except (TypeError, ValueError):
+        potenzial = None
     if potenzial not in POTENZIAL_STUFEN:
         potenzial = basis_potenzial
 

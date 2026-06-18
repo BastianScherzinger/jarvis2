@@ -139,7 +139,8 @@ def send_to_lead(lead: dict) -> dict:
     if not text:                       # Fallback: on-demand über outreach (Ollama)
         try:
             from agents import outreach
-            res     = outreach.generate_email(lead)
+            # persist=False: lead ist eine DB2-Zeile, deren id NICHT zu db.py gehört.
+            res     = outreach.generate_email(lead, persist=False)
             betreff = (res.get("betreff") or betreff).strip()
             text    = (res.get("text") or "").strip()
         except Exception:

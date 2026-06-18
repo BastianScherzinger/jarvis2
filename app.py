@@ -69,6 +69,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return ("", 204)   # kein Icon nötig — verhindert 404-Spam im Log
+
+
 @app.route("/api/start", methods=["POST"])
 def api_start():
     if not controller.is_running():
@@ -506,9 +511,10 @@ def api_media_gallery():
 
 @app.route("/api/stream")
 def api_stream():
-    q = controller.get_queue()
+    q = controller.subscribe()   # eigene Queue pro Client (Fan-out)
 
     def event_stream():
+      try:
         # Beim Verbinden: aktuelle DB-Stats schicken (verhindert Flickern)
         yield _sse({"type": "init_stats", "stats": db.get_stats()})
 
@@ -544,6 +550,8 @@ def api_stream():
 
             # Lead senden + gleichzeitig DB-Stats (single source of truth)
             yield _sse({"type": "lead", "data": lead, "stats": db.get_stats()})
+      finally:
+        controller.unsubscribe(q)   # beim Trennen Client-Queue abmelden
 
     return Response(
         stream_with_context(event_stream()),

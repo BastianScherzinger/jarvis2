@@ -1,11 +1,17 @@
 """
 Qualitätsfilter — verhindert Portal-Müll und Fake-Einträge in der DB.
 """
+import re
 
-PORTAL_WORDS = ["suche", "finden", "vergleich", "liste", "wikipedia", "facebook",
-    "instagram", "youtube", "twitter", "yelp", "google", "11880", "gelbe seiten",
-    "das örtliche", "branchenbuch", "verzeichnis", "portal", "anzeigen", "kleinanzeigen",
-    "immobilien scout", "ebay", "amazon", "booking", "tripadvisor"]
+# Marken-/Domain-Begriffe: als Substring sicher (kommen in echten Firmennamen nicht vor).
+_PORTAL_SUBSTR = ["wikipedia", "facebook", "instagram", "youtube", "twitter", "yelp",
+    "11880", "gelbe seiten", "das örtliche", "branchenbuch", "kleinanzeigen",
+    "immobilien scout", "ebay", "amazon", "booking", "tripadvisor", "google maps"]
+
+# Generische deutsche Wörter: NUR als ganzes Wort prüfen — sonst werden echte
+# Betriebe verworfen ("Listemann GmbH", "Findeisen", "Vergleichsweise …").
+_PORTAL_WORDS = ["suche", "finden", "vergleich", "liste", "verzeichnis", "portal", "anzeigen"]
+_PORTAL_RE = re.compile(r"\b(?:" + "|".join(_PORTAL_WORDS) + r")\b")
 
 # Generische UI-/Seiten-Texte die KEIN Betrieb sind (exakte Treffer, normalisiert).
 # Fängt z.B. den Maps-Bug ab, bei dem die Überschrift "Ergebnisse" als Lead landet.
@@ -34,8 +40,8 @@ def is_real_business(lead: dict) -> tuple[bool, str]:
     if name_lower in GENERIC_NAMES:
         return (False, "Generischer Seiten-Text")
 
-    # 3. Portal / Verzeichnis
-    if any(w in name_lower for w in PORTAL_WORDS):
+    # 3. Portal / Verzeichnis (Marken als Substring, generische Wörter wort-genau)
+    if any(w in name_lower for w in _PORTAL_SUBSTR) or _PORTAL_RE.search(name_lower):
         return (False, "Portal/Verzeichnis")
 
     # 3. Nur Großbuchstaben + sehr lang → Werbe-Header

@@ -92,16 +92,23 @@ def _upsert_batch(url: str, key: str, leads: list[dict]) -> int:
         f"{url}/rest/v1/{_TABLE}",
         data=payload, headers=_headers(key), method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT):
-            return len(rows)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:300]
-        logger.error("CloudSync", f"HTTP {e.code}: {body}")
-        return 0
-    except Exception as e:
-        logger.error("CloudSync", f"Upload-Fehler: {type(e).__name__}")
-        return 0
+    # Transiente Netzfehler (URLError, RemoteDisconnected) bis zu 3x mit Backoff
+    # erneut versuchen. Echte Server-Ablehnung (HTTP 4xx/5xx) NICHT wiederholen.
+    last_err = ""
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT):
+                return len(rows)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")[:300]
+            logger.error("CloudSync", f"HTTP {e.code}: {body}")
+            return 0
+        except Exception as e:
+            last_err = type(e).__name__
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+    logger.warn("CloudSync", f"Upload nach 3 Versuchen fehlgeschlagen: {last_err}")
+    return 0
 
 
 def _fetch_all_remote(url: str, key: str) -> list[dict]:

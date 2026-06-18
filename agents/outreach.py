@@ -7,11 +7,14 @@ from scrapers import _http
 import db
 
 
-def generate_email(lead: dict) -> dict:
+def generate_email(lead: dict, persist: bool = True) -> dict:
     """
     Generiert eine personalisierte Akquise-E-Mail für einen Lead.
-    Speichert das Ergebnis in db (email_draft) und gibt {betreff, text} zurück.
-    Fallback bei Ollama-Ausfall: {betreff:"", text:"", error:...}.
+    Gibt {betreff, text} zurück. Fallback bei Ollama-Ausfall: {..., error:...}.
+
+    persist=True  → speichert email_draft in db.py (DB1) unter lead["id"].
+    persist=False → kein DB-Schreibzugriff (z.B. wenn der Mailer eine DB2-Zeile
+                    übergibt — deren id gehört NICHT zur DB1-Tabelle).
     """
     name    = (lead.get("name") or "").strip() or "das Unternehmen"
     branche = (lead.get("branche") or "").strip() or "Betrieb"
@@ -63,12 +66,13 @@ def generate_email(lead: dict) -> dict:
 
     result = {"betreff": betreff, "text": text}
 
-    # In DB speichern
-    try:
-        lead_id = lead.get("id")
-        if lead_id:
-            db.set_lead_field(lead_id, "email_draft", json.dumps(result, ensure_ascii=False))
-    except Exception:
-        pass
+    # In DB1 speichern — nur wenn die id wirklich zur leads-Tabelle gehört.
+    if persist:
+        try:
+            lead_id = lead.get("id")
+            if lead_id:
+                db.set_lead_field(lead_id, "email_draft", json.dumps(result, ensure_ascii=False))
+        except Exception:
+            pass
 
     return result

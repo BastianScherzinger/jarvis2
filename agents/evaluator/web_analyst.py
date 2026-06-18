@@ -33,8 +33,9 @@ def _ist_verzeichnis(url: str) -> bool:
 
 def _domain(url: str) -> str:
     try:
-        net = urlparse(url if url.startswith("http") else "https://" + url).netloc
-        return net.lower().lstrip("www.")
+        net = urlparse(url if url.startswith("http") else "https://" + url).netloc.lower()
+        # NICHT lstrip("www.") — das entfernt jedes führende w/./ (z.B. "wuermtal" → "uermtal").
+        return net[4:] if net.startswith("www.") else net
     except Exception:
         return ""
 

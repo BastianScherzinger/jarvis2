@@ -150,7 +150,9 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
         ],
         "stream": False,
         "keep_alive": "10m",                # Modell 10 Min im Speicher halten
-        "options": {"temperature": 0.1, "num_predict": 400},
+        # num_predict großzügig: das Bewertungs-JSON (inkl. E-Mail-Entwurf) wurde
+        # bei 400 oft abgeschnitten → unparsebar → Ollama-Anpassung fiel auf 0.
+        "options": {"temperature": 0.1, "num_predict": 768},
     }).encode("utf-8")
     req = urllib.request.Request(
         _OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}
@@ -253,17 +255,39 @@ def ollama_models() -> list[dict]:
 def extract_json(text: str) -> dict:
     if not text:
         return {}
+    s = text.strip()
+    # 1. Direkter Versuch (Ollama liefert oft reines JSON)
     try:
-        m = re.search(r"\{.*\}", text, re.DOTALL)
-        if m:
-            return json.loads(m.group(0))
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            return obj
     except Exception:
         pass
-    # Fallback: kleinstes, nicht-verschachteltes Objekt
-    try:
-        m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
-        if m:
-            return json.loads(m.group(0))
-    except Exception:
-        pass
+    # 2. Erstes BALANCIERTES {...} per Tiefenzähler extrahieren (string-bewusst).
+    #    Greedy r"\{.*\}" matchte vom ersten { bis zum letzten } und scheiterte
+    #    bei Fließtext/zwei Objekten/abgeschnittenem JSON → Werte fielen still auf 0.
+    start = s.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(s)):
+            c = s[i]
+            if in_str:
+                if esc:        esc = False
+                elif c == "\\": esc = True
+                elif c == '"': in_str = False
+            elif c == '"':     in_str = True
+            elif c == "{":     depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(s[start:i + 1])
+                        if isinstance(obj, dict):
+                            return obj
+                    except Exception:
+                        pass
+                    break   # dieser Block kaputt → nächstes { suchen
+        start = s.find("{", start + 1)
     return {}

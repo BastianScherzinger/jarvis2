@@ -288,7 +288,7 @@ function _buildMsg(lead){
     lead.bewertung ? `<div class="lc-ft"><span class="lc-ft-i">⭐</span>${lead.bewertung}${lead.anz_bewertungen?' ('+lead.anz_bewertungen+')':''}</div>` : '',
   ].filter(Boolean).join('');
 
-  const jl = JSON.stringify(lead).replace(/"/g,'&quot;');
+  const jl = _jattr(lead);
 
   wrap.innerHTML = `
     <div class="msg-av av-${f.cls}">${f.av}</div>
@@ -311,6 +311,14 @@ function _buildMsg(lead){
 }
 
 function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// JSON sicher in ein single-quote-onclick-Attribut einbetten (gescrapte Daten
+// können ', ", <, > enthalten — sonst Ausbruch aus dem Attribut = XSS).
+function _jattr(o){
+  return JSON.stringify(o)
+    .replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 // ── Hot Sidebar ───────────────────────────────────────────────────────────────
 function _addHotCard(lead){
@@ -341,7 +349,7 @@ async function loadTop(){
     const typ  = l.lead_typ || 'Cold';
     const badge = `<span class="v-badge verified">✓ KI-bewertet</span>`;
     const hook = l.pitch_hook ? `<div class="tc-hook">${_e(l.pitch_hook)}</div>` : '';
-    const jl   = JSON.stringify(l).replace(/"/g,'&quot;');
+    const jl   = _jattr(l);
     return `<div class="top-card ${typ}" onclick='openRankDetail ? openRankDetail(${jl}) : openModal(${jl})'>
       <div class="tc-rank">${i+1}</div>
       <div class="tc-body">

@@ -17,13 +17,30 @@ import db
 import db_raw
 import logger
 
-_lead_queue        = queue.Queue()
 _stop_event        = threading.Event()
 _active            = False
 _evaluator_started = False   # läuft der Evaluator (via Scraper ODER standalone)?
 
+# SSE-Fan-out: jeder verbundene Client bekommt seine EIGENE Queue. Eine einzige
+# geteilte Queue würde Events bei mehreren Tabs auf die Clients aufteilen
+# (jeder verpasst dann Events der anderen).
+_subscribers: set = set()
+_sub_lock         = threading.Lock()
 
-def get_queue()        -> queue.Queue: return _lead_queue
+
+def subscribe() -> "queue.Queue":
+    """Registriert einen neuen SSE-Client und gibt dessen Queue zurück."""
+    q: queue.Queue = queue.Queue(maxsize=2000)
+    with _sub_lock:
+        _subscribers.add(q)
+    return q
+
+
+def unsubscribe(q) -> None:
+    with _sub_lock:
+        _subscribers.discard(q)
+
+
 def is_running()       -> bool:        return _active
 
 
@@ -172,7 +189,14 @@ def stop() -> None:
 
 
 def _on_lead(lead: dict) -> None:
-    _lead_queue.put(lead)
+    """Verteilt ein Event an ALLE verbundenen SSE-Clients (Fan-out)."""
+    with _sub_lock:
+        subs = list(_subscribers)
+    for q in subs:
+        try:
+            q.put_nowait(lead)
+        except queue.Full:
+            pass   # langsamer/toter Client → Event verwerfen, nie blockieren
 
 
 def _spawn(name: str, fn, combos, delay: float = 0, **kwargs):

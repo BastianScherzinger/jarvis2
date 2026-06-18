@@ -18,6 +18,7 @@ STT_MODEL_NAME = os.environ.get("JARVIS_STT_MODEL", "base")
 
 _model = None
 _model_lock = threading.Lock()
+_tx_lock    = threading.Lock()   # faster-whisper: nur EIN transcribe gleichzeitig
 
 
 def _get_model():
@@ -84,14 +85,15 @@ def transcribe(audio_bytes: bytes, suffix: str = ".webm") -> str:
             f.write(audio_bytes)
             tmp_path = f.name
         model = _get_model()
-        segments, _info = model.transcribe(
-            tmp_path,
-            language="de",
-            beam_size=1,            # schnell
-            vad_filter=True,        # Stille rausfiltern
-            vad_parameters={"min_silence_duration_ms": 400},
-        )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        with _tx_lock:
+            segments, _info = model.transcribe(
+                tmp_path,
+                language="de",
+                beam_size=1,            # schnell
+                vad_filter=True,        # Stille rausfiltern
+                vad_parameters={"min_silence_duration_ms": 400},
+            )
+            return " ".join(seg.text.strip() for seg in segments).strip()
     finally:
         if tmp_path:
             try:
