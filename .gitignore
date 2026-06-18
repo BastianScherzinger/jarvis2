@@ -71,3 +71,5 @@ test_write*.txt
 
 # ── Playwright MCP (Screenshots/Logs aus Claude Code) ────────────────
 .playwright-mcp/
+
+workspace/media/agent_*.png
