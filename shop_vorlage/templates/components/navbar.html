@@ -1,0 +1,44 @@
+<nav class="sn-nav" role="navigation" aria-label="Hauptnavigation">
+  <div class="sn-nav-inner">
+
+    <!-- Brand -->
+    <a href="{% url 'core:home' %}" class="sn-brand" aria-label="{{ SITE_NAME }} Startseite">
+      <div class="sn-brand-mark" aria-hidden="true">S</div>
+      <span>{{ SITE_NAME }}</span>
+    </a>
+
+    <!-- Desktop Links -->
+    <nav class="sn-links" aria-label="Desktop Navigation">
+      <a href="{% url 'core:home' %}" class="sn-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}">Home</a>
+      <a href="{% url 'core:dienstleistungen' %}" class="sn-link {% if request.resolver_match.url_name == 'dienstleistungen' %}active{% endif %}">Unsere Dienstleistungen</a>
+      <a href="{% url 'core:standorte' %}" class="sn-link {% if request.resolver_match.url_name == 'standorte' %}active{% endif %}">Unsere Standorte</a>
+      <a href="{% url 'core:ueber_uns' %}" class="sn-link {% if request.resolver_match.url_name == 'ueber_uns' %}active{% endif %}">Über uns</a>
+    </nav>
+
+    <!-- CTA -->
+    <a href="{% url 'core:anfrage' %}" class="sn-cta">Kostenlos Anfragen</a>
+
+    <!-- Mobile Burger -->
+    <button
+      id="sn-burger"
+      class="sn-burger"
+      aria-controls="sn-mobile"
+      aria-expanded="false"
+      aria-label="Menü öffnen"
+    >
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+  </div>
+</nav>
+
+<!-- Mobile Menu -->
+<div id="sn-mobile" class="sn-mobile" role="navigation" aria-label="Mobile Navigation">
+  <a href="{% url 'core:home' %}" class="sn-link">Home</a>
+  <a href="{% url 'core:dienstleistungen' %}" class="sn-link">Unsere Dienstleistungen</a>
+  <a href="{% url 'core:standorte' %}" class="sn-link">Unsere Standorte</a>
+  <a href="{% url 'core:ueber_uns' %}" class="sn-link">Über uns</a>
+  <a href="{% url 'core:anfrage' %}" class="sn-cta">Kostenlos Anfragen</a>
+</div>

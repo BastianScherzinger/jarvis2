@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}500 – Serverfehler{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block content %}
+<div class="sn-error-page">
+  <div class="sn-error-inner">
+    <span class="sn-error-code" aria-hidden="true">500</span>
+    <span class="sn-error-icon" aria-hidden="true">⚙️</span>
+    <h1 class="sn-error-title">Interner Serverfehler</h1>
+    <p class="sn-error-text">
+      Ein unerwarteter Fehler ist aufgetreten. Das Problem wurde protokolliert.<br>
+      Bitte versuchen Sie es in wenigen Minuten erneut.
+    </p>
+    <a href="/" class="sn-btn-primary">← Zurück zur Startseite</a>
+  </div>
+</div>
+{% endblock %}

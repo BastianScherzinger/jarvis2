@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+
+{% block title %}Allgemeine Geschäftsbedingungen{% endblock %}
+{% block meta_robots %}noindex, follow{% endblock %}
+{% block meta_description %}AGB von {{ SITE_NAME }} – Allgemeine Geschäftsbedingungen für Sanierungsleistungen.{% endblock %}
+
+{% block content %}
+
+<section class="sn-page-hero" aria-label="AGB">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>AGB</span>
+      </nav>
+      <h1 class="sn-page-title">Allgemeine Geschäfts&shy;bedingungen</h1>
+    </div>
+  </div>
+</section>
+
+<section class="sn-section" aria-label="AGB Inhalt">
+  <div class="sn-container">
+    <div class="sn-legal-content">
+
+      <div class="sn-legal-placeholder">
+        ⚠ Diese AGB sind ein Muster und müssen von einem Rechtsanwalt geprüft und auf Ihr Unternehmen angepasst werden. Verwenden Sie diesen Text nicht ohne rechtliche Prüfung.
+      </div>
+
+      <h2>§ 1 Geltungsbereich</h2>
+      <p>
+        Diese Allgemeinen Geschäftsbedingungen gelten für alle Verträge zwischen
+        <strong>[Firmenname]</strong> (nachfolgend „Auftragnehmer") und dem Auftraggeber über Sanierungsleistungen,
+        Renovierungsarbeiten und damit verbundene Dienstleistungen.
+      </p>
+      <p>
+        Abweichende, entgegenstehende oder ergänzende Allgemeine Geschäftsbedingungen des Auftraggebers
+        werden nur Vertragsbestandteil, soweit der Auftragnehmer ihrer Geltung ausdrücklich zugestimmt hat.
+      </p>
+
+      <h2>§ 2 Vertragsschluss</h2>
+      <p>
+        (1) Anfragen des Auftraggebers über das Kontaktformular oder per Telefon/E-Mail stellen kein
+        verbindliches Angebot dar, sondern eine Aufforderung zur Angebotserstellung.
+      </p>
+      <p>
+        (2) Ein Vertrag kommt erst durch die schriftliche Auftragsbestätigung des Auftragnehmers oder
+        durch Beginn der Leistungserbringung zustande.
+      </p>
+
+      <h2>§ 3 Leistungsumfang</h2>
+      <p>
+        (1) Der Umfang der zu erbringenden Leistungen ergibt sich aus dem schriftlichen Angebot. Mündliche
+        Nebenabreden oder Änderungen bedürfen der schriftlichen Bestätigung.
+      </p>
+      <p>
+        (2) Der Auftragnehmer ist berechtigt, Teilleistungen an Subunternehmer zu vergeben, sofern dies für
+        die ordnungsgemäße Durchführung des Auftrags erforderlich ist.
+      </p>
+
+      <h2>§ 4 Preise und Zahlung</h2>
+      <p>
+        (1) Alle Preise verstehen sich zzgl. der gesetzlichen Umsatzsteuer, sofern nicht ausdrücklich anders
+        angegeben.
+      </p>
+      <p>
+        (2) Die Zahlung ist nach Erbringung der Leistung und Rechnungsstellung innerhalb von 14 Tagen ohne
+        Abzug fällig, sofern keine andere Zahlungsvereinbarung getroffen wurde.
+      </p>
+      <p>
+        (3) Bei Aufträgen über [Betrag] EUR kann eine Anzahlung von bis zu 30 % des Auftragswertes
+        vereinbart werden.
+      </p>
+
+      <h2>§ 5 Ausführungszeit</h2>
+      <p>
+        (1) Vereinbarte Ausführungszeiten sind angestrebte Termine. Verbindliche Fertigstellungstermine
+        bedürfen der ausdrücklichen schriftlichen Vereinbarung.
+      </p>
+      <p>
+        (2) Höhere Gewalt, Materialengpässe oder andere unvorhersehbare Ereignisse können die Ausführungszeit
+        verlängern. Der Auftragnehmer informiert den Auftraggeber unverzüglich über solche Ereignisse.
+      </p>
+
+      <h2>§ 6 Mitwirkungspflichten des Auftraggebers</h2>
+      <p>
+        (1) Der Auftraggeber hat die für die Durchführung der Arbeiten notwendigen Voraussetzungen zu
+        schaffen (z. B. freien Zugang zum Objekt, geräumte Arbeitsbereiche).
+      </p>
+      <p>
+        (2) Entstehen durch mangelnde Mitwirkung des Auftraggebers Mehrkosten, hat der Auftragnehmer
+        Anspruch auf entsprechende Vergütung.
+      </p>
+
+      <h2>§ 7 Gewährleistung</h2>
+      <p>
+        (1) Mängelrügen sind unverzüglich nach Feststellung schriftlich mitzuteilen. Die Gewährleistungsfrist
+        beträgt 2 Jahre ab Abnahme der Leistung.
+      </p>
+      <p>
+        (2) Dem Auftragnehmer ist zunächst Gelegenheit zur Nacherfüllung (Nachbesserung oder Neulieferung)
+        zu geben. Bei Fehlschlagen der Nacherfüllung stehen dem Auftraggeber die gesetzlichen Rechte zu.
+      </p>
+
+      <h2>§ 8 Haftungsbeschränkung</h2>
+      <p>
+        Der Auftragnehmer haftet unbeschränkt für vorsätzlich oder grob fahrlässig verursachte Schäden sowie
+        für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit. Im Übrigen ist die
+        Haftung auf den vorhersehbaren, vertragstypischen Schaden begrenzt.
+      </p>
+
+      <h2>§ 9 Datenschutz</h2>
+      <p>
+        Die im Rahmen der Geschäftsbeziehung erhobenen personenbezogenen Daten werden gemäß DSGVO und
+        unserem Datenschutzhinweis verarbeitet. Weitere Informationen entnehmen Sie bitte unserer
+        <a href="{% url 'core:datenschutz' %}">Datenschutzerklärung</a>.
+      </p>
+
+      <h2>§ 10 Anwendbares Recht und Gerichtsstand</h2>
+      <p>
+        Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand für alle Streitigkeiten aus diesem
+        Vertrag ist [Stadt], sofern der Auftraggeber Kaufmann, juristische Person des öffentlichen Rechts
+        oder öffentlich-rechtliches Sondervermögen ist.
+      </p>
+
+      <h2>§ 11 Salvatorische Klausel</h2>
+      <p>
+        Sollten einzelne Bestimmungen dieser AGB unwirksam sein oder werden, bleibt die Wirksamkeit der
+        übrigen Bestimmungen unberührt. An die Stelle unwirksamer Bestimmungen tritt die gesetzliche Regelung.
+      </p>
+
+      <p style="margin-top:40px;font-size:0.8rem;color:var(--gray-400);">Stand: {% now "F Y" %}</p>
+
+    </div>
+  </div>
+</section>
+
+{% endblock %}

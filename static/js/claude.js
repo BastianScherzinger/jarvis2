@@ -339,13 +339,15 @@ const _CLAUDE_TOOL_LABELS = {
   browser_links:'Links', browser_back:'Zurück', browser_screenshot:'Screenshot',
   generate_image:'Bild erzeugen', generate_video:'Video erzeugen', media_job_status:'Job-Status',
   leads_top:'Top-Leads', leads_search:'Lead-Suche', web_search:'Websuche',
+  shop_skill:'Shop-Anleitung', shop_new:'Shop erstellen', shop_list:'Projekt-Dateien',
+  shop_read:'Datei lesen', shop_write:'Datei schreiben',
 };
 function _claudeToolLine(name, input){
   const label = _CLAUDE_TOOL_LABELS[name] || name;
   let arg = '';
   if(input && typeof input === 'object'){
     const v = input.query || input.url || input.address || input.target ||
-              input.prompt || input.origin || '';
+              input.prompt || input.origin || input.name || input.path || '';
     if(v) arg = ' · ' + String(v).slice(0, 60);
   }
   return `<div class="cb-tool"><span class="cb-tool-i">⚙</span><b>${_e(label)}</b>${_e(arg)}</div>`;

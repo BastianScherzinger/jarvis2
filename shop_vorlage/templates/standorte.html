@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+
+{% block title %}Unsere Standorte{% endblock %}
+{% block meta_description %}{{ SITE_NAME }} ist in Leipzig, Halle, Magdeburg, Hannover, Dresden und Chemnitz aktiv. Finden Sie Ihr regionales Sanierungsteam.{% endblock %}
+
+{% block content %}
+
+<!-- ── Page Hero ──────────────────────────────────────────── -->
+<section class="sn-page-hero" aria-label="Standorte">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>Unsere Standorte</span>
+      </nav>
+      <h1 class="sn-page-title" data-reveal>Unsere <em>Standorte</em></h1>
+      <p class="sn-page-sub" data-reveal data-reveal-delay="1">
+        Regionale Präsenz in sechs Städten – damit kurze Wege, schnelle Einsatzzeiten und
+        persönlicher Kontakt gewährleistet sind.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Cities Grid ───────────────────────────────────────── -->
+<section class="sn-section sn-standorte" aria-label="Stadtübersicht">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Wo wir für Sie da sind</p>
+      <h2 class="sn-section-title">6 Städte · 1 Ansprechpartner</h2>
+      <p class="sn-section-sub">Jede Region hat ihr eigenes erfahrenes Team – mit Ortskenntnis und gewerblichen Netzwerken vor Ort.</p>
+    </div>
+
+    <div class="sn-cities-grid">
+
+      <div class="sn-city-tile" data-reveal>
+        <div class="sn-city-name">Leipzig</div>
+        <div class="sn-city-sub">Sachsen · Hauptstandort</div>
+        <p class="sn-city-area">Gesamtes Stadtgebiet Leipzig sowie Umland: Markkleeberg, Borna, Grimma, Delitzsch und Leipzig Land.</p>
+      </div>
+
+      <div class="sn-city-tile" data-reveal data-reveal-delay="1">
+        <div class="sn-city-name">Halle (Saale)</div>
+        <div class="sn-city-sub">Sachsen-Anhalt</div>
+        <p class="sn-city-area">Halle (Saale) sowie Saalekreis, Merseburg, Weißenfels, Naumburg und Querfurt.</p>
+      </div>
+
+      <div class="sn-city-tile" data-reveal data-reveal-delay="2">
+        <div class="sn-city-name">Magdeburg</div>
+        <div class="sn-city-sub">Sachsen-Anhalt · Landeshauptstadt</div>
+        <p class="sn-city-area">Magdeburg und Umkreis: Schönebeck, Haldensleben, Wolmirstedt, Burg und Jerichower Land.</p>
+      </div>
+
+      <div class="sn-city-tile" data-reveal>
+        <div class="sn-city-name">Hannover</div>
+        <div class="sn-city-sub">Niedersachsen</div>
+        <p class="sn-city-area">Hannover und Region Hannover: Garbsen, Langenhagen, Burgdorf, Lehrte und Ronnenberg.</p>
+      </div>
+
+      <div class="sn-city-tile" data-reveal data-reveal-delay="1">
+        <div class="sn-city-name">Dresden</div>
+        <div class="sn-city-sub">Sachsen · Landeshauptstadt</div>
+        <p class="sn-city-area">Dresden sowie Dresdner Umland: Radebeul, Meißen, Freital, Pirna und Sächsische Schweiz.</p>
+      </div>
+
+      <div class="sn-city-tile" data-reveal data-reveal-delay="2">
+        <div class="sn-city-name">Chemnitz</div>
+        <div class="sn-city-sub">Sachsen</div>
+        <p class="sn-city-area">Chemnitz und Umgebung: Zwickau, Glauchau, Limbach-Oberfrohna, Stollberg und Erzgebirge.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ────────────────────────────────────────────────── -->
+<section class="sn-cta-section" aria-label="Jetzt anfragen">
+  <div class="sn-container">
+    <div class="sn-cta-inner">
+      <div>
+        <h2 class="sn-cta-title">In Ihrer Region<br>aktiv werden?</h2>
+        <p class="sn-cta-sub">Schreiben Sie uns – wir melden uns innerhalb von 24 Stunden zurück.</p>
+      </div>
+      <a href="{% url 'core:anfrage' %}" class="sn-btn-navy">Jetzt kostenlos anfragen</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

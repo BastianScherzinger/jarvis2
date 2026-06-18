@@ -1,0 +1,46 @@
+{% load static %}
+<footer class="rw-footer">
+  <div class="rw-container">
+    <div class="rw-footer-inner">
+      <div>
+        <div class="rw-footer-brand-logo">
+          <img src="{% static 'images/ruempelwerk_logo.jpeg' %}" alt="Rümpelwerk Deutschland Logo" class="rw-footer-logo-img">
+          <span class="rw-footer-brand-name">Rümpelwerk <span>Deutschland</span></span>
+        </div>
+        <p class="rw-footer-desc">Professionelle Entrümpelung & Wohnungsübergabe. Ein erfahrenes Team unter Leitung von Victor Grebe.</p>
+        <p class="rw-footer-desc" style="margin-top:10px;">
+          📍 Kohlgartenstraße 11, 04315 Leipzig<br>
+          ✉ <a href="mailto:{{ ADMIN_EMAIL }}" style="color:var(--rw-text-2);text-decoration:none;">{{ ADMIN_EMAIL }}</a>
+        </p>
+      </div>
+      <div>
+        <p class="rw-footer-col-title">Dienstleistungen</p>
+        <div class="rw-footer-links">
+          <a href="/dienstleistungen/#entruempelung" class="rw-footer-link">Entrümpelung</a>
+          <a href="/dienstleistungen/#sonstige" class="rw-footer-link">Sonstige Leistungen</a>
+          <a href="/dienstleistungen/#sanierung" class="rw-footer-link">Sanierung & Reparatur</a>
+        </div>
+      </div>
+      <div>
+        <p class="rw-footer-col-title">Unternehmen</p>
+        <div class="rw-footer-links">
+          <a href="/" class="rw-footer-link">Home</a>
+          <a href="/ueber-uns/" class="rw-footer-link">Über uns</a>
+          <a href="/anfrage/" class="rw-footer-link">Kostenlos anfragen</a>
+          <a href="/standorte/" class="rw-footer-link">Unsere Standorte</a>
+          <a href="/impressum/" class="rw-footer-link">Impressum</a>
+          <a href="/datenschutz/" class="rw-footer-link">Datenschutz</a>
+          <a href="/agb/" class="rw-footer-link">AGB</a>
+        </div>
+      </div>
+    </div>
+    <div class="rw-footer-bottom">
+      <p class="rw-footer-copy">© 2026 Rümpelwerk Deutschland · Inh. Victor Grebe. Alle Rechte vorbehalten.</p>
+      <div class="rw-footer-legal">
+        <a href="/impressum/">Impressum</a>
+        <a href="/datenschutz/">Datenschutz</a>
+        <a href="/agb/">AGB</a>
+      </div>
+    </div>
+  </div>
+</footer>

@@ -94,6 +94,31 @@ TOOLS = [
      "description": "Durchsuche die bewerteten Leads nach Name/Stadt/Branche.",
      "input_schema": {"type": "object", "properties": {
          "query": {"type": "string"}}, "required": ["query"]}},
+
+    # — Shop / Django-Seite bauen —
+    {"name": "shop_skill",
+     "description": "Lade die Anleitung zum Bauen einer Railway-ready Django-Shop-Seite "
+                    "(Workflow + Vorlagen-Struktur). Lies dies ZUERST, bevor du einen Shop baust.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "shop_new",
+     "description": "Erstelle ein neues Shop-Projekt aus der Vorlage (kopiert shop_vorlage "
+                    "nach Desktop/<name>). Danach mit shop_read/shop_write anpassen.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string", "description": "Projekt-/Ordnername"}}, "required": ["name"]}},
+    {"name": "shop_list",
+     "description": "Dateien/Ordner eines Shop-Projekts auflisten (Pfad relativ zum Desktop).",
+     "input_schema": {"type": "object", "properties": {
+         "path": {"type": "string"}}}},
+    {"name": "shop_read",
+     "description": "Eine Projekt-Datei lesen (Pfad relativ zum Desktop, z.B. 'meinshop/config/settings.py').",
+     "input_schema": {"type": "object", "properties": {
+         "path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "shop_write",
+     "description": "Eine Projekt-Datei schreiben/überschreiben (Pfad relativ zum Desktop). "
+                    ".sh-Dateien werden automatisch mit LF gespeichert.",
+     "input_schema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "content": {"type": "string"}},
+         "required": ["path", "content"]}},
 ]
 
 
@@ -143,6 +168,14 @@ def _dispatch(name: str, a: dict) -> str:
         import db_evaluated
         rows = db_evaluated.get_all(limit=10, suche=a.get("query", ""), sort="erwartungswert")
         return _fmt_leads(rows)
+
+    if name.startswith("shop_"):
+        import agent_shop
+        if name == "shop_skill":  return agent_shop.skill()
+        if name == "shop_new":    return agent_shop.shop_new(a.get("name", ""))
+        if name == "shop_list":   return agent_shop.fs_list(a.get("path", ""))
+        if name == "shop_read":   return agent_shop.fs_read(a.get("path", ""))
+        if name == "shop_write":  return agent_shop.fs_write(a.get("path", ""), a.get("content", ""))
 
     return f"Unbekanntes Tool: {name}"
 

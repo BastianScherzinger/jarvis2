@@ -1,0 +1,106 @@
+{% load static %}
+{% if seo_noindex %}
+<meta name="robots" content="noindex, nofollow">
+{% else %}
+<meta name="robots" content="index, follow">
+{% endif %}
+<link rel="canonical" href="{{ SITE_URL }}{{ seo_path }}">
+
+<!-- Open Graph -->
+<meta property="og:type" content="{% if seo_type %}{{ seo_type }}{% else %}website{% endif %}">
+<meta property="og:locale" content="de_DE">
+<meta property="og:site_name" content="Rümpelwerk Deutschland">
+<meta property="og:title" content="{{ seo_title }}">
+<meta property="og:description" content="{{ seo_description }}">
+<meta property="og:url" content="{{ SITE_URL }}{{ seo_path }}">
+<meta property="og:image" content="{{ SITE_URL }}{% static 'images/ruempelwerk_logo.jpeg' %}">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="800">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ seo_title }}">
+<meta name="twitter:description" content="{{ seo_description }}">
+<meta name="twitter:image" content="{{ SITE_URL }}{% static 'images/ruempelwerk_logo.jpeg' %}">
+
+{% if seo_path == "/" %}
+<!-- LocalBusiness Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": "Rümpelwerk Deutschland",
+  "description": "Professionelle Entrümpelung, Wohnungsauflösung und Sanierung. Notfallmitarbeiter in Leipzig, Halle, Magdeburg, Hannover, Dresden und Chemnitz.",
+  "url": "{{ SITE_URL }}",
+  "email": "{{ ADMIN_EMAIL }}",
+  "logo": "{{ SITE_URL }}{% static 'images/ruempelwerk_logo.jpeg' %}",
+  "image": "{{ SITE_URL }}{% static 'images/ruempelwerk_logo.jpeg' %}",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "Kohlgartenstraße 11",
+    "addressLocality": "Leipzig",
+    "postalCode": "04315",
+    "addressCountry": "DE"
+  },
+  "geo": {
+    "@type": "GeoCoordinates",
+    "latitude": 51.3397,
+    "longitude": 12.3731
+  },
+  "areaServed": [
+    {"@type": "City", "name": "Leipzig"},
+    {"@type": "City", "name": "Halle (Saale)"},
+    {"@type": "City", "name": "Magdeburg"},
+    {"@type": "City", "name": "Hannover"},
+    {"@type": "City", "name": "Dresden"},
+    {"@type": "City", "name": "Chemnitz"}
+  ],
+  "hasOfferCatalog": {
+    "@type": "OfferCatalog",
+    "name": "Leistungen",
+    "itemListElement": [
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Entrümpelung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Wohnungsauflösung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Haushaltsauflösung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Kellerentrümpelung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Nachlassräumung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Gewerbeentrümpelung"}},
+      {"@type": "Offer", "itemOffered": {"@type": "Service", "name": "Sanierung & Reparatur"}}
+    ]
+  },
+  "openingHoursSpecification": {
+    "@type": "OpeningHoursSpecification",
+    "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+    "opens": "07:00",
+    "closes": "20:00"
+  },
+  "priceRange": "€€",
+  "currenciesAccepted": "EUR",
+  "paymentAccepted": "Cash, Bank Transfer"
+}
+</script>
+{% endif %}
+
+{% if seo_breadcrumb_name %}
+<!-- BreadcrumbList Schema -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Startseite",
+      "item": "{{ SITE_URL }}/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "{{ seo_breadcrumb_name }}",
+      "item": "{{ SITE_URL }}{{ seo_path }}"
+    }
+  ]
+}
+</script>
+{% endif %}

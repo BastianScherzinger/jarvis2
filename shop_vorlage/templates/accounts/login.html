@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Anmelden{% endblock %}
+{% block title_suffix %}| {{ SITE_NAME }}{% endblock %}
+{% block meta_robots %}noindex, nofollow{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+
+  <!-- Orbs -->
+  <div class="orb orb-primary animate-float-slow" style="top:-100px;left:-100px;opacity:0.08;" aria-hidden="true"></div>
+  <div class="orb orb-secondary animate-float" style="bottom:-80px;right:-60px;opacity:0.06;" aria-hidden="true"></div>
+
+  <div class="auth-card">
+
+    <!-- Logo -->
+    <div class="auth-logo">
+      <div style="width:52px;height:52px;border-radius:14px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:800;color:#fff;box-shadow:0 0 30px rgba(79,70,229,0.4);">F</div>
+    </div>
+
+    <h1 class="auth-title">Willkommen zurück</h1>
+    <p class="auth-subtitle">Melde dich bei {{ SITE_NAME }} an</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        {% for error in form.non_field_errors %}
+          <div class="alert alert-error" role="alert">
+            <span>✕</span>
+            <span>{{ error }}</span>
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="form-group">
+        <label class="form-label" for="{{ form.username.id_for_label }}">Benutzername</label>
+        {{ form.username }}
+        {% if form.username.errors %}
+          <span class="form-error">{{ form.username.errors|first }}</span>
+        {% endif %}
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="{{ form.password.id_for_label }}">Passwort</label>
+        {{ form.password }}
+        {% if form.password.errors %}
+          <span class="form-error">{{ form.password.errors|first }}</span>
+        {% endif %}
+      </div>
+
+      <button type="submit" class="btn btn-gradient" style="width:100%;margin-top:var(--space-2);">
+        Anmelden →
+      </button>
+
+    </form>
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+
+{% block title %}Über uns{% endblock %}
+{% block meta_description %}{{ SITE_NAME }} – Wer wir sind, was uns antreibt und warum wir seit über 10 Jahren für exzellente Sanierungsarbeit in Mitteldeutschland stehen.{% endblock %}
+
+{% block content %}
+
+<!-- ── Page Hero ──────────────────────────────────────────── -->
+<section class="sn-page-hero" aria-label="Über uns">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>Über uns</span>
+      </nav>
+      <h1 class="sn-page-title" data-reveal>Über <em>uns</em></h1>
+      <p class="sn-page-sub" data-reveal data-reveal-delay="1">
+        Handwerk mit Haltung. Seit über 10 Jahren stehen wir für Qualität, Verlässlichkeit
+        und transparente Kommunikation – von der ersten Anfrage bis zur Schlüsselübergabe.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Geschichte ─────────────────────────────────────────── -->
+<section class="sn-section" aria-label="Unsere Geschichte">
+  <div class="sn-container">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center;" data-reveal>
+      <div>
+        <p class="sn-section-label">Unsere Geschichte</p>
+        <h2 class="sn-section-title">Aus Leidenschaft<br>zum Handwerk</h2>
+        <p class="sn-section-sub">
+          {{ SITE_NAME }} wurde mit einem klaren Ziel gegründet: Sanierungen durchführen, bei denen
+          Qualität und Kundenzufriedenheit keine Kompromisse kennen.
+        </p>
+        <p style="color:var(--text-muted);line-height:1.85;margin-top:20px;">
+          Was als kleines Team in Leipzig begann, ist heute ein verlässlicher Partner für Privatkunden,
+          Vermieter und gewerbliche Immobilieneigentümer in sechs Städten Mitteldeutschlands. Über 500
+          abgeschlossene Projekte sprechen für sich – und vor allem für die Menschen hinter jedem Auftrag.
+        </p>
+        <p style="color:var(--text-muted);line-height:1.85;margin-top:16px;">
+          Unser Anspruch ist einfach: Wir behandeln jede Immobilie, als wäre es unsere eigene.
+          Sauber, pünktlich, ehrlich.
+        </p>
+      </div>
+      <div>
+        <div style="background:var(--navy);padding:48px 40px;position:relative;overflow:hidden;">
+          <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(232,150,10,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(232,150,10,0.06) 1px,transparent 1px);background-size:40px 40px;"></div>
+          <div style="position:relative;z-index:1;display:flex;flex-direction:column;gap:32px;">
+            <div>
+              <div style="font-family:var(--font-display);font-size:3rem;font-weight:700;color:var(--amber);line-height:1;">2013</div>
+              <div style="font-family:var(--font-display);font-size:0.8rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.12em;margin-top:4px;">Gründungsjahr</div>
+            </div>
+            <div>
+              <div style="font-family:var(--font-display);font-size:3rem;font-weight:700;color:var(--amber);line-height:1;">500+</div>
+              <div style="font-family:var(--font-display);font-size:0.8rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.12em;margin-top:4px;">Abgeschlossene Projekte</div>
+            </div>
+            <div>
+              <div style="font-family:var(--font-display);font-size:3rem;font-weight:700;color:var(--amber);line-height:1;">6</div>
+              <div style="font-family:var(--font-display);font-size:0.8rem;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.12em;margin-top:4px;">Städte & Regionen</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Werte ───────────────────────────────────────────────── -->
+<section class="sn-section" style="background:var(--cream);" aria-label="Unsere Werte">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Was uns leitet</p>
+      <h2 class="sn-section-title">Unsere Werte</h2>
+      <p class="sn-section-sub">Vier Grundsätze, die jede Entscheidung in unserem Unternehmen prägen.</p>
+    </div>
+
+    <div class="sn-values-grid">
+      <div class="sn-value-card" data-reveal>
+        <span class="sn-value-icon" aria-hidden="true">🎯</span>
+        <h3 class="sn-value-title">Präzision</h3>
+        <p class="sn-value-text">Jedes Detail zählt. Wir arbeiten gründlich und gewissenhaft – von der Bestandsaufnahme bis zur finalen Abnahme. Halbherzigkeit gibt es bei uns nicht.</p>
+      </div>
+      <div class="sn-value-card" data-reveal data-reveal-delay="1">
+        <span class="sn-value-icon" aria-hidden="true">🤝</span>
+        <h3 class="sn-value-title">Verlässlichkeit</h3>
+        <p class="sn-value-text">Wir halten unsere Zusagen. Termine, Festpreise und Qualitätsversprechen sind für uns verbindlich – nicht verhandelbar.</p>
+      </div>
+      <div class="sn-value-card" data-reveal data-reveal-delay="2">
+        <span class="sn-value-icon" aria-hidden="true">💬</span>
+        <h3 class="sn-value-title">Transparenz</h3>
+        <p class="sn-value-text">Klare Kommunikation auf Augenhöhe. Kein Kleingedrucktes, keine versteckten Kosten. Sie wissen zu jeder Zeit, was wir tun und warum.</p>
+      </div>
+      <div class="sn-value-card" data-reveal data-reveal-delay="3">
+        <span class="sn-value-icon" aria-hidden="true">🏆</span>
+        <h3 class="sn-value-title">Qualität</h3>
+        <p class="sn-value-text">Wir verwenden ausschließlich geprüfte Materialien und arbeiten nach anerkannten Fachregeln. Das Ergebnis muss dauerhaft überzeugen.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Team ───────────────────────────────────────────────── -->
+<section class="sn-section" aria-label="Unser Team">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Die Menschen dahinter</p>
+      <h2 class="sn-section-title">Unser Team</h2>
+      <p class="sn-section-sub">Erfahrene Handwerker, Planer und Koordinatoren – alle mit einem gemeinsamen Ziel.</p>
+    </div>
+
+    <div class="sn-team-grid">
+      <div class="sn-team-card" data-reveal>
+        <div class="sn-team-avatar" aria-hidden="true">G</div>
+        <div class="sn-team-name">[Vorname Nachname]</div>
+        <div class="sn-team-role">Geschäftsführung</div>
+        <p class="sn-team-bio">Gründer und Kopf des Unternehmens. Über 15 Jahre Erfahrung im Bau- und Sanierungsbereich. Zuständig für Strategie und Großprojekte.</p>
+      </div>
+      <div class="sn-team-card" data-reveal data-reveal-delay="1">
+        <div class="sn-team-avatar" aria-hidden="true">P</div>
+        <div class="sn-team-name">[Vorname Nachname]</div>
+        <div class="sn-team-role">Projektleitung</div>
+        <p class="sn-team-bio">Koordiniert alle laufenden Baustellen und ist erster Ansprechpartner für unsere Kunden. Meister im Hochbau mit Spezialisierung auf Komplettsanierungen.</p>
+      </div>
+      <div class="sn-team-card" data-reveal data-reveal-delay="2">
+        <div class="sn-team-avatar" aria-hidden="true">K</div>
+        <div class="sn-team-name">[Vorname Nachname]</div>
+        <div class="sn-team-role">Kundenbetreuung & Angebote</div>
+        <p class="sn-team-bio">Zuständig für Erstgespräche, Angebotserstellung und Nachbetreuung. Sorgt dafür, dass unsere Kunden jederzeit gut informiert sind.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ────────────────────────────────────────────────── -->
+<section class="sn-cta-section" aria-label="Jetzt anfragen">
+  <div class="sn-container">
+    <div class="sn-cta-inner">
+      <div>
+        <h2 class="sn-cta-title">Lernen Sie uns<br>persönlich kennen.</h2>
+        <p class="sn-cta-sub">Vereinbaren Sie einen kostenlosen Beratungstermin – vor Ort oder telefonisch.</p>
+      </div>
+      <a href="{% url 'core:anfrage' %}" class="sn-btn-navy">Jetzt anfragen</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  @media (max-width: 768px) {
+    section > .sn-container > div[style*="grid-template-columns:1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+      gap: 40px !important;
+    }
+  }
+</style>
+{% endblock %}

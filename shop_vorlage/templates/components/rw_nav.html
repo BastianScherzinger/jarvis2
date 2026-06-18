@@ -1,0 +1,27 @@
+{% load static %}
+<nav class="rw-nav" id="rw-nav">
+  <div class="rw-nav-inner">
+    <a href="/" class="rw-nav-brand">
+      <img src="{% static 'images/ruempelwerk_logo.jpeg' %}" alt="Rümpelwerk Deutschland Logo" class="rw-nav-logo">
+      <span class="rw-nav-name">Rümpelwerk <span>Deutschland</span></span>
+    </a>
+    <div class="rw-nav-links">
+      <a href="/" class="rw-nav-link{% if request.resolver_match.url_name == 'home' %} rw-nav-link--active{% endif %}">Home</a>
+      <a href="/dienstleistungen/" class="rw-nav-link{% if request.resolver_match.url_name == 'dienstleistungen' %} rw-nav-link--active{% endif %}">Unsere Dienstleistungen</a>
+      <a href="/ueber-uns/" class="rw-nav-link{% if request.resolver_match.url_name == 'ueber_uns' %} rw-nav-link--active{% endif %}">Über uns</a>
+      <a href="/standorte/" class="rw-nav-link{% if request.resolver_match.url_name == 'standorte' %} rw-nav-link--active{% endif %}">Unsere Standorte</a>
+    </div>
+    <a href="/anfrage/" class="rw-nav-cta">☎ Kostenlos anfragen</a>
+    <button class="rw-burger" id="rw-burger" aria-label="Menü öffnen" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<div class="rw-mobile-menu" id="rw-mobile-menu" role="navigation" aria-label="Mobilmenü">
+  <a href="/" class="rw-nav-link">Home</a>
+  <a href="/dienstleistungen/" class="rw-nav-link">Unsere Dienstleistungen</a>
+  <a href="/ueber-uns/" class="rw-nav-link">Über uns</a>
+  <a href="/standorte/" class="rw-nav-link">Unsere Standorte</a>
+  <a href="/anfrage/" class="rw-btn-primary" style="margin-top:12px;justify-content:center;">☎ Kostenlos anfragen</a>
+</div>

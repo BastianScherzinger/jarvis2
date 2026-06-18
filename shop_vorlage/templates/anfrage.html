@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+
+{% block title %}Kostenlos Anfragen{% endblock %}
+{% block meta_description %}{{ SITE_NAME }} – Jetzt kostenlos und unverbindlich anfragen. Wir melden uns innerhalb von 24 Stunden zurück.{% endblock %}
+
+{% block content %}
+
+<!-- ── Page Hero ──────────────────────────────────────────── -->
+<section class="sn-page-hero" aria-label="Anfrage stellen">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>Kostenlos Anfragen</span>
+      </nav>
+      <h1 class="sn-page-title" data-reveal>Kostenlose <em>Anfrage</em></h1>
+      <p class="sn-page-sub" data-reveal data-reveal-delay="1">
+        Beschreiben Sie Ihr Projekt – wir melden uns innerhalb von 24 Stunden
+        mit einem unverbindlichen Angebot zurück.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Form ──────────────────────────────────────────────── -->
+<section class="sn-section sn-anfrage" aria-label="Anfrageformular">
+  <div class="sn-container">
+    <div class="sn-form-wrap">
+
+      <!-- Info Column -->
+      <div data-reveal>
+        <p class="sn-section-label">Ihr direkter Draht</p>
+        <h2 class="sn-section-title">Wir freuen uns<br>auf Ihre Nachricht</h2>
+        <p class="sn-section-sub">
+          Egal ob kleines Bad oder komplette Haussanierung – wir beraten Sie ehrlich
+          und erstellen ein maßgeschneidertes Angebot.
+        </p>
+
+        <div class="sn-form-info-list">
+          <div class="sn-info-item">
+            <div class="sn-info-icon" aria-hidden="true">⏱</div>
+            <div class="sn-info-content">
+              <strong>Schnelle Antwort</strong>
+              <span>Rückmeldung innerhalb von 24 Stunden</span>
+            </div>
+          </div>
+          <div class="sn-info-item">
+            <div class="sn-info-icon" aria-hidden="true">📋</div>
+            <div class="sn-info-content">
+              <strong>Kostenloses Angebot</strong>
+              <span>Unverbindlich und transparent kalkuliert</span>
+            </div>
+          </div>
+          <div class="sn-info-item">
+            <div class="sn-info-icon" aria-hidden="true">📍</div>
+            <div class="sn-info-content">
+              <strong>Vor-Ort-Termin</strong>
+              <span>Besichtigung in Leipzig, Halle, Magdeburg, Hannover, Dresden oder Chemnitz</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Form Column -->
+      <div data-reveal data-reveal-delay="1">
+        <div class="sn-form-card">
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="sn-alert-success" role="alert">
+                <span aria-hidden="true">✓</span>
+                <span>{{ message }}</span>
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          <form method="post" novalidate>
+            {% csrf_token %}
+
+            <!-- Honeypot -->
+            <input type="text" name="website" style="display:none;" tabindex="-1" autocomplete="off">
+
+            <div class="sn-form-field">
+              <label for="{{ form.leistung.id_for_label }}">
+                {{ form.leistung.label }}{% if form.leistung.field.required %} *{% endif %}
+              </label>
+              {{ form.leistung }}
+              {% if form.leistung.errors %}
+                <p class="sn-field-error">{{ form.leistung.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="sn-form-field">
+              <label for="{{ form.name.id_for_label }}">
+                {{ form.name.label }}{% if form.name.field.required %} *{% endif %}
+              </label>
+              {{ form.name }}
+              {% if form.name.errors %}
+                <p class="sn-field-error">{{ form.name.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="sn-form-field">
+              <label for="{{ form.email.id_for_label }}">
+                {{ form.email.label }}{% if form.email.field.required %} *{% endif %}
+              </label>
+              {{ form.email }}
+              {% if form.email.errors %}
+                <p class="sn-field-error">{{ form.email.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <div class="sn-form-field">
+              <label for="{{ form.telefon.id_for_label }}">{{ form.telefon.label }}</label>
+              {{ form.telefon }}
+            </div>
+
+            <div class="sn-form-field">
+              <label for="{{ form.adresse.id_for_label }}">{{ form.adresse.label }}</label>
+              {{ form.adresse }}
+            </div>
+
+            <div class="sn-form-field">
+              <label for="{{ form.zusatz_info.id_for_label }}">{{ form.zusatz_info.label }}</label>
+              {{ form.zusatz_info }}
+              {% if form.zusatz_info.errors %}
+                <p class="sn-field-error">{{ form.zusatz_info.errors.0 }}</p>
+              {% endif %}
+            </div>
+
+            <button type="submit" class="sn-form-submit">Anfrage absenden →</button>
+          </form>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+{% endblock %}

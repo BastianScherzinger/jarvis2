@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Profil{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width:640px;padding-top:var(--space-12);padding-bottom:var(--space-12);">
+
+  <div style="margin-bottom:var(--space-8);">
+    <h1 style="font-size:var(--text-3xl);">Mein Profil</h1>
+    <p class="text-muted">Verwalte deine persönlichen Informationen</p>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:var(--space-6);margin-bottom:var(--space-8);padding-bottom:var(--space-8);border-bottom:1px solid var(--border);">
+      <div style="width:64px;height:64px;border-radius:50%;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:800;color:#fff;flex-shrink:0;">
+        {{ user.username|first|upper }}
+      </div>
+      <div>
+        <div style="font-size:var(--text-xl);font-weight:var(--font-bold);">{{ user.get_full_name|default:user.username }}</div>
+        <div class="text-muted text-sm">{{ user.email }}</div>
+        <div class="badge badge-primary" style="margin-top:var(--space-2);">
+          {% if user.is_staff %}Admin{% else %}Benutzer{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        <div class="form-group">
+          <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            <span class="form-error">{{ field.errors|first }}</span>
+          {% endif %}
+          {% if field.help_text %}
+            <span class="form-hint">{{ field.help_text }}</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);">
+        <button type="submit" class="btn btn-primary">Speichern</button>
+        <a href="{% url 'dashboard:index' %}" class="btn btn-ghost">Abbrechen</a>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

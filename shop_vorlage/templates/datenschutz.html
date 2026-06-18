@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+
+{% block title %}Datenschutzerklärung{% endblock %}
+{% block meta_robots %}noindex, follow{% endblock %}
+{% block meta_description %}Datenschutzerklärung von {{ SITE_NAME }} – Informationen gemäß DSGVO zur Verarbeitung Ihrer personenbezogenen Daten.{% endblock %}
+
+{% block content %}
+
+<section class="sn-page-hero" aria-label="Datenschutz">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>Datenschutz</span>
+      </nav>
+      <h1 class="sn-page-title">Datenschutz&shy;erklärung</h1>
+    </div>
+  </div>
+</section>
+
+<section class="sn-section" aria-label="Datenschutz Inhalt">
+  <div class="sn-container">
+    <div class="sn-legal-content">
+
+      <h2>1. Datenschutz auf einen Blick</h2>
+
+      <h3>Allgemeine Hinweise</h3>
+      <p>
+        Die folgenden Hinweise geben einen einfachen Überblick darüber, was mit Ihren personenbezogenen
+        Daten passiert, wenn Sie diese Website besuchen. Personenbezogene Daten sind alle Daten, mit
+        denen Sie persönlich identifiziert werden können.
+      </p>
+
+      <h3>Datenerfassung auf dieser Website</h3>
+      <p>
+        Die Datenverarbeitung auf dieser Website erfolgt durch den Websitebetreiber. Dessen Kontaktdaten
+        können Sie dem Impressum dieser Website entnehmen.
+      </p>
+      <p>
+        Ihre Daten werden zum einen dadurch erhoben, dass Sie uns diese mitteilen (z. B. durch das
+        Kontaktformular). Andere Daten werden automatisch oder nach Ihrer Einwilligung beim Besuch der
+        Website durch unsere IT-Systeme erfasst. Das sind vor allem technische Daten (z. B. Internetbrowser,
+        Betriebssystem oder Uhrzeit des Seitenaufrufs).
+      </p>
+
+      <h2>2. Verantwortliche Stelle</h2>
+      <div class="sn-legal-placeholder">
+        ⚠ Bitte ersetzen Sie diesen Block mit Ihren tatsächlichen Unternehmensdaten.
+      </div>
+      <p>
+        Verantwortlich für die Datenverarbeitung auf dieser Website ist:<br><br>
+        <strong>[Firmenname]</strong><br>
+        [Straße und Hausnummer]<br>
+        [PLZ] [Stadt]<br>
+        E-Mail: [kontakt@ihre-domain.de]<br>
+        Telefon: [+49 XXX XXXXXXXX]
+      </p>
+
+      <h2>3. Hosting</h2>
+      <p>
+        Diese Website wird bei Railway (Railway Corp., 340 S Lemon Ave #4133, Walnut, CA 91789, USA)
+        gehostet. Die Verarbeitung der Serverdaten erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO
+        (berechtigtes Interesse an einem sicheren und effizienten Betrieb der Website).
+      </p>
+      <p>
+        Weitere Informationen finden Sie in der Datenschutzerklärung von Railway:
+        <a href="https://railway.app/legal/privacy" target="_blank" rel="noopener noreferrer">railway.app/legal/privacy</a>.
+      </p>
+
+      <h2>4. Allgemeine Hinweise zu Cookies</h2>
+      <p>
+        Diese Website verwendet ausschließlich technisch notwendige Cookies (Session-Cookie für Sitzungsverwaltung
+        und CSRF-Token zum Schutz vor Cross-Site-Request-Forgery). Es werden keine Tracking- oder
+        Analyse-Cookies gesetzt.
+      </p>
+
+      <h2>5. Kontaktformular</h2>
+      <p>
+        Wenn Sie uns per Kontaktformular eine Anfrage zukommen lassen, werden Ihre Angaben aus dem
+        Anfrageformular inklusive der von Ihnen dort angegebenen Kontaktdaten zum Zwecke der Bearbeitung
+        der Anfrage und für den Fall von Anschlussfragen bei uns gespeichert.
+      </p>
+      <p>
+        Folgende Daten werden verarbeitet: Name, E-Mail-Adresse, Telefonnummer (optional), Adresse
+        (optional), Leistungsart und Ihre Nachricht.
+      </p>
+      <p>
+        Die Verarbeitung dieser Daten erfolgt auf Grundlage von Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche
+        Maßnahmen) sowie Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Beantwortung von
+        Kundenanfragen). Die Daten werden nicht ohne Ihre Einwilligung weitergegeben.
+      </p>
+
+      <h2>6. Server-Logfiles</h2>
+      <p>
+        Der Hosting-Anbieter erhebt und speichert automatisch Informationen in sogenannten Server-Logfiles,
+        die Ihr Browser automatisch übermittelt. Dies sind: Browsertyp und -version, verwendetes
+        Betriebssystem, Referrer-URL, Hostname des zugreifenden Rechners, Uhrzeit der Serveranfrage und
+        IP-Adresse.
+      </p>
+      <p>
+        IP-Adressen werden auf dieser Website anonymisiert gespeichert (letztes Oktett auf 0 gesetzt),
+        sodass keine Identifizierung einzelner Nutzer möglich ist.
+      </p>
+
+      <h2>7. Google Fonts</h2>
+      <p>
+        Diese Website verwendet Google Fonts, die via CSS-@import vom Server von Google LLC, 1600
+        Amphitheatre Parkway, Mountain View, CA 94043, USA, geladen werden. Dabei kann Ihre IP-Adresse
+        an Google übermittelt werden. Grundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse
+        an einheitlicher Darstellung). Informationen zu Google Fonts finden Sie unter
+        <a href="https://developers.google.com/fonts/faq/privacy" target="_blank" rel="noopener noreferrer">developers.google.com/fonts/faq/privacy</a>.
+      </p>
+
+      <h2>8. Ihre Rechte</h2>
+      <p>Sie haben gegenüber uns folgende Rechte hinsichtlich der Sie betreffenden personenbezogenen Daten:</p>
+      <ul>
+        <li>Recht auf Auskunft (Art. 15 DSGVO)</li>
+        <li>Recht auf Berichtigung (Art. 16 DSGVO)</li>
+        <li>Recht auf Löschung (Art. 17 DSGVO)</li>
+        <li>Recht auf Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
+        <li>Recht auf Datenübertragbarkeit (Art. 20 DSGVO)</li>
+        <li>Recht auf Widerspruch gegen die Verarbeitung (Art. 21 DSGVO)</li>
+      </ul>
+      <p>
+        Sie haben zudem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde über die Verarbeitung
+        Ihrer personenbezogenen Daten durch uns zu beschweren. Für Deutschland ist dies der/die
+        Bundesbeauftragte für den Datenschutz und die Informationsfreiheit (BfDI).
+      </p>
+      <p>
+        Zur Ausübung Ihrer Rechte wenden Sie sich bitte an: <strong>[kontakt@ihre-domain.de]</strong>
+      </p>
+
+      <h2>9. Datensicherheit</h2>
+      <p>
+        Diese Seite nutzt aus Sicherheitsgründen und zum Schutz der Übertragung vertraulicher Inhalte
+        eine SSL- bzw. TLS-Verschlüsselung. Eine verschlüsselte Verbindung erkennen Sie daran, dass die
+        Adresszeile des Browsers von „http://" auf „https://" wechselt und an dem Schloss-Symbol in Ihrer
+        Browserzeile.
+      </p>
+
+      <p style="margin-top:40px;font-size:0.8rem;color:var(--gray-400);">Stand: {% now "F Y" %}</p>
+
+    </div>
+  </div>
+</section>
+
+{% endblock %}

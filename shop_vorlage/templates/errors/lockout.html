@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Zugang gesperrt{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block content %}
+<div class="sn-error-page">
+  <div class="sn-error-inner">
+    <span class="sn-error-icon" aria-hidden="true">🔒</span>
+    <h1 class="sn-error-title">Zugang temporär gesperrt</h1>
+    <p class="sn-error-text">
+      Zu viele fehlgeschlagene Anmeldeversuche.<br>
+      Aus Sicherheitsgründen wurde der Zugang vorübergehend gesperrt.<br>
+      Bitte versuchen Sie es in 1 Stunde erneut.
+    </p>
+    <a href="/" class="sn-btn-primary">← Zur Startseite</a>
+  </div>
+</div>
+{% endblock %}

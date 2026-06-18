@@ -1,0 +1,13 @@
+{% if messages %}
+<div class="sn-toast-container" aria-live="polite" aria-atomic="false">
+  {% for message in messages %}
+    <div class="sn-toast sn-toast-{% if message.tags == 'error' %}error{% elif message.tags == 'warning' %}warning{% elif message.tags == 'success' %}success{% else %}info{% endif %}" role="alert">
+      <span class="sn-toast-icon" aria-hidden="true">
+        {% if message.tags == 'success' %}✓{% elif message.tags == 'error' %}✕{% elif message.tags == 'warning' %}⚠{% else %}ℹ{% endif %}
+      </span>
+      <span>{{ message }}</span>
+      <button type="button" class="sn-toast-close" aria-label="Schließen">×</button>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}

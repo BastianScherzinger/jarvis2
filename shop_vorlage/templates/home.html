@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+
+{% block title %}Startseite{% endblock %}
+{% block title_suffix %}| {{ SITE_NAME }} – Professionelle Sanierung{% endblock %}
+{% block meta_description %}{{ SITE_NAME }} – Professionelle Sanierung & Renovierung in Leipzig, Halle, Magdeburg, Hannover, Dresden und Chemnitz. Komplettsanierung, Badsanierung, Malerarbeiten. Jetzt kostenlos anfragen.{% endblock %}
+
+{% block content %}
+
+<!-- ── Hero ──────────────────────────────────────────────── -->
+<section class="sn-hero" aria-label="Willkommen">
+  <div class="sn-hero-grid" aria-hidden="true"></div>
+  <div class="sn-hero-accent" aria-hidden="true"></div>
+
+  <div class="sn-hero-inner">
+    <div class="sn-hero-badge" data-reveal>Zertifizierte Fachbetriebe · Mitteldeutschland</div>
+
+    <h1 data-reveal data-reveal-delay="1">
+      Professionelle
+      <em>Sanierung &amp;</em>
+      Renovierung
+    </h1>
+
+    <p class="sn-hero-sub" data-reveal data-reveal-delay="2">
+      Von der Komplettsanierung bis zum Malerauftrag – {{ SITE_NAME }} liefert handwerkliche Präzision
+      in Leipzig, Halle, Magdeburg, Hannover, Dresden und Chemnitz.
+    </p>
+
+    <div class="sn-hero-actions" data-reveal data-reveal-delay="3">
+      <a href="{% url 'core:anfrage' %}" class="sn-btn-primary">Kostenlos Anfragen</a>
+      <a href="{% url 'core:dienstleistungen' %}" class="sn-btn-ghost">Unsere Leistungen</a>
+    </div>
+
+    <div class="sn-hero-trust" data-reveal data-reveal-delay="4">
+      <span class="sn-trust-item">Kostenlose Erstberatung</span>
+      <span class="sn-trust-item">Festpreisgarantie</span>
+      <span class="sn-trust-item">Über 500 abgeschlossene Projekte</span>
+      <span class="sn-trust-item">Zugelassener Fachbetrieb</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── Services ──────────────────────────────────────────── -->
+<section class="sn-section sn-services" aria-label="Unsere Leistungen">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Was wir tun</p>
+      <h2 class="sn-section-title">Unsere Dienstleistungen</h2>
+      <p class="sn-section-sub">Von der Einzelmaßnahme bis zur Vollsanierung – wir decken das komplette Spektrum moderner Renovierung ab.</p>
+    </div>
+
+    <div class="sn-services-grid">
+
+      <div class="sn-service-card" data-reveal>
+        <span class="sn-service-num" aria-hidden="true">01</span>
+        <span class="sn-service-icon" aria-hidden="true">🏗️</span>
+        <h3 class="sn-service-title">Komplettsanierung</h3>
+        <p class="sn-service-text">Ganzheitliche Sanierung von Wohnungen, Häusern und Gewerbeimmobilien. Planung, Koordination und Ausführung aus einer Hand.</p>
+      </div>
+
+      <div class="sn-service-card" data-reveal data-reveal-delay="1">
+        <span class="sn-service-num" aria-hidden="true">02</span>
+        <span class="sn-service-icon" aria-hidden="true">🚿</span>
+        <h3 class="sn-service-title">Badsanierung</h3>
+        <p class="sn-service-text">Komplette Badsanierungen mit moderner Fliesen- und Sanitärinstallation. Barrierefreie Umbauten und Design-Bäder nach Maß.</p>
+      </div>
+
+      <div class="sn-service-card" data-reveal data-reveal-delay="2">
+        <span class="sn-service-num" aria-hidden="true">03</span>
+        <span class="sn-service-icon" aria-hidden="true">🏠</span>
+        <h3 class="sn-service-title">Wohnungssanierung</h3>
+        <p class="sn-service-text">Renovierung von Mietwohnungen und Eigentumswohnungen. Bestandsaufnahme, Modernisierung und schlüsselfertige Übergabe.</p>
+      </div>
+
+      <div class="sn-service-card" data-reveal>
+        <span class="sn-service-num" aria-hidden="true">04</span>
+        <span class="sn-service-icon" aria-hidden="true">🧱</span>
+        <h3 class="sn-service-title">Fassadensanierung</h3>
+        <p class="sn-service-text">Außendämmung, Putzarbeiten und Fassadengestaltung. Energieeffizienz und Witterungsschutz für Ihr Gebäude.</p>
+      </div>
+
+      <div class="sn-service-card" data-reveal data-reveal-delay="1">
+        <span class="sn-service-num" aria-hidden="true">05</span>
+        <span class="sn-service-icon" aria-hidden="true">🖌️</span>
+        <h3 class="sn-service-title">Malerarbeiten</h3>
+        <p class="sn-service-text">Innen- und Außenmalerarbeiten, Tapezierarbeiten und Lackierungen. Professionelles Ergebnis in Zeit und Budget.</p>
+      </div>
+
+      <div class="sn-service-card" data-reveal data-reveal-delay="2">
+        <span class="sn-service-num" aria-hidden="true">06</span>
+        <span class="sn-service-icon" aria-hidden="true">🪵</span>
+        <h3 class="sn-service-title">Boden &amp; Fliesen</h3>
+        <p class="sn-service-text">Verlegung von Parkett, Laminat, Vinyl und Fliesen. Untergrundvorbereitung, Dämmung und hochwertige Verarbeitung.</p>
+      </div>
+
+    </div>
+
+    <div style="margin-top: 48px; text-align: center;" data-reveal>
+      <a href="{% url 'core:dienstleistungen' %}" class="sn-btn-primary">Alle Leistungen ansehen</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Why Us ─────────────────────────────────────────────── -->
+<section class="sn-section sn-why" aria-label="Warum wir">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Warum {{ SITE_NAME }}</p>
+      <h2 class="sn-section-title">Handwerk mit Verlässlichkeit</h2>
+      <p class="sn-section-sub">Jahrelange Erfahrung, regionale Verankerung und ein Team, das Versprechen einhält.</p>
+    </div>
+
+    <div class="sn-why-grid">
+      <div class="sn-why-item" data-reveal>
+        <div class="sn-why-num" data-count="500">0</div>
+        <h3 class="sn-why-title">Abgeschlossene Projekte</h3>
+        <p class="sn-why-text">Über 500 erfolgreich abgeschlossene Sanierungsprojekte – vom Einzelbad bis zur Vollsanierung.</p>
+      </div>
+      <div class="sn-why-item" data-reveal data-reveal-delay="1">
+        <div class="sn-why-num" data-count="10">0</div>
+        <h3 class="sn-why-title">Jahre Erfahrung</h3>
+        <p class="sn-why-text">Mehr als ein Jahrzehnt Expertise in der Sanierung von Wohn- und Gewerbeimmobilien.</p>
+      </div>
+      <div class="sn-why-item" data-reveal data-reveal-delay="2">
+        <div class="sn-why-num" data-count="6">0</div>
+        <h3 class="sn-why-title">Städte &amp; Regionen</h3>
+        <p class="sn-why-text">Präsent in Leipzig, Halle, Magdeburg, Hannover, Dresden und Chemnitz mit regionalen Teams.</p>
+      </div>
+      <div class="sn-why-item" data-reveal data-reveal-delay="3">
+        <div class="sn-why-num">98%</div>
+        <h3 class="sn-why-title">Kundenzufriedenheit</h3>
+        <p class="sn-why-text">Unsere Kunden empfehlen uns weiter – das ist unser wichtigstes Qualitätsmerkmal.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Standorte ──────────────────────────────────────────── -->
+<section class="sn-section sn-standorte" aria-label="Unsere Standorte">
+  <div class="sn-container">
+    <div data-reveal>
+      <p class="sn-section-label">Wo wir aktiv sind</p>
+      <h2 class="sn-section-title">Unsere Standorte</h2>
+      <p class="sn-section-sub">Regionale Teams in sechs Städten – für kurze Wege und schnelle Reaktionszeiten.</p>
+    </div>
+
+    <div class="sn-cities-grid">
+      <div class="sn-city-tile" data-reveal>
+        <div class="sn-city-name">Leipzig</div>
+        <div class="sn-city-sub">Sachsen · Hauptstandort</div>
+        <p class="sn-city-area">Gesamtes Stadtgebiet und Umland (Leipzig Land, Markkleeberg, Borna)</p>
+      </div>
+      <div class="sn-city-tile" data-reveal data-reveal-delay="1">
+        <div class="sn-city-name">Halle</div>
+        <div class="sn-city-sub">Sachsen-Anhalt</div>
+        <p class="sn-city-area">Halle (Saale) und Umgebung (Merseburg, Weißenfels, Querfurt)</p>
+      </div>
+      <div class="sn-city-tile" data-reveal data-reveal-delay="2">
+        <div class="sn-city-name">Magdeburg</div>
+        <div class="sn-city-sub">Sachsen-Anhalt · Landeshauptstadt</div>
+        <p class="sn-city-area">Magdeburg und Umkreis (Schönebeck, Haldensleben, Wolmirstedt)</p>
+      </div>
+      <div class="sn-city-tile" data-reveal>
+        <div class="sn-city-name">Hannover</div>
+        <div class="sn-city-sub">Niedersachsen</div>
+        <p class="sn-city-area">Hannover und Region (Garbsen, Langenhagen, Burgdorf)</p>
+      </div>
+      <div class="sn-city-tile" data-reveal data-reveal-delay="1">
+        <div class="sn-city-name">Dresden</div>
+        <div class="sn-city-sub">Sachsen · Landeshauptstadt</div>
+        <p class="sn-city-area">Dresden und Dresdner Umland (Radebeul, Meißen, Freital)</p>
+      </div>
+      <div class="sn-city-tile" data-reveal data-reveal-delay="2">
+        <div class="sn-city-name">Chemnitz</div>
+        <div class="sn-city-sub">Sachsen</div>
+        <p class="sn-city-area">Chemnitz und Umgebung (Zwickau, Glauchau, Limbach-Oberfrohna)</p>
+      </div>
+    </div>
+
+    <div style="margin-top: 48px; text-align: center;" data-reveal>
+      <a href="{% url 'core:standorte' %}" class="sn-btn-primary">Alle Standorte ansehen</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ────────────────────────────────────────────────── -->
+<section class="sn-cta-section" aria-label="Jetzt anfragen">
+  <div class="sn-container">
+    <div class="sn-cta-inner">
+      <div>
+        <h2 class="sn-cta-title">Bereit für Ihr<br>Sanierungsprojekt?</h2>
+        <p class="sn-cta-sub">Kostenlose Erstberatung – unverbindlich und direkt vor Ort.</p>
+      </div>
+      <a href="{% url 'core:anfrage' %}" class="sn-btn-navy">Jetzt kostenlos anfragen</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

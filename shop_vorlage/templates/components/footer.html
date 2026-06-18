@@ -1,0 +1,60 @@
+<footer class="sn-footer" role="contentinfo">
+  <div class="sn-container">
+
+    <div class="sn-footer-grid">
+      <!-- Brand Column -->
+      <div>
+        <div class="sn-footer-brand">
+          <div class="sn-brand-mark" aria-hidden="true">S</div>
+          <span class="sn-footer-brand-name">{{ SITE_NAME }}</span>
+        </div>
+        <p class="sn-footer-desc">
+          Professionelle Sanierung & Renovierung in ganz Mitteldeutschland.
+          Qualität, die bleibt. Seit über 10 Jahren Ihr verlässlicher Partner.
+        </p>
+      </div>
+
+      <!-- Navigation -->
+      <div>
+        <p class="sn-footer-col-title">Navigation</p>
+        <nav class="sn-footer-links" aria-label="Footer Navigation">
+          <a href="{% url 'core:home' %}" class="sn-footer-link">Startseite</a>
+          <a href="{% url 'core:dienstleistungen' %}" class="sn-footer-link">Dienstleistungen</a>
+          <a href="{% url 'core:standorte' %}" class="sn-footer-link">Standorte</a>
+          <a href="{% url 'core:ueber_uns' %}" class="sn-footer-link">Über uns</a>
+          <a href="{% url 'core:anfrage' %}" class="sn-footer-link">Anfrage stellen</a>
+        </nav>
+      </div>
+
+      <!-- Leistungen -->
+      <div>
+        <p class="sn-footer-col-title">Leistungen</p>
+        <nav class="sn-footer-links" aria-label="Leistungen">
+          <a href="{% url 'core:dienstleistungen' %}" class="sn-footer-link">Komplettsanierung</a>
+          <a href="{% url 'core:dienstleistungen' %}" class="sn-footer-link">Badsanierung</a>
+          <a href="{% url 'core:dienstleistungen' %}" class="sn-footer-link">Fassadensanierung</a>
+          <a href="{% url 'core:dienstleistungen' %}" class="sn-footer-link">Malerarbeiten</a>
+        </nav>
+      </div>
+
+      <!-- Legal -->
+      <div>
+        <p class="sn-footer-col-title">Rechtliches</p>
+        <nav class="sn-footer-links" aria-label="Rechtliches">
+          <a href="{% url 'core:impressum' %}" class="sn-footer-link">Impressum</a>
+          <a href="{% url 'core:datenschutz' %}" class="sn-footer-link">Datenschutz</a>
+          <a href="{% url 'core:agb' %}" class="sn-footer-link">AGB</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="sn-footer-bottom">
+      <p class="sn-footer-copy">© {% now "Y" %} {{ SITE_NAME }}. Alle Rechte vorbehalten.</p>
+      <div class="sn-footer-legal">
+        <a href="{% url 'core:datenschutz' %}">Datenschutz</a>
+        <a href="{% url 'core:impressum' %}">Impressum</a>
+      </div>
+    </div>
+
+  </div>
+</footer>

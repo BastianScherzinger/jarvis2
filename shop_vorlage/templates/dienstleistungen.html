@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+
+{% block title %}Unsere Dienstleistungen{% endblock %}
+{% block meta_description %}{{ SITE_NAME }} – Komplettsanierung, Badsanierung, Wohnungssanierung, Fassadensanierung, Malerarbeiten und Boden & Fliesen. Professionell und zuverlässig.{% endblock %}
+
+{% block content %}
+
+<!-- ── Page Hero ──────────────────────────────────────────── -->
+<section class="sn-page-hero" aria-label="Dienstleistungen">
+  <div class="sn-container">
+    <div class="sn-page-hero-inner">
+      <nav class="sn-breadcrumb" aria-label="Brotkrümel">
+        <a href="{% url 'core:home' %}">Home</a>
+        <span class="sn-breadcrumb-sep" aria-hidden="true">›</span>
+        <span>Dienstleistungen</span>
+      </nav>
+      <h1 class="sn-page-title" data-reveal>Unsere <em>Dienstleistungen</em></h1>
+      <p class="sn-page-sub" data-reveal data-reveal-delay="1">
+        Professionelle Sanierung und Renovierung – von der Planung bis zur schlüsselfertigen Übergabe.
+        Sechs Kernleistungen, ein Ansprechpartner.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Service Detail Cards ───────────────────────────────── -->
+<section class="sn-section" aria-label="Leistungsübersicht">
+  <div class="sn-container">
+
+    <div class="sn-dl-grid">
+
+      <div class="sn-dl-card" data-reveal>
+        <span class="sn-dl-icon" aria-hidden="true">🏗️</span>
+        <h2 class="sn-dl-title">Komplettsanierung</h2>
+        <p class="sn-dl-text">
+          Wir übernehmen die vollständige Sanierung Ihrer Immobilie – von der Bestandsaufnahme und Planung
+          bis zur finalen Abnahme. Als Generalunternehmer koordinieren wir alle Gewerke und halten Termine ein.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">Vollständige Projektkoordination</span>
+          <span class="sn-dl-feature">Wohn- und Gewerbeimmobilien</span>
+          <span class="sn-dl-feature">Festpreisangebot</span>
+          <span class="sn-dl-feature">Termingarantie</span>
+        </div>
+      </div>
+
+      <div class="sn-dl-card" data-reveal data-reveal-delay="1">
+        <span class="sn-dl-icon" aria-hidden="true">🚿</span>
+        <h2 class="sn-dl-title">Badsanierung</h2>
+        <p class="sn-dl-text">
+          Moderne Badsanierungen nach Ihren Vorstellungen: Fliesen, Sanitär, Beleuchtung und
+          barrierefreie Umbauten. Wir setzen Ihr Traumbad präzise und sauber um.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">Design- und Standardbäder</span>
+          <span class="sn-dl-feature">Barrierefreie Umbauten</span>
+          <span class="sn-dl-feature">Fliesen & Sanitärinstallation</span>
+          <span class="sn-dl-feature">Elektro- und Heizungsarbeiten</span>
+        </div>
+      </div>
+
+      <div class="sn-dl-card" data-reveal>
+        <span class="sn-dl-icon" aria-hidden="true">🏠</span>
+        <h2 class="sn-dl-title">Wohnungssanierung</h2>
+        <p class="sn-dl-text">
+          Ob Leerstandssanierung, Mietwohnungsmodernisierung oder Eigentumswohnungsrenovierung –
+          wir bringen Ihre Wohnung auf modernen Standard. Schnell, sauber und zuverlässig.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">Komplette Modernisierung</span>
+          <span class="sn-dl-feature">Für Vermieter & Eigennutzer</span>
+          <span class="sn-dl-feature">Leerstandssanierungen</span>
+          <span class="sn-dl-feature">Schlüsselfertige Übergabe</span>
+        </div>
+      </div>
+
+      <div class="sn-dl-card" data-reveal data-reveal-delay="1">
+        <span class="sn-dl-icon" aria-hidden="true">🧱</span>
+        <h2 class="sn-dl-title">Fassadensanierung</h2>
+        <p class="sn-dl-text">
+          Außendämmung, Putz- und Fassadenarbeiten für mehr Energieeffizienz und Witterungsschutz.
+          Wir gestalten Fassaden, die schützen und überzeugen.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">WDVS-Systeme (Wärmedämmung)</span>
+          <span class="sn-dl-feature">Putz- und Anstricharbeiten</span>
+          <span class="sn-dl-feature">Klinkersanierung</span>
+          <span class="sn-dl-feature">Fördermittelberatung möglich</span>
+        </div>
+      </div>
+
+      <div class="sn-dl-card" data-reveal>
+        <span class="sn-dl-icon" aria-hidden="true">🖌️</span>
+        <h2 class="sn-dl-title">Malerarbeiten</h2>
+        <p class="sn-dl-text">
+          Professionelle Innen- und Außenmalerarbeiten, Tapezieren und Lackierarbeiten.
+          Saubere Ausführung, sorgfältige Vorbereitung und pünktliche Fertigstellung.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">Innen- & Außenarbeiten</span>
+          <span class="sn-dl-feature">Tapezier- & Strukturarbeiten</span>
+          <span class="sn-dl-feature">Lackierungen & Beschichtungen</span>
+          <span class="sn-dl-feature">Untergrundvorbereitung</span>
+        </div>
+      </div>
+
+      <div class="sn-dl-card" data-reveal data-reveal-delay="1">
+        <span class="sn-dl-icon" aria-hidden="true">🪵</span>
+        <h2 class="sn-dl-title">Boden &amp; Fliesen</h2>
+        <p class="sn-dl-text">
+          Verlegung von Parkett, Laminat, Vinyl und keramischen Fliesen. Von der
+          Untergrundvorbereitung über Dämmung bis zum fertigen Boden – alles aus einer Hand.
+        </p>
+        <div class="sn-dl-features">
+          <span class="sn-dl-feature">Parkett & Laminat</span>
+          <span class="sn-dl-feature">Vinyl & Design-Beläge</span>
+          <span class="sn-dl-feature">Keramik & Feinsteinzeug</span>
+          <span class="sn-dl-feature">Trittschalldämmung</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ────────────────────────────────────────────────── -->
+<section class="sn-cta-section" aria-label="Jetzt anfragen">
+  <div class="sn-container">
+    <div class="sn-cta-inner">
+      <div>
+        <h2 class="sn-cta-title">Interesse geweckt?<br>Kontaktieren Sie uns.</h2>
+        <p class="sn-cta-sub">Wir erstellen Ihnen ein unverbindliches Angebot – kostenfrei und schnell.</p>
+      </div>
+      <a href="{% url 'core:anfrage' %}" class="sn-btn-navy">Kostenlos anfragen</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
