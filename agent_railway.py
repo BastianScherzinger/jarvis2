@@ -47,6 +47,33 @@ def _gql(query: str, variables: dict, token: str) -> dict:
     return {"ok": True, "data": body.get("data") or {}}
 
 
+def list_projects() -> dict:
+    """Listet alle Railway-Projekte des Tokens. Gibt {ok, projects:[{id,name}]}."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "RAILWAY_TOKEN fehlt in .env", "projects": []}
+    q = "query{ me { projects { edges { node { id name } } } } }"
+    r = _gql(q, {}, token)
+    if not r["ok"]:
+        # Fallback: manche Tokens liefern Projekte unter 'projects' statt 'me'
+        r2 = _gql("query{ projects { edges { node { id name } } } }", {}, token)
+        if not r2["ok"]:
+            return {"ok": False, "error": r["error"], "projects": []}
+        edges = r2["data"].get("projects", {}).get("edges", [])
+    else:
+        edges = r["data"].get("me", {}).get("projects", {}).get("edges", [])
+    return {"ok": True, "projects": [e["node"] for e in edges]}
+
+
+def project_delete(project_id: str) -> dict:
+    """Löscht ein Railway-Projekt unwiderruflich. Gibt {ok} oder {ok:False,error}."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "RAILWAY_TOKEN fehlt in .env"}
+    r = _gql("mutation($id:String!){ projectDelete(id:$id) }", {"id": project_id}, token)
+    return {"ok": r["ok"], "error": r.get("error", "")}
+
+
 def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> dict:
     """
     Vollständiger Deploy aus einem GitHub-Repo. Gibt

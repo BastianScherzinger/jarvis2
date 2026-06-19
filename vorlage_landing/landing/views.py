@@ -26,6 +26,7 @@ _FALLBACK = {
     "ueber_text": "Seit Jahren Ihr verlässlicher Partner in der Region.",
     "leistungen": [],
     "fotos": [],
+    "hero_image": "",
     "cta_text": "Jetzt unverbindlich anfragen",
     "seo_title": "Ihre Firma",
     "seo_desc": "Qualität aus Ihrer Region.",

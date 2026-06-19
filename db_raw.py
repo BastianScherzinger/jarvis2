@@ -127,6 +127,13 @@ def insert_raw(lead: dict) -> int | None:
     if not name:
         return None
 
+    # Firmennamen mit lokaler Logik säubern (SEO-Codes/Wiederholungen/Spam raus) —
+    # VOR Dedup + Speicherung, damit Feed, DB und der globale lead_key denselben
+    # sauberen Namen verwenden. In-place, damit on_lead() den sauberen Namen sendet.
+    from agents.name_clean import quick_clean
+    name = quick_clean(name) or name
+    lead["name"] = name
+
     # bilder_maps aus 'bilder' übernehmen wenn nicht explizit gesetzt
     row = {k: v for k, v in lead.items() if k in _RAW_COLUMNS}
     if "bilder_maps" not in row:

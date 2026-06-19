@@ -119,3 +119,70 @@ def test_sicherheit_erreichbar_vs_kette():
         {}, rev=0, ist_privat=0, firmengroesse="Kette")
     assert erreichbar >= 70
     assert kette == 0   # Kette-Malus zieht auf 0 (geclampt)
+
+
+# ── Firmennamen-Säuberung (quick_clean, deterministisch, ohne Netz/KI) ────────
+def test_nameclean_rolladen_spam_kuerzer_und_ohne_wiederholung():
+    from agents.name_clean import quick_clean
+    roh = ("C.W Service Hamburg Tag & Nacht Rolladen Reparatur "
+           "Service Rolladenreparatur")
+    out = quick_clean(roh)
+    assert len(out) < len(roh)                 # deutlich kürzer
+    assert out.lower().count("service") == 1   # keine Service-Wiederholung
+    assert out.lower().count("rolladen") == 1  # kein Rolladen-Stamm doppelt
+    assert out.startswith("C.W Service Hamburg")  # Kern bleibt erhalten
+
+
+def test_nameclean_fuehrender_code_entfernt():
+    from agents.name_clean import quick_clean
+    assert quick_clean("F0507 Robin Look GmbH") == "Robin Look GmbH"
+    assert quick_clean("A1234 Beispiel GmbH") == "Beispiel GmbH"
+    assert quick_clean("B-123 Muster AG") == "Muster AG"
+
+
+def test_nameclean_gute_namen_unveraendert():
+    from agents.name_clean import quick_clean
+    for name in ["Umzüge S. Klein GmbH & Co. KG",
+                 "Dachdeckerei Müller GmbH",
+                 "Listemann GmbH"]:
+        assert quick_clean(name) == name
+
+
+def test_nameclean_marketing_anhaengsel_abgeschnitten():
+    from agents.name_clean import quick_clean
+    out = quick_clean("Dachdecker Schmidt - Ihr Partner seit 1990")
+    assert out == "Dachdecker Schmidt"
+
+
+def test_nameclean_case_normalisierung():
+    from agents.name_clean import quick_clean
+    assert quick_clean("MUELLER GMBH") == "Mueller Gmbh"     # komplett groß
+    assert quick_clean("dachdecker mueller") == "Dachdecker Mueller"  # komplett klein
+
+
+def test_nameclean_nie_leer():
+    from agents.name_clean import quick_clean
+    assert quick_clean("   ") == ""        # echtes Leer bleibt leer
+    assert quick_clean("X GmbH") != ""
+
+
+def test_nameclean_whitespace_gefaltet():
+    from agents.name_clean import quick_clean
+    # gemischte Schreibweise bleibt erhalten (GmbH wird NICHT zu Gmbh)
+    assert quick_clean("  Mehrere    Leerzeichen  GmbH ") == "Mehrere Leerzeichen GmbH"
+
+
+def test_nameclean_idempotent():
+    from agents.name_clean import quick_clean
+    beispiele = [
+        "C.W Service Hamburg Tag & Nacht Rolladen Reparatur Service Rolladenreparatur",
+        "F0507 Robin Look GmbH",
+        "Umzüge S. Klein GmbH & Co. KG",
+        "Dachdeckerei Müller GmbH",
+        "MUELLER GMBH",
+        "Dachdecker Schmidt - Ihr Partner seit 1990",
+        "  Mehrere    Leerzeichen  GmbH ",
+    ]
+    for x in beispiele:
+        once = quick_clean(x)
+        assert quick_clean(once) == once, x

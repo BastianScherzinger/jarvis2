@@ -61,13 +61,28 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
             alle_bilder = [u for u in (list(web.get("foto_urls", [])) + maps_urls) if u]
             alle_bilder = list(dict.fromkeys(alle_bilder))[:12]
 
+            # Firmenname: db_raw liefert bereits den deterministisch gesäuberten
+            # (quick_clean) Namen. Optionaler lokaler-KI-Feinschliff nur bei noch
+            # verdächtig langen/wortreichen Namen — best-effort, fällt sicher zurück.
+            # WICHTIG: lead_key bleibt STABIL aus dem deterministischen Namen, damit
+            # die Cloud-Deduplizierung (Multi-PC) nicht durch KI-Varianz bricht.
+            from agents import name_clean
+            import leadkey
+            roh_name = lead.get("name", "")
+            disp_name = roh_name
+            if len(roh_name) > 38 or len(roh_name.split()) > 5:
+                disp_name = name_clean.ai_clean(roh_name, lead.get("branche", ""),
+                                                lead.get("stadt", ""))
+            stabiler_key = leadkey.lead_key(roh_name, lead.get("stadt", ""))
+
             # DB2 befüllen
             row = {
                 # Basis aus DB1
                 "raw_id":      raw_id,
                 "schluessel":  lead.get("schluessel", ""),
                 "finder":      lead.get("finder", ""),
-                "name":        lead.get("name", ""),
+                "name":        disp_name,
+                "lead_key":    stabiler_key,
                 "adresse":     lead.get("adresse", ""),
                 "stadt":       lead.get("stadt", ""),
                 "bundesland":  lead.get("bundesland", ""),

@@ -137,7 +137,7 @@ def _deterministic_content(lead: dict, fotos: list) -> dict:
         "telefon": (lead.get("telefon") or "").strip(),
         "email": (lead.get("email") or lead.get("email_adresse") or "").strip(),
         "adresse": (lead.get("adresse") or "").strip(),
-        "akzent": akz, "fotos": fotos,
+        "akzent": akz, "fotos": fotos, "hero_image": "",
         "headline": f"{branche} aus {stadt}".strip(" aus") if stadt else f"Ihr {branche}-Betrieb",
         "subline": "Qualität aus Ihrer Region — zuverlässig, sauber und termintreu.",
         "ueber_titel": "Über uns",
@@ -290,6 +290,29 @@ def _run(job_id: str) -> None:
         (target / "content.json").write_text(
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         _set(job_id, progress=54, step="Seite geschrieben.")
+
+        # 3b) Hero-Banner mit lokaler KI (best-effort, darf den Build NIE killen)
+        try:
+            import media_engine  # lazy — nur wenn überhaupt verfügbar
+            if media_engine.get_status().get("diffusers_ok"):
+                _set(job_id, progress=50, step="Hero-Banner wird mit lokaler KI erzeugt…")
+                branche = lead.get("branche", "")
+                prompt = (
+                    f"professional wide hero banner photograph for a German {branche} "
+                    "business, modern, clean, bright daylight, high quality, no text, "
+                    "no logo, no watermark"
+                )
+                res = media_engine.generate_image(
+                    prompt, steps=22, width=1280, height=720,
+                    output_dir=(target / "static" / "img"), filename="hero.png")
+                if (target / "static" / "img" / "hero.png").exists():
+                    content["hero_image"] = "/static/img/hero.png"
+                    # content.json nach erfolgreicher Hero-Erzeugung erneut schreiben
+                    (target / "content.json").write_text(
+                        json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            # diffusers fehlt, Fehler bei Generierung o.ä. → kein Hero, Build läuft weiter
+            content.setdefault("hero_image", "")
 
         secret = _django_secret_key()
         repo_full = ""

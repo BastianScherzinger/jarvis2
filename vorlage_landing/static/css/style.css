@@ -53,15 +53,40 @@ a{color:inherit;text-decoration:none}
 .nav .btn-sm{margin-left:4px}
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
-.hero{padding:clamp(56px,9vw,104px) 0 clamp(40px,6vw,72px);overflow:hidden}
-.hero-in{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(32px,5vw,64px);align-items:center}
+.hero{position:relative;padding:clamp(56px,9vw,104px) 0 clamp(40px,6vw,72px);overflow:hidden}
+.hero-in{position:relative;z-index:1}
+.hero-copy{max-width:60ch}
 .eyebrow{display:inline-block;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
   color:var(--accent);margin-bottom:18px}
 .hero h1{font-size:clamp(2.4rem,5.5vw,4rem);font-weight:700}
-.lead{font-size:clamp(1.05rem,1.7vw,1.3rem);color:var(--ink-soft);margin:22px 0 32px;max-width:34ch}
+.lead{font-size:clamp(1.05rem,1.7vw,1.3rem);color:var(--ink-soft);margin:22px 0 32px;max-width:38ch}
 .hero-cta{display:flex;gap:14px;flex-wrap:wrap}
-.hero-media img{border-radius:var(--radius);box-shadow:var(--shadow-lg);width:100%;
-  aspect-ratio:4/3;object-fit:cover}
+
+/* Banner-Hero: Vollflächiges Hintergrundbild (--hero-img) + dunkles Overlay
+   für gute Lesbarkeit. Mobile-first, weiche Optik. */
+.hero-banner{
+  min-height:clamp(440px,64vh,640px);display:flex;align-items:center;
+  background-image:var(--hero-img);background-size:cover;background-position:center;
+  background-color:var(--ink);
+}
+.hero-banner::before{
+  content:"";position:absolute;inset:0;z-index:0;
+  background:
+    linear-gradient(180deg, rgba(20,17,15,.30) 0%, rgba(20,17,15,.78) 100%),
+    radial-gradient(120% 90% at 25% 30%, rgba(20,17,15,.10), rgba(20,17,15,.55));
+}
+.hero-banner .eyebrow{color:#fff;opacity:.92}
+.hero-banner h1{color:#fff;text-shadow:0 2px 24px rgba(0,0,0,.35)}
+.hero-banner .lead{color:rgba(255,255,255,.86)}
+.btn-on-dark{color:#fff;border-color:rgba(255,255,255,.5);background:transparent}
+.btn-on-dark:hover{border-color:#fff;color:#fff}
+
+/* Bildloser Hero: dezenter, getönter Gradient-Hintergrund. */
+.hero-plain{
+  background:
+    radial-gradient(110% 80% at 85% 0%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 60%),
+    linear-gradient(180deg, var(--surface), var(--bg));
+}
 
 /* ── Sektionen ───────────────────────────────────────────────────────────── */
 .section{padding:clamp(56px,8vw,96px) 0}
@@ -108,8 +133,7 @@ a{color:inherit;text-decoration:none}
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width:820px){
-  .hero-in{grid-template-columns:1fr}
-  .hero-media{order:-1}
+  .hero-banner{min-height:clamp(380px,72vh,520px)}
   .about{grid-template-columns:1fr}
   .nav-links{display:none}
 }
