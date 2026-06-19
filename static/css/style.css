@@ -405,7 +405,24 @@ body::after{
   border:1px solid var(--c);color:var(--c);transition:all .18s;
 }
 .rank-img-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.22),rgba(0,232,122,.14));transform:translateY(-1px)}
-.m-email-out,.m-mockup-out{margin-top:8px}
+.m-email-out,.m-mockup-out,.m-web-out{margin-top:8px}
+/* Webseite-bauen-Button + Fortschritt */
+.m-web-btn{
+  background:linear-gradient(135deg,rgba(0,212,255,.14),rgba(0,232,122,.10));
+  border-color:var(--c);font-weight:600;
+}
+.m-web-btn:hover:not(:disabled){background:linear-gradient(135deg,rgba(0,212,255,.24),rgba(0,232,122,.16))}
+.m-web-prog{margin-top:6px}
+.m-web-bar{height:6px;border-radius:6px;background:var(--bg3);border:1px solid var(--bdr2);overflow:hidden;margin-bottom:7px}
+.m-web-fill{height:100%;background:linear-gradient(90deg,var(--c),var(--g));transition:width .4s ease-out}
+.m-web-done{font-size:12px;color:var(--g);font-weight:600;margin-bottom:7px}
+.m-web-link{display:block;font-size:12px;color:var(--c);font-weight:600;padding:7px 10px;margin-top:5px;
+  border:1px solid var(--c);border-radius:7px;background:rgba(0,212,255,.06);transition:all .15s}
+.m-web-link:hover{background:rgba(0,212,255,.14)}
+.m-web-link.sub{color:var(--tx2);border-color:var(--bdr2);font-weight:500}
+.m-web-folder{font-size:10px;color:var(--tx2);margin-top:6px;word-break:break-all}
+.m-web-hint{font-size:10px;color:var(--tx2);margin-top:8px;line-height:1.5;
+  border-top:1px dashed var(--bdr2);padding-top:7px}
 .m-email-sub{font-size:11px;color:var(--tx2);margin-bottom:5px;font-weight:600}
 .m-email-txt{
   width:100%;min-height:130px;resize:vertical;background:var(--bg3);

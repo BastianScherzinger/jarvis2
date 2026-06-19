@@ -1,0 +1,23 @@
+{
+  "site_name": "Muster Handwerk",
+  "headline": "Handwerk, auf das Sie sich verlassen können",
+  "subline": "Qualität aus Ihrer Region — zuverlässig, sauber und termintreu.",
+  "akzent": "#c8102e",
+  "branche": "Handwerk",
+  "stadt": "",
+  "telefon": "",
+  "email": "",
+  "adresse": "",
+  "ueber_titel": "Über uns",
+  "ueber_text": "Seit Jahren Ihr verlässlicher Partner in der Region. Wir verbinden traditionelles Handwerk mit moderner Ausführung.",
+  "leistungen": [
+    {"titel": "Beratung", "text": "Persönlich, ehrlich und auf Ihr Projekt zugeschnitten."},
+    {"titel": "Ausführung", "text": "Saubere, termintreue Arbeit mit Liebe zum Detail."},
+    {"titel": "Service", "text": "Auch nach Abschluss für Sie da — ein fester Ansprechpartner."}
+  ],
+  "fotos": [],
+  "cta_text": "Jetzt unverbindlich anfragen",
+  "seo_title": "Muster Handwerk",
+  "seo_desc": "Qualität aus Ihrer Region.",
+  "jahr": 2026
+}

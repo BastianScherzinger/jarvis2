@@ -169,6 +169,44 @@ def api_lead_mockup(lead_id):
     return jsonify({"ok": True, "job_id": job_id})
 
 
+@app.route("/api/lead/<int:eval_id>/website", methods=["POST"])
+def api_lead_website(eval_id):
+    """Startet den Website-Builder für einen Lead (Vorlage → Fotos → Claude → GitHub → Railway)."""
+    import website_builder
+    if not website_builder.is_available():
+        return jsonify({"ok": False, "reason": "vorlage_landing/ fehlt"}), 500
+
+    # Beste Datenquelle: bewerteter Lead (hat foto_urls, email_alle). Body füllt Lücken.
+    lead = {}
+    try:
+        import db_evaluated
+        lead = db_evaluated.get_by_id(eval_id) or {}
+    except Exception:
+        lead = {}
+    body = request.get_json(silent=True) or {}
+    for k, v in body.items():
+        if v not in (None, "", []) and not lead.get(k):
+            lead[k] = v
+    if not lead.get("name"):
+        return jsonify({"ok": False, "reason": "Kein Lead-Name."}), 400
+
+    job_id = website_builder.build(lead)
+    import agent_github
+    import agent_railway
+    return jsonify({"ok": True, "job_id": job_id,
+                    "github_ready": agent_github.is_ready(),
+                    "railway_ready": agent_railway.is_ready()})
+
+
+@app.route("/api/website/job/<job_id>")
+def api_website_job(job_id):
+    import website_builder
+    job = website_builder.get(job_id)
+    if job is None:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    return jsonify(job)
+
+
 @app.route("/api/lead/<int:lead_id>/competition")
 def api_lead_competition(lead_id):
     lead = db.get_lead(lead_id)

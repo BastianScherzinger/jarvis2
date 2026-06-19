@@ -71,6 +71,43 @@ def test_ansprechpartner_aus_impressum():
     assert _ansprechpartner("kein Name hier") == ""
 
 
+# ── Website-Builder (reine Helfer, ohne Netz/I/O) ─────────────────────────────
+def test_website_slug():
+    from website_builder import _slug
+    assert _slug("Müller & Söhne GmbH") == "mueller-und-soehne-gmbh"
+    assert _slug("  Dachdecker  Aichach ") == "dachdecker-aichach"
+    assert _slug("") == "kunde"
+
+
+def test_website_content_akzent_nach_branche():
+    from website_builder import _deterministic_content
+    c = _deterministic_content({"name": "X", "branche": "Elektro Meier", "stadt": "Ulm"}, [])
+    assert c["akzent"] == "#d98a00"          # Elektro-Heuristik
+    assert c["site_name"] == "X"
+    assert len(c["leistungen"]) == 3
+    assert c["fotos"] == []
+
+
+def test_website_extract_json_balanciert():
+    from website_builder import _extract_json
+    assert _extract_json('vor {"a":1,"b":"x"} nach') == {"a": 1, "b": "x"}
+    assert _extract_json("kein json") is None
+    assert _extract_json('{"t":"mit }klammer"}') == {"t": "mit }klammer"}
+
+
+def test_deploy_clients_ohne_token(monkeypatch):
+    # Ohne Tokens müssen die Clients sauber 'nicht bereit' melden, nichts werfen.
+    import agent_github, agent_railway
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("RAILWAY_TOKEN", raising=False)
+    monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
+    assert agent_github.is_ready() is False
+    assert agent_railway.is_ready() is False
+    assert agent_github.create_repo("x")["ok"] is False
+    assert agent_railway.deploy("x", "u/r", {})["ok"] is False
+
+
 # ── Sicherheits-Score (deterministisch, ohne Ollama) ──────────────────────────
 def test_sicherheit_erreichbar_vs_kette():
     from agents.evaluator.score_writer import _sicherheit

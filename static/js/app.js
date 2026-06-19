@@ -520,8 +520,12 @@ function _modalActions(lead){
       <button class="m-act-btn" id="m-email-btn" onclick="genEmail(${lead.id})">✉ E-Mail-Entwurf</button>
       <button class="m-act-btn" id="m-mockup-btn" onclick="genMockup(${lead.id})">🎨 Website-Mockup</button>
     </div>
+    <div class="m-act-row">
+      <button class="m-act-btn m-web-btn" id="m-web-btn" onclick="buildWebsite(${lead.id})">🌐 Webseite bauen &amp; live stellen</button>
+    </div>
     <div class="m-email-out" id="m-email-out" style="display:none"></div>
     <div class="m-mockup-out" id="m-mockup-out" style="display:none"></div>
+    <div class="m-web-out" id="m-web-out" style="display:none"></div>
   </div>`;
 }
 
@@ -616,6 +620,56 @@ function _pollMockup(jobId, out, btn){
     }
   }, 1500);
 }
+// ── Webseite bauen & live stellen ────────────────────────────────────────────
+async function buildWebsite(id){
+  const btn = document.getElementById('m-web-btn');
+  const out = document.getElementById('m-web-out');
+  if(!btn || !out) return;
+  btn.disabled = true;
+  out.style.display = 'block';
+  out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Website-Bau wird gestartet…</span></div>`;
+  try{
+    const d = await(await fetch(`/api/lead/${id}/website`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(_modalLead || {}),
+    })).json();
+    if(d.ok && d.job_id){
+      _pollWebsite(d.job_id, out, btn, d.github_ready, d.railway_ready);
+    }else{
+      out.innerHTML = `<div class="m-err-row">✕ ${_e(d.reason||'Fehler')}</div>`;
+      btn.disabled = false;
+    }
+  }catch(e){ out.innerHTML = `<div class="m-err-row">✕ ${_e(String(e))}</div>`; btn.disabled=false; }
+}
+
+function _pollWebsite(jobId, out, btn, ghReady, rwReady){
+  const hint = (!ghReady || !rwReady)
+    ? `<div class="m-web-hint">Hinweis: ${!ghReady?'GITHUB_TOKEN':''}${(!ghReady&&!rwReady)?' + ':''}${!rwReady?'RAILWAY_TOKEN':''} fehlt in .env — die Seite wird lokal gebaut, Repo/Deploy aktivieren sich, sobald die Tokens gesetzt sind.</div>`
+    : '';
+  const iv = setInterval(async ()=>{
+    let job;
+    try{ job = await(await fetch('/api/website/job/'+jobId)).json(); }
+    catch{ return; }
+    if(job.status === 'done'){
+      clearInterval(iv);
+      btn.disabled = false;
+      let html = `<div class="m-web-done">✓ ${_e(job.step||'Fertig')}</div>`;
+      if(job.live_url) html += `<a class="m-web-link" href="${_e(job.live_url)}" target="_blank">🌐 Live öffnen: ${_e(job.live_url)} ↗</a>`;
+      if(job.repo_url) html += `<a class="m-web-link sub" href="${_e(job.repo_url)}" target="_blank">GitHub-Repo ↗</a>`;
+      if(job.folder)   html += `<div class="m-web-folder">Ordner: ${_e(job.folder)}</div>`;
+      out.innerHTML = html + hint;
+    }else if(job.status === 'error'){
+      clearInterval(iv);
+      btn.disabled = false;
+      out.innerHTML = `<div class="m-err-row">✕ ${_e(job.error||job.step||'Fehler')}</div>` + hint;
+    }else{
+      const p = job.progress || 0;
+      out.innerHTML = `<div class="m-web-prog"><div class="m-web-bar"><div class="m-web-fill" style="width:${p}%"></div></div>
+        <div class="m-spin-row"><span class="jc-spin"></span><span>${_e(job.step||'Arbeitet…')} (${p}%)</span></div></div>` + hint;
+    }
+  }, 1800);
+}
+
 function closeModal(){
   document.getElementById('modal-bg').classList.remove('open');
   document.getElementById('modal').classList.remove('open');

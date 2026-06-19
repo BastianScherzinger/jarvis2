@@ -147,6 +147,25 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string"}, "repo_url": {"type": "string"},
          "message": {"type": "string"}}, "required": ["name", "repo_url"]}},
+
+    # — Automatischer Website-Builder (Lead → Landing → GitHub → Railway live) —
+    {"name": "build_website",
+     "description": "Baut für einen Lead/Kunden VOLLAUTOMATISCH eine Landing-Page und bringt "
+                    "sie live: kopiert die Landing-Vorlage, baut die GEFUNDENEN Fotos ein, "
+                    "textet/gestaltet die Seite, erstellt ein GitHub-Repo und deployt auf Railway "
+                    "(Tokens aus .env). Nutze dies, wenn Sir 'bau dem Lead/Kunden X eine Webseite' "
+                    "sagt. Läuft im Hintergrund — gib danach build_website_status mit der job_id ab.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string", "description": "Firmenname des Leads"},
+         "stadt": {"type": "string"}, "branche": {"type": "string"},
+         "telefon": {"type": "string"}, "email": {"type": "string"},
+         "lead_id": {"type": "integer", "description": "id des bewerteten Leads (lädt Fotos automatisch)"}},
+         "required": ["name"]}},
+    {"name": "build_website_status",
+     "description": "Status eines Website-Bau-Jobs per job_id (Fortschritt, Ordner, Repo-URL, "
+                    "Live-URL). wait=true wartet bis zu 25s.",
+     "input_schema": {"type": "object", "properties": {
+         "job_id": {"type": "string"}, "wait": {"type": "boolean"}}, "required": ["job_id"]}},
 ]
 
 
@@ -268,6 +287,51 @@ def _dispatch(name: str, a: dict) -> str:
         if name == "shop_write":  return agent_shop.fs_write(a.get("path", ""), a.get("content", ""))
         if name == "shop_git":    return agent_shop.git_push(a.get("name", ""), a.get("repo_url", ""),
                                                              a.get("message", "Initiales Shop-Projekt"))
+
+    if name == "build_website":
+        import website_builder
+        if not website_builder.is_available():
+            return "Tool-Fehler: vorlage_landing/ fehlt im Projekt."
+        lead = {"name": a.get("name", ""), "stadt": a.get("stadt", ""),
+                "branche": a.get("branche", ""), "telefon": a.get("telefon", ""),
+                "email": a.get("email", "")}
+        if a.get("lead_id"):
+            try:
+                import db_evaluated
+                row = db_evaluated.get_by_id(int(a["lead_id"]))
+                if row:
+                    for k, v in row.items():
+                        if v not in (None, "", []) and not lead.get(k):
+                            lead[k] = v
+            except Exception:
+                pass
+        if not lead.get("name"):
+            return "Kein Firmenname angegeben."
+        import agent_github, agent_railway
+        jid = website_builder.build(lead)
+        gh = "ja" if agent_github.is_ready() else "nein (GITHUB_TOKEN fehlt)"
+        rw = "ja" if agent_railway.is_ready() else "nein (RAILWAY_TOKEN fehlt)"
+        return (f"Website-Bau gestartet für '{lead['name']}' (job_id {jid}). "
+                f"GitHub aktiv: {gh}. Railway aktiv: {rw}. "
+                f"Status mit build_website_status(job_id='{jid}', wait=true).")
+
+    if name == "build_website_status":
+        import website_builder, time as _t
+        jid = a.get("job_id", "")
+        end = _t.time() + (25 if a.get("wait") else 0)
+        while True:
+            job = website_builder.get(jid)
+            if not job:
+                return f"Job {jid} nicht gefunden."
+            st = job.get("status", "?")
+            if st in ("done", "error") or _t.time() >= end:
+                parts = [f"Job {jid}: {st} ({job.get('progress',0)}%) — {job.get('step','')}"]
+                if job.get("folder"):   parts.append(f"Ordner: {job['folder']}")
+                if job.get("repo_url"): parts.append(f"Repo: {job['repo_url']}")
+                if job.get("live_url"): parts.append(f"LIVE: {job['live_url']}")
+                if job.get("error"):    parts.append(f"Fehler: {job['error']}")
+                return " | ".join(parts)
+            _t.sleep(2)
 
     return f"Unbekanntes Tool: {name}"
 
