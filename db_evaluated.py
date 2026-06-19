@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 def _compute_lead_key(name: str, stadt: str) -> str:
-    """Globaler Dedup-Schlüssel: md5(lower(name)|lower(stadt)). Identisch mit cloud_sync."""
-    s = f"{(name or '').strip().lower()}|{(stadt or '').strip().lower()}"
-    return hashlib.md5(s.encode("utf-8")).hexdigest()
+    """Globaler Dedup-Schlüssel — zentrale Definition in leadkey.py."""
+    from leadkey import lead_key
+    return lead_key(name, stadt)
 
 DB_PATH = Path(__file__).parent / "data" / "leads_evaluated.db"
 _lock   = threading.Lock()
@@ -67,6 +67,7 @@ def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
     return c
 
 

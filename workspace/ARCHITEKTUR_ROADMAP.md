@@ -11,11 +11,16 @@ Heute drei Varianten: DB1 `name=stadt` exakt, DB2/Cloud `md5(lower(name)|stadt)`
 importiert von db_raw, db_evaluated, cloud_sync. Adresse in den Key aufnehmen (zwei Betriebe
 gleichen Namens/Stadt kollidieren sonst).
 
-## 2. `leads.db` (DB „Legacy") eliminieren — HIGH
-Jeder Scraper schreibt doppelt (db.insert + db_raw.insert_raw). Das Frontend liest DB2; der
-Verifier auf leads.db ist deaktiviert. Nur `db.get_stats()` (SSE/Status) hängt noch dran.
-→ Stats aus db_raw/db_evaluated ziehen, db.py entfernen. Halbiert Schreiblast + Lock-Contention,
-beseitigt eine divergierende Dedup-Logik.
+## 2. `leads.db` (DB „Legacy") eliminieren — HIGH  ⚠️ EINZIGER OFFENER PUNKT
+Jeder Scraper schreibt doppelt (db.insert + db_raw.insert_raw). **Bewusst NICHT blind entfernt**,
+weil leads.db tiefer verdrahtet ist als es scheint:
+- Die Lead-Tab-Modal-Routen `/api/lead/<id>/status|email|mockup|competition` arbeiten mit
+  **DB1-leads.db-IDs** (kommen aus dem Live-Feed). Ohne Rewiring auf db_raw/DB2 brechen sie.
+- `db.get_stats()` liefert `lead_typ`-basierte Zahlen (Hot/Warm/Cold) aus dem Scraper-Heuristik-
+  Score; `db_raw` hat kein `lead_typ` → andere Statistik-Semantik.
+→ Sicherer Pfad (eigener, interaktiv getesteter Schritt): Lead-Tab-Modal auf db_raw/DB2 umstellen,
+`db.get_stats()` → `db_raw.get_raw_stats()`, dann db.insert aus den Scrapern entfernen, db.py löschen.
+Erfordert manuelles Testen des Leads-Tabs (Live-Scraping) — nicht „blind" machbar.
 
 ## 3. Worker-Supervisor + Heartbeat — HIGH
 Worker sind nackte Daemon-Threads; stirbt einer außerhalb der inneren try, meldet `is_running()`
@@ -47,8 +52,21 @@ System-Prompt ist klein (unter Opus-Cache-Minimum), aber die clientseitige `_cla
 wächst unbegrenzt → steigende Kosten/Context. → History clientseitig auf letzte N Runden trimmen.
 
 ---
-**Bereits in diesem Durchgang umgesetzt:** Marktplatz-Filter (P4), schreibender Lead-Zugriff
-(P2: leads_update), Akquise-Anreicherung on demand (P1: enrich_business), Observability
+## Status
+
+**Umgesetzt + getestet (Durchgang 1 — Features):** Marktplatz-Filter (P4), schreibender
+Lead-Zugriff (P2: leads_update), Akquise-Anreicherung (P1: enrich_business), Observability
 (P6: metrics + /api/metrics + is_error), Konversions-Tracking + Job-Poll (P3/P5), dauerhafter
-Sprach-Gesprächsmodus (VAD), Shop-Workflow (immer Skill → neuer Ordner → Redesign → git push),
-case-insensitives DB1-Dedup.
+Sprach-Gesprächsmodus (VAD), Shop-Workflow (Skill → neuer Ordner → Redesign → git push).
+
+**Umgesetzt + getestet (Durchgang 2 — Architektur):**
+- ✅ #1 Kanonischer `leadkey.py` (eine Definition statt drei; Format unverändert).
+- ✅ #3 Worker-Health: pro-Worker `alive` in `/api/status` (deckt still gestorbene Worker auf).
+- ✅ #4 `busy_timeout=5000` in allen DB-Connections (kein sofortiges „locked").
+- ✅ #5 `claim_next_pending` crash-fest: `claimed_at` + 2-Min-Watchdog + Anti-Starvation-Tiebreaker.
+- ✅ #6 Erste **Tests** (`tests/test_core.py`, 9 grün) — leadkey, quality, extract_json, _domain, Sicherheit.
+- ✅ #7 SSE-Stats auf 1×/Sek gecacht (kein N+1 mehr pro Lead-Event).
+- ✅ #8 Claude-History clientseitig auf 40 Einträge begrenzt.
+
+**Offen:** nur noch #2 (`leads.db` eliminieren) — siehe Begründung oben (eigener, interaktiv
+getesteter Schritt, nicht blind).

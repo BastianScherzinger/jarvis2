@@ -43,6 +43,18 @@ def unsubscribe(q) -> None:
 
 def is_running()       -> bool:        return _active
 
+# Registry aller benannten Worker-Threads → echte Gesundheit statt globalem Flag.
+_workers: dict = {}
+
+
+def _register(name: str, thread) -> None:
+    _workers[name] = thread
+
+
+def worker_health() -> list:
+    """Pro Worker: lebt der Thread wirklich? (deckt still gestorbene Worker auf)."""
+    return [{"name": n, "alive": bool(t and t.is_alive())} for n, t in _workers.items()]
+
 
 def _warmup_model() -> None:
     from scrapers import _http
@@ -68,7 +80,20 @@ def _spawn_evaluator() -> None:
         args=(_on_lead, _stop_event, n_eval),
         name="Worker-Evaluator", daemon=True,
     ).start()
+    threading.Thread(target=_watchdog_loop, name="Evaluator-Watchdog", daemon=True).start()
     logger.info("Controller", f"Evaluator gestartet ({n_eval} Threads)")
+
+
+def _watchdog_loop() -> None:
+    """Setzt periodisch hängengebliebene 'running'-Leads zurück (Crash-Schutz)."""
+    while not _stop_event.is_set():
+        time.sleep(120)
+        try:
+            n = db_raw.reset_stale_running(10)
+            if n:
+                logger.warn("Watchdog", f"{n} hängende 'running'-Leads → zurück auf pending")
+        except Exception:
+            pass
 
 
 def ensure_evaluator_running() -> None:
@@ -209,3 +234,4 @@ def _spawn(name: str, fn, combos, delay: float = 0, **kwargs):
 
     t = threading.Thread(target=_run, name=f"Worker-{name}", daemon=True)
     t.start()
+    _register(name, t)

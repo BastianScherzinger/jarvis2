@@ -39,6 +39,7 @@ def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
     return c
 
 
@@ -64,6 +65,7 @@ def init_db() -> None:
             anz_bewertungen INTEGER DEFAULT 0,
             finder          TEXT,
             eval_status     TEXT DEFAULT 'pending',
+            claimed_at      TEXT,
             gefunden_am     TEXT
         )
         """)
@@ -84,6 +86,8 @@ def _migrate() -> None:
             c.execute("ALTER TABLE raw_leads ADD COLUMN foto_url TEXT")
         if "foto_urls" not in have:
             c.execute("ALTER TABLE raw_leads ADD COLUMN foto_urls TEXT")
+        if "claimed_at" not in have:
+            c.execute("ALTER TABLE raw_leads ADD COLUMN claimed_at TEXT")
         c.commit()
 
 
@@ -161,20 +165,39 @@ def claim_next_pending() -> dict | None:
     mehreren Evaluator-Threads). Leads OHNE Website zuerst (wertvollste Kunden),
     dann höchste Bewertung.
     """
+    now = datetime.now().isoformat(timespec="seconds")
     with _lock, _conn() as c:
         row = c.execute(
             "SELECT * FROM raw_leads WHERE eval_status='pending' "
-            "ORDER BY has_website ASC, bewertung DESC LIMIT 1"
+            # gefunden_am ASC als Tiebreaker → kein Aushungern alter Pending-Leads
+            "ORDER BY has_website ASC, bewertung DESC, gefunden_am ASC LIMIT 1"
         ).fetchone()
         if not row:
             return None
         lead = dict(row)
         c.execute(
-            "UPDATE raw_leads SET eval_status='running' WHERE id=?", (lead["id"],)
+            "UPDATE raw_leads SET eval_status='running', claimed_at=? WHERE id=?",
+            (now, lead["id"]),
         )
         c.commit()
         lead["eval_status"] = "running"
         return lead
+
+
+def reset_stale_running(max_minutes: int = 10) -> int:
+    """Watchdog: setzt 'running'-Leads, deren claimed_at älter als max_minutes ist
+    (oder fehlt — z.B. Crash mitten in analyze()), zurück auf 'pending'. Gibt die
+    Anzahl zurück. Wird periodisch vom Controller aufgerufen."""
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(minutes=max_minutes)).isoformat(timespec="seconds")
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE raw_leads SET eval_status='pending', claimed_at=NULL "
+            "WHERE eval_status='running' AND (claimed_at IS NULL OR claimed_at < ?)",
+            (cutoff,),
+        )
+        c.commit()
+        return cur.rowcount
 
 
 def update_eval_status(raw_id: int, status: str) -> None:

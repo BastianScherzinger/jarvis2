@@ -55,10 +55,9 @@ _lock    = threading.Lock()
 # ── Helfer ─────────────────────────────────────────────────────────────────────
 
 def make_lead_key(name: str, stadt: str) -> str:
-    """Globaler Unique-Key über alle PCs: MD5(lower(name)|lower(stadt)).
-    Identisch mit db_evaluated._compute_lead_key — beide müssen synchron bleiben."""
-    s = f"{(name or '').strip().lower()}|{(stadt or '').strip().lower()}"
-    return hashlib.md5(s.encode("utf-8")).hexdigest()
+    """Globaler Unique-Key über alle PCs — zentrale Definition in leadkey.py."""
+    from leadkey import lead_key
+    return lead_key(name, stadt)
 
 
 def _cfg() -> tuple[str, str]:

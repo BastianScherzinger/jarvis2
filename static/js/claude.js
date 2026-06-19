@@ -441,6 +441,7 @@ async function claudeSend(){
     body.innerHTML = _claudeMd(acc + (acc?'\n\n':'') + '⚠ Verbindungsfehler: ' + e.message);
   }
   if(hadToken && acc.trim()) _claudeHistory.push({role:'assistant', content:acc});
+  if(_claudeHistory.length > 40) _claudeHistory = _claudeHistory.slice(-40);  // Speicher/Kosten begrenzen
   _claudeBusy = false; _claudeSetBusy(false); _claudeScroll();
   if(hadToken && !hadError && _claudeSpeakOn) await _claudeSpeak(acc);   // Fehlertexte nicht vorlesen
 }

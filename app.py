@@ -64,6 +64,19 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# Stats max. 1×/Sek aggregieren (statt bei JEDEM Lead-Event eine volle COUNT-Runde).
+import time as _time
+_stats_cache = {"t": 0.0, "v": None}
+
+
+def _stats() -> dict:
+    now = _time.time()
+    if _stats_cache["v"] is None or now - _stats_cache["t"] > 1.0:
+        _stats_cache["v"] = db.get_stats()
+        _stats_cache["t"] = now
+    return _stats_cache["v"]
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -93,6 +106,7 @@ def api_status():
     return jsonify({
         "running": controller.is_running(),
         "stats":   db.get_stats(),
+        "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
     })
 
 
@@ -527,14 +541,14 @@ def api_stream():
     def event_stream():
       try:
         # Beim Verbinden: aktuelle DB-Stats schicken (verhindert Flickern)
-        yield _sse({"type": "init_stats", "stats": db.get_stats()})
+        yield _sse({"type": "init_stats", "stats": _stats()})
 
         while True:
             try:
                 lead = q.get(timeout=20)
             except queue.Empty:
                 # Keepalive + aktualisierte Stats alle 20s
-                yield _sse({"type": "stats", "stats": db.get_stats()})
+                yield _sse({"type": "stats", "stats": _stats()})
                 continue
 
             if "_error" in lead:
@@ -550,7 +564,7 @@ def api_stream():
                 yield _sse({
                     "type":  "verified",
                     "data":  lead["data"],
-                    "stats": db.get_stats(),
+                    "stats": _stats(),
                 })
                 continue
 
@@ -560,7 +574,7 @@ def api_stream():
                 continue
 
             # Lead senden + gleichzeitig DB-Stats (single source of truth)
-            yield _sse({"type": "lead", "data": lead, "stats": db.get_stats()})
+            yield _sse({"type": "lead", "data": lead, "stats": _stats()})
       finally:
         controller.unsubscribe(q)   # beim Trennen Client-Queue abmelden
 
