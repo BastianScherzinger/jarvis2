@@ -66,6 +66,7 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 # Basis aus DB1
                 "raw_id":      raw_id,
                 "schluessel":  lead.get("schluessel", ""),
+                "finder":      lead.get("finder", ""),
                 "name":        lead.get("name", ""),
                 "adresse":     lead.get("adresse", ""),
                 "stadt":       lead.get("stadt", ""),

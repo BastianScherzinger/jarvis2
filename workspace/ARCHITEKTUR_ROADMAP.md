@@ -11,7 +11,17 @@ Heute drei Varianten: DB1 `name=stadt` exakt, DB2/Cloud `md5(lower(name)|stadt)`
 importiert von db_raw, db_evaluated, cloud_sync. Adresse in den Key aufnehmen (zwei Betriebe
 gleichen Namens/Stadt kollidieren sonst).
 
-## 2. `leads.db` (DB „Legacy") eliminieren — HIGH  ⚠️ EINZIGER OFFENER PUNKT
+## 2. `leads.db` (DB „Legacy") eliminieren — HIGH  ✅ ERLEDIGT (19.06.2026)
+**Umgesetzt:** `db.py` + `scrapers/verifier.py` gelöscht. Scraper schreiben nur noch nach
+`db_raw` (Queue); der Feed nutzt die `raw_id` als ID. Die Feed-Modal-Routen
+(`/api/lead/<id>/status|email|mockup|competition|website`) lösen `raw_id → db_evaluated`
+auf (eindeutig — die Rangliste nutzt eigene Eval-Routen). Dashboard-Zähler kommen aus
+`db_raw` (Funde/Quellen/Bundesländer) + `db_evaluated` (Hot/Warm/Cold). `db_evaluated` ist
+der kanonische Lead-Store. Verifiziert per Integrationstest (Stats, Status-Persistenz,
+Konkurrenz, 404) + 13 grüne Unit-Tests. **Live-Feed-Klick-Test im laufenden Scraping steht
+noch aus** (Routen sind grün, aber die End-to-End-UX im Browser nicht von mir testbar).
+
+### (historisch) ursprüngliche Beschreibung
 Jeder Scraper schreibt doppelt (db.insert + db_raw.insert_raw). **Bewusst NICHT blind entfernt**,
 weil leads.db tiefer verdrahtet ist als es scheint:
 - Die Lead-Tab-Modal-Routen `/api/lead/<id>/status|email|mockup|competition` arbeiten mit

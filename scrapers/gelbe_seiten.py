@@ -11,7 +11,6 @@ from agents.scorer import score as calc_score
 from agents.quality import is_real_business
 from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
-import db
 import db_raw as _db_raw
 import logger
 
@@ -154,8 +153,7 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
             lead["score"]    = pts
             lead["lead_typ"] = typ
 
-            lead_id = db.insert(lead)
-            _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
+            lead_id = _db_raw.insert_raw(lead)   # Roh-Lead speichern + Feed-ID
             if lead_id:
                 lead["id"] = lead_id
                 logger.success("GelbeSeit", f"Gefunden: {name} ({region})")

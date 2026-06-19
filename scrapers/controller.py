@@ -10,10 +10,9 @@ import itertools
 import time
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN, HIGH_VALUE
-from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal, verifier
+from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal
 from agents import ai_worker
 from agents.evaluator import pipeline as evaluator_pipeline
-import db
 import db_raw
 import logger
 
@@ -143,7 +142,7 @@ def start() -> None:
     _stop_event.clear()
     _active = True
 
-    logger.info("Controller", f"Starte {6} Scraper-Worker + Verifier + Evaluator | Combos: {get_combo_count():,}")
+    logger.info("Controller", f"Starte {6} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
 
     # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks
     # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
@@ -187,20 +186,11 @@ def start() -> None:
     # Worker 6: Lokale KI (Ollama, recherchiert via Websuche, versetzt 15s)
     _spawn("AI",           ai_worker.run_continuous,     c6, delay=15, max_per=8)
 
-    # Hinweis: Der frühere Verifier (auf leads.db) ist deaktiviert. Er war
-    # redundant zum Evaluator-Team und hat die Websuche + Ollama zusätzlich
-    # belastet (→ Block der Suchmaschinen). Das Evaluator-Team (DB2) ist die
-    # kanonische Bewertungs-Pipeline und speist die Rangliste. Reaktivierbar
-    # via JARVIS_VERIFIER_THREADS>0.
-    db.reset_stale_running()
-    n_verifier = int(os.environ.get("JARVIS_VERIFIER_THREADS", "0"))
-    if n_verifier > 0:
-        threading.Thread(
-            target=verifier.run_continuous, args=(_on_lead, _stop_event, n_verifier),
-            name="Worker-Verifier", daemon=True,
-        ).start()
+    # Der frühere Verifier (auf der entfernten leads.db) ist abgeschafft — das
+    # Evaluator-Team (db_evaluated) ist die kanonische Bewertungs-Pipeline.
+    # Hängende 'running'-Roh-Leads räumt der Evaluator-Watchdog (db_raw) auf.
 
-    # Evaluator-Team: liest aus DB1 (leads_raw), schreibt nach DB2 (leads_evaluated).
+    # Evaluator-Team: liest aus leads_raw (Queue), schreibt nach leads_evaluated.
     # Enthält Warmup + ist idempotent.
     _spawn_evaluator()
 

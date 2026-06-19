@@ -238,6 +238,48 @@ def get_pending_count() -> int:
         ).fetchone()[0]
 
 
+def get_by_id(raw_id: int) -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM raw_leads WHERE id=?", (raw_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_competition(stadt: str, branche: str) -> dict:
+    """Wie viele Betriebe gleicher Stadt/Branche haben (k)eine Website (Verkaufsargument)."""
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS gesamt, "
+            "SUM(CASE WHEN has_website=0 THEN 1 ELSE 0 END) AS ohne "
+            "FROM raw_leads WHERE LOWER(stadt)=LOWER(?) AND LOWER(branche)=LOWER(?)",
+            (stadt or "", branche or ""),
+        ).fetchone()
+    gesamt = int(row["gesamt"] or 0)
+    ohne   = int(row["ohne"] or 0)
+    return {"gesamt": gesamt, "ohne_website": ohne,
+            "prozent_ohne": round(ohne / gesamt * 100) if gesamt else 0}
+
+
+def get_dashboard_stats() -> dict:
+    """Zähler für das Dashboard-Topbar: Gesamtfunde, ohne-Website, Quellen, Bundesländer.
+    (Hot/Warm/Cold liefert db_evaluated — die Bewertungs-DB.)"""
+    with _lock, _conn() as c:
+        total   = c.execute("SELECT COUNT(*) FROM raw_leads").fetchone()[0]
+        no_web  = c.execute("SELECT COUNT(*) FROM raw_leads WHERE has_website=0").fetchone()[0]
+        finders = c.execute(
+            "SELECT finder, COUNT(*) AS n FROM raw_leads GROUP BY finder ORDER BY n DESC"
+        ).fetchall()
+        bl_rows = c.execute(
+            "SELECT bundesland, COUNT(*) AS n FROM raw_leads "
+            "GROUP BY bundesland ORDER BY n DESC LIMIT 20"
+        ).fetchall()
+    return {
+        "total":         total,
+        "no_web":        no_web,
+        "finders":       {r["finder"]: r["n"] for r in finders if r["finder"]},
+        "bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
+    }
+
+
 def get_raw_stats() -> dict:
     with _lock, _conn() as c:
         total      = c.execute("SELECT COUNT(*) FROM raw_leads").fetchone()[0]

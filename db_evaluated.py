@@ -29,6 +29,7 @@ _COLUMNS = [
     "email_status", "email_gesendet_am", "email_fehler", "email_opt_out",
     "notiz", "kontaktiert_am", "termin_am", "verkauft_am", "verkauft_euro",
     "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
+    "finder", "mockup_url",
 ]
 
 # Neue Spalten (Name → SQL-Definition) für die Migration bestehender DBs.
@@ -59,6 +60,9 @@ _NEW_COLUMNS = {
     "termin_am":           "TEXT",
     "verkauft_am":         "TEXT",
     "verkauft_euro":       "INTEGER DEFAULT 0",
+    # Feed-Konsolidierung (leads.db eliminiert): Quelle + Mockup am kanonischen Lead
+    "finder":              "TEXT",
+    "mockup_url":          "TEXT",
 }
 
 
@@ -244,6 +248,27 @@ def get_stats() -> dict:
         "top_branchen":     {r["branche"]: r["n"] for r in br_rows if r["branche"]},
         "top_bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
     }
+
+
+def get_typ_counts() -> dict:
+    """Leichte Hot/Warm/Cold-Zähler fürs Dashboard (ohne die volle get_stats-Runde)."""
+    with _lock, _conn() as c:
+        hot  = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE lead_typ='Hot'").fetchone()[0]
+        warm = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE lead_typ='Warm'").fetchone()[0]
+        cold = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE lead_typ='Cold'").fetchone()[0]
+    return {"hot": hot, "warm": warm, "cold": cold}
+
+
+def set_mockup(eval_id: int, url: str) -> None:
+    with _lock, _conn() as c:
+        c.execute("UPDATE evaluated_leads SET mockup_url=? WHERE id=?", (url, eval_id))
+        c.commit()
+
+
+def set_email_entwurf(eval_id: int, entwurf_json: str) -> None:
+    with _lock, _conn() as c:
+        c.execute("UPDATE evaluated_leads SET email_entwurf=? WHERE id=?", (entwurf_json, eval_id))
+        c.commit()
 
 
 def update_status(eval_id: int, status: str) -> None:

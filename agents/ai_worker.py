@@ -15,7 +15,6 @@ from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 from scrapers import _http
 from scrapers import synonyme
-import db
 import db_raw as _db_raw
 import logger
 
@@ -150,8 +149,7 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             lead["score"]    = pts
             lead["lead_typ"] = typ
 
-            lead_id = db.insert(lead)
-            _db_raw.insert_raw(lead)   # auch in DB1 (Rohdaten) schreiben
+            lead_id = _db_raw.insert_raw(lead)   # Roh-Lead speichern + Feed-ID
             if lead_id:
                 lead["id"] = lead_id
                 logger.success("AI-Worker", f"Extrahiert: {name} ({region})")

@@ -16,7 +16,6 @@ from flask import (
     stream_with_context,
 )
 
-import db
 import db_raw
 import db_evaluated
 import media_queue
@@ -26,7 +25,6 @@ from scrapers import controller, _http
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
-db.init_db()
 db_raw.init_db()
 db_evaluated.init_db()
 
@@ -70,9 +68,13 @@ _stats_cache = {"t": 0.0, "v": None}
 
 
 def _stats() -> dict:
+    """Dashboard-Zähler: Funde/Quellen/Bundesländer aus db_raw + Hot/Warm/Cold aus db_evaluated.
+    (leads.db eliminiert — db_evaluated ist der kanonische Lead-Store.)"""
     now = _time.time()
     if _stats_cache["v"] is None or now - _stats_cache["t"] > 1.0:
-        _stats_cache["v"] = db.get_stats()
+        s = db_raw.get_dashboard_stats()
+        s.update(db_evaluated.get_typ_counts())
+        _stats_cache["v"] = s
         _stats_cache["t"] = now
     return _stats_cache["v"]
 
@@ -105,7 +107,7 @@ def api_stop():
 def api_status():
     return jsonify({
         "running": controller.is_running(),
-        "stats":   db.get_stats(),
+        "stats":   _stats(),
         "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
     })
 
@@ -128,6 +130,13 @@ def api_top():
     return jsonify({"top": db_evaluated.get_top(10)})
 
 
+# Feed-Modal-IDs sind raw_ids (db_raw). Nach Bewertung liegt der Lead in db_evaluated
+# (verknüpft über raw_id); davor nur als Rohdatensatz. Diese Auflösung ist eindeutig
+# (die Rangliste nutzt eigene Eval-Routen) — daher kein ID-Namensraum-Konflikt.
+def _feed_lead(lead_id: int) -> dict | None:
+    return db_evaluated.get_by_raw_id(lead_id) or db_raw.get_by_id(lead_id)
+
+
 @app.route("/api/lead/<int:lead_id>/status", methods=["POST"])
 def api_lead_status(lead_id):
     body   = request.get_json(silent=True) or {}
@@ -135,25 +144,37 @@ def api_lead_status(lead_id):
     allowed = {"neu", "kontaktiert", "termin", "verkauft", "tot"}
     if status not in allowed:
         return jsonify({"ok": False, "reason": "invalid_status"}), 400
-    db.update_lead_status(lead_id, status)
-    return jsonify({"ok": True, "status": status})
+    ev = db_evaluated.get_by_raw_id(lead_id)
+    if ev:
+        db_evaluated.update_status(ev["id"], status)
+        return jsonify({"ok": True, "status": status})
+    # Lead noch nicht bewertet → Status lässt sich (noch) nicht persistieren.
+    return jsonify({"ok": True, "status": status,
+                    "hinweis": "Lead wird noch bewertet — Status nach der Bewertung setzbar."})
 
 
 @app.route("/api/lead/<int:lead_id>/email", methods=["POST"])
 def api_lead_email(lead_id):
     """Generiert einen Outreach-E-Mail-Entwurf (synchron via Ollama, ~5-20s)."""
     from agents import outreach
-    lead = db.get_lead(lead_id)
+    lead = _feed_lead(lead_id)
     if not lead:
         return jsonify({"ok": False, "reason": "not_found"}), 404
     result = outreach.generate_email(lead)
+    # Entwurf am kanonischen (bewerteten) Lead speichern, falls vorhanden.
+    ev = db_evaluated.get_by_raw_id(lead_id)
+    if ev and (result.get("betreff") or result.get("text")):
+        try:
+            db_evaluated.set_email_entwurf(ev["id"], json.dumps(result, ensure_ascii=False))
+        except Exception:
+            pass
     return jsonify(result)
 
 
 @app.route("/api/lead/<int:lead_id>/mockup", methods=["POST"])
 def api_lead_mockup(lead_id):
     """Reiht einen Website-Mockup-Bild-Job für diesen Lead ein."""
-    lead = db.get_lead(lead_id)
+    lead = _feed_lead(lead_id)
     if not lead:
         return jsonify({"ok": False, "reason": "not_found"}), 404
     branche = (lead.get("branche") or "business").strip()
@@ -177,12 +198,8 @@ def api_lead_website(eval_id):
         return jsonify({"ok": False, "reason": "vorlage_landing/ fehlt"}), 500
 
     # Beste Datenquelle: bewerteter Lead (hat foto_urls, email_alle). Body füllt Lücken.
-    lead = {}
-    try:
-        import db_evaluated
-        lead = db_evaluated.get_by_id(eval_id) or {}
-    except Exception:
-        lead = {}
+    # Feed-Modal liefert raw_id → über raw_id auflösen (eindeutig).
+    lead = db_evaluated.get_by_raw_id(eval_id) or db_evaluated.get_by_id(eval_id) or {}
     body = request.get_json(silent=True) or {}
     for k, v in body.items():
         if v not in (None, "", []) and not lead.get(k):
@@ -209,10 +226,10 @@ def api_website_job(job_id):
 
 @app.route("/api/lead/<int:lead_id>/competition")
 def api_lead_competition(lead_id):
-    lead = db.get_lead(lead_id)
+    lead = _feed_lead(lead_id)
     if not lead:
         return jsonify({"ok": False, "reason": "not_found"}), 404
-    return jsonify(db.get_competition(lead.get("stadt", ""), lead.get("branche", "")))
+    return jsonify(db_raw.get_competition(lead.get("stadt", ""), lead.get("branche", "")))
 
 
 @app.route("/api/verifier/model", methods=["GET", "POST"])
@@ -263,7 +280,6 @@ def api_clear():
     """Stoppt die Worker und leert ALLE drei Datenbanken komplett."""
     controller.stop()
     geloescht = {
-        "leads":     db.clear_all(),
         "raw":       db_raw.clear_all(),
         "evaluated": db_evaluated.clear_all(),
     }

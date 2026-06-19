@@ -238,11 +238,14 @@ def _worker() -> None:
                 elapsed=round(time.time() - t0, 1),
             )
 
-            # Mockup → in Lead-DB schreiben
+            # Mockup → am kanonischen (bewerteten) Lead speichern. lead_id ist eine
+            # raw_id (Feed) → über raw_id zur evaluated-Zeile auflösen.
             if kind == "mockup" and job.get("lead_id"):
                 try:
-                    import db
-                    db.set_lead_field(job["lead_id"], "mockup_url", url)
+                    import db_evaluated
+                    ev = db_evaluated.get_by_raw_id(job["lead_id"])
+                    if ev:
+                        db_evaluated.set_mockup(ev["id"], url)
                 except Exception:
                     pass
 

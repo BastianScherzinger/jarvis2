@@ -4,17 +4,15 @@ Personalisierte Outreach-E-Mails via Ollama — aus Pitch-Hook + Website-Problem
 import json
 
 from scrapers import _http
-import db
 
 
-def generate_email(lead: dict, persist: bool = True) -> dict:
+def generate_email(lead: dict, persist: bool = False) -> dict:
     """
     Generiert eine personalisierte Akquise-E-Mail für einen Lead.
     Gibt {betreff, text} zurück. Fallback bei Ollama-Ausfall: {..., error:...}.
 
-    persist=True  → speichert email_draft in db.py (DB1) unter lead["id"].
-    persist=False → kein DB-Schreibzugriff (z.B. wenn der Mailer eine DB2-Zeile
-                    übergibt — deren id gehört NICHT zur DB1-Tabelle).
+    Reine Funktion ohne DB-Schreibzugriff — die aufrufende Route persistiert den
+    Entwurf bei Bedarf am kanonischen Lead (db_evaluated.set_email_entwurf).
     """
     name    = (lead.get("name") or "").strip() or "das Unternehmen"
     branche = (lead.get("branche") or "").strip() or "Betrieb"
@@ -65,14 +63,4 @@ def generate_email(lead: dict, persist: bool = True) -> dict:
         return {"betreff": "", "text": "", "error": "Keine gültige Antwort"}
 
     result = {"betreff": betreff, "text": text}
-
-    # In DB1 speichern — nur wenn die id wirklich zur leads-Tabelle gehört.
-    if persist:
-        try:
-            lead_id = lead.get("id")
-            if lead_id:
-                db.set_lead_field(lead_id, "email_draft", json.dumps(result, ensure_ascii=False))
-        except Exception:
-            pass
-
     return result
