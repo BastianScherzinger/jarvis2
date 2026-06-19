@@ -16,13 +16,19 @@ _EMAIL_RE = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
 _BAD_DOMAINS = ['example', 'test', 'sentry', 'wix', 'google', 'schema', 'domain',
                 'email', 'yourname', 'mustermann', 'sample']
 
-# Verzeichnis-, Social- und Portal-Domains die NIE die eigene Website sind.
+# Verzeichnis-, Social-, Portal- und Marktplatz-Domains die NIE die eigene Website sind.
 _NICHT_EIGENE = [
     'dasoertliche', 'gelbeseiten', '11880', 'golocal', 'cylex', 'meinestadt',
     'facebook', 'instagram', 'linkedin', 'xing', 'youtube', 'twitter', 'tiktok',
     'yelp', 'wikipedia', 'google.', 'maps.', 'provenexpert', 'trustpilot',
     'das-telefonbuch', 'herold', 'wlw.', 'werliefertwas', 'kununu', 'indeed',
     'ebay', 'amazon', 'booking.', 'tripadvisor', 'jameda', 'branchenbuch',
+    # Handwerker-/Auftrags-Marktplätze + amtliche Verzeichnisse (mussten bisher manuell raus)
+    'myhammer', 'blauarbeit', 'check24', 'kennstdueinen', 'aroundhome', 'wirmachendruck',
+    'handwerkskammer', 'hwk-', 'hwk.', 'innung', 'kammer.', 'ihk-', 'ihk.',
+    'meinprospekt', 'goyellow', 'pointoo', 'opendi', 'yalwa', 'hotfrog', 'infobel',
+    'northdata', 'companyhouse', 'unternehmensregister', 'firmenabc', 'wer-zu-wem',
+    'stepstone', 'stellenanzeigen', 'kleinanzeigen', 'immobilienscout', 'immoscout',
 ]
 
 

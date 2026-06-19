@@ -33,10 +33,17 @@ SYSTEM = (
     "Screenshot — für Live-Recherche.\n"
     "• Maps (maps_*): reale Betriebe/Orte finden, Adressen, Telefon, Website, Routen.\n"
     "• Medien (generate_image/generate_video): Bilder/Videos erzeugen (asynchron).\n"
-    "• Leads (leads_top/leads_search): die echten Leads dieses Dashboards abfragen.\n"
-    "• Shop bauen (shop_*): komplette Railway-ready Django-Seiten aus der Vorlage erstellen. "
-    "Sagt Sir 'bau mir einen Shop/eine Seite', lies ZUERST shop_skill, dann shop_new(name), "
-    "dann passe Name/Theme/Inhalte mit shop_read/shop_write an.\n\n"
+    "• Leads: leads_top/leads_search (lesen), leads_update (Status/Notiz SCHREIBEN — du "
+    "handelst, nicht nur lesen), enrich_business (beliebigen Betrieb sofort auf "
+    "Akquise-Tauglichkeit prüfen: Website-Status, Score, Sicherheit, Erwartungswert), "
+    "leads_conversion_stats (was wird zu Kunden).\n"
+    "• Webseiten/Shops bauen (shop_*): Sobald Sir eine Website, Seite oder einen Shop bauen "
+    "will, ist das dein FESTER Ablauf — ohne lange Rückfragen: (1) shop_skill lesen, "
+    "(2) shop_new(name) kopiert die Vorlage in einen NEUEN Ordner, (3) die Seite NEU DESIGNEN "
+    "und inhaltlich anpassen — modernes, eigenständiges Design (keine 0815-Optik): Farben/Theme "
+    "in static/css/variables.css, Branding in base.html + components/navbar.html, Inhalte in "
+    "home.html etc. via shop_read/shop_write, (4) ZULETZT Sir nach der GitHub-Repo-URL fragen "
+    "und mit shop_git pushen. Frage nur kurz nach Name/Branche/Farbe, dann leg los.\n\n"
     "ARBEITSWEISE: Plane kurz, rufe die nötigen Tools auf, fasse das Ergebnis knapp und "
     "ehrlich zusammen. Erfinde keine Daten — wenn ein Tool nichts liefert, sag es. Bei "
     "Code: sauber, idiomatisch, knapp erklärt."
@@ -66,7 +73,7 @@ def stream_chat(messages: list[dict], *, think: bool = False, search: bool = Fal
         yield {"_error": "ANTHROPIC_KEY fehlt in der .env — Claude-Chat nicht verfügbar."}
         return
 
-    from agent_tools import TOOLS, execute
+    from agent_tools import TOOLS, run as run_tool
     tools = list(TOOLS)
     if search:
         tools.append({"type": "web_search_20260209", "name": "web_search"})
@@ -88,6 +95,13 @@ def stream_chat(messages: list[dict], *, think: bool = False, search: bool = Fal
                 for text in stream.text_stream:
                     yield {"text": text}
                 final = stream.get_final_message()
+            try:
+                import metrics
+                u = final.usage
+                metrics.record_claude(getattr(u, "input_tokens", 0),
+                                      getattr(u, "output_tokens", 0))
+            except Exception:
+                pass
         except anthropic.AuthenticationError:
             yield {"_error": "API-Key ungültig (401). Bitte ANTHROPIC_KEY in .env prüfen."}
             return
@@ -109,10 +123,11 @@ def stream_chat(messages: list[dict], *, think: bool = False, search: bool = Fal
             for block in final.content:
                 if getattr(block, "type", "") == "tool_use":
                     yield {"tool": block.name, "input": block.input}
-                    out = execute(block.name, dict(block.input or {}))
-                    yield {"tool_result": (out or "")[:300]}
+                    r = run_tool(block.name, dict(block.input or {}))
+                    out = r["text"]
+                    yield {"tool_result": out[:300]}
                     results.append({"type": "tool_result", "tool_use_id": block.id,
-                                    "content": out or "(leer)"})
+                                    "content": out or "(leer)", "is_error": not r["ok"]})
             convo.append({"role": "user", "content": results})
             continue
 

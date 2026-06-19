@@ -80,9 +80,10 @@ TOOLS = [
          "prompt": {"type": "string"},
          "backend": {"type": "string", "enum": ["local", "higgsfield"]}}, "required": ["prompt"]}},
     {"name": "media_job_status",
-     "description": "Status eines Bild-/Video-Jobs per Job-ID abfragen.",
+     "description": "Status eines Bild-/Video-Jobs per Job-ID abfragen. wait=true wartet "
+                    "bis zu 25s auf die Fertigstellung (für schnelle Jobs).",
      "input_schema": {"type": "object", "properties": {
-         "job_id": {"type": "string"}}, "required": ["job_id"]}},
+         "job_id": {"type": "string"}, "wait": {"type": "boolean"}}, "required": ["job_id"]}},
 
     # — Eigene Lead-Datenbank —
     {"name": "leads_top",
@@ -94,6 +95,27 @@ TOOLS = [
      "description": "Durchsuche die bewerteten Leads nach Name/Stadt/Branche.",
      "input_schema": {"type": "object", "properties": {
          "query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "leads_update",
+     "description": "Schreibe in einen Lead: Status setzen (neu/kontaktiert/termin/verkauft/tot) "
+                    "und/oder eine Notiz hinzufügen. Lead per id ODER name. Nutze dies, wenn Sir "
+                    "sagt 'markiere X als kontaktiert' oder 'notiere bei Y …'.",
+     "input_schema": {"type": "object", "properties": {
+         "id": {"type": "integer"}, "name": {"type": "string"},
+         "status": {"type": "string", "enum": ["neu", "kontaktiert", "termin", "verkauft", "tot"]},
+         "notiz": {"type": "string"},
+         "verkauft_euro": {"type": "integer", "description": "realisierter Umsatz bei Abschluss"}}}},
+    {"name": "leads_conversion_stats",
+     "description": "Konversions-Statistik: was wird tatsächlich zu Kunden (nach Status, "
+                    "Branche, Score-Band) + Umsatz. Realitäts-Abgleich fürs Scoring.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "enrich_business",
+     "description": "Bewerte einen BELIEBIGEN Betrieb sofort auf Akquise-Tauglichkeit: findet "
+                    "die Website, prüft Qualität/Alter/Mängel, Social, und berechnet Score, "
+                    "Sicherheit und Erwartungswert — wie die Lead-Pipeline, aber on demand. "
+                    "Nutze dies für 'wie akquise-tauglich ist Betrieb X in Stadt Y'.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"}, "stadt": {"type": "string"}, "branche": {"type": "string"}},
+         "required": ["name"]}},
 
     # — Shop / Django-Seite bauen —
     {"name": "shop_skill",
@@ -119,17 +141,46 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "path": {"type": "string"}, "content": {"type": "string"}},
          "required": ["path", "content"]}},
+    {"name": "shop_git",
+     "description": "git init + commit + push eines fertigen Shop-Projekts nach GitHub. "
+                    "Frag Sir ZUERST nach der Repo-URL, dann pushen. Letzter Schritt.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"}, "repo_url": {"type": "string"},
+         "message": {"type": "string"}}, "required": ["name", "repo_url"]}},
 ]
 
 
 # ── Ausführung ────────────────────────────────────────────────────────────────
 
-def execute(name: str, args: dict) -> str:
-    """Führt ein Tool aus und gibt ein Text-Ergebnis zurück (nie eine Exception)."""
+_ERR_PREFIXES = ("tool-fehler", "browser-fehler", "maps-fehler", "schreibfehler",
+                 "lesefehler", "unbekanntes tool", "unbekannte aktion", "ungültig")
+
+
+def run(name: str, args: dict) -> dict:
+    """Führt ein Tool aus, misst Latenz + Fehler (metrics). Gibt {'text','ok'} zurück."""
+    import time
+    t0 = time.perf_counter()
+    ok = True
     try:
-        return _dispatch(name, args or {})
+        out = _dispatch(name, args or {})
+        low = (out or "").lstrip().lower()
+        if any(low.startswith(p) for p in _ERR_PREFIXES) or "fehlgeschlagen" in low[:60]:
+            ok = False
     except Exception as e:
-        return f"Tool-Fehler in {name}: {type(e).__name__}: {str(e)[:200]}"
+        ok = False
+        out = f"Tool-Fehler in {name}: {type(e).__name__}: {str(e)[:200]}"
+    ms = (time.perf_counter() - t0) * 1000
+    try:
+        import metrics
+        metrics.record_tool(name, ms, ok)
+    except Exception:
+        pass
+    return {"text": out or "", "ok": ok}
+
+
+def execute(name: str, args: dict) -> str:
+    """Rückwärtskompatibel — gibt nur den Ergebnistext zurück (nie eine Exception)."""
+    return run(name, args)["text"]
 
 
 def _dispatch(name: str, a: dict) -> str:
@@ -158,7 +209,7 @@ def _dispatch(name: str, a: dict) -> str:
             return agent_media.generate_image(a.get("prompt", ""))
         if name == "generate_video":
             return agent_media.generate_video(a.get("prompt", ""), a.get("backend", "local"))
-        return agent_media.job_status(a.get("job_id", ""))
+        return agent_media.job_status(a.get("job_id", ""), bool(a.get("wait")))
 
     if name == "leads_top":
         import db_evaluated
@@ -169,6 +220,45 @@ def _dispatch(name: str, a: dict) -> str:
         rows = db_evaluated.get_all(limit=10, suche=a.get("query", ""), sort="erwartungswert")
         return _fmt_leads(rows)
 
+    if name == "leads_update":
+        import db_evaluated
+        lead = None
+        if a.get("id"):
+            try:
+                lead = db_evaluated.get_by_id(int(a["id"]))
+            except Exception:
+                lead = None
+        if lead is None and a.get("name"):
+            rows = db_evaluated.get_all(limit=1, suche=a["name"])
+            lead = rows[0] if rows else None
+        if not lead:
+            return "Lead nicht gefunden — gib id oder name an."
+        eid = lead["id"]
+        done = []
+        st = a.get("status")
+        if st in ("neu", "kontaktiert", "termin", "verkauft", "tot"):
+            db_evaluated.update_status(eid, st)
+            done.append(f"Status={st}")
+        if (a.get("notiz") or "").strip():
+            db_evaluated.set_notiz(eid, a["notiz"].strip())
+            done.append("Notiz gespeichert")
+        if a.get("verkauft_euro") is not None:
+            try:
+                db_evaluated.set_verkauft_euro(eid, int(a["verkauft_euro"]))
+                done.append(f"Umsatz={int(a['verkauft_euro'])}€")
+            except (TypeError, ValueError):
+                pass
+        return (f"Aktualisiert: {lead.get('name')} ({lead.get('stadt','')}) — "
+                + (", ".join(done) or "nichts geändert (status/notiz/umsatz fehlt)"))
+
+    if name == "leads_conversion_stats":
+        import db_evaluated, json as _j
+        return _j.dumps(db_evaluated.get_conversion_stats(), ensure_ascii=False, indent=2)
+
+    if name == "enrich_business":
+        import agent_enrich
+        return agent_enrich.enrich(a.get("name", ""), a.get("stadt", ""), a.get("branche", ""))
+
     if name.startswith("shop_"):
         import agent_shop
         if name == "shop_skill":  return agent_shop.skill()
@@ -176,6 +266,8 @@ def _dispatch(name: str, a: dict) -> str:
         if name == "shop_list":   return agent_shop.fs_list(a.get("path", ""))
         if name == "shop_read":   return agent_shop.fs_read(a.get("path", ""))
         if name == "shop_write":  return agent_shop.fs_write(a.get("path", ""), a.get("content", ""))
+        if name == "shop_git":    return agent_shop.git_push(a.get("name", ""), a.get("repo_url", ""),
+                                                             a.get("message", "Initiales Shop-Projekt"))
 
     return f"Unbekanntes Tool: {name}"
 

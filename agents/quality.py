@@ -6,7 +6,9 @@ import re
 # Marken-/Domain-Begriffe: als Substring sicher (kommen in echten Firmennamen nicht vor).
 _PORTAL_SUBSTR = ["wikipedia", "facebook", "instagram", "youtube", "twitter", "yelp",
     "11880", "gelbe seiten", "das örtliche", "branchenbuch", "kleinanzeigen",
-    "immobilien scout", "ebay", "amazon", "booking", "tripadvisor", "google maps"]
+    "immobilien scout", "ebay", "amazon", "booking", "tripadvisor", "google maps",
+    "myhammer", "blauarbeit", "check24", "handwerkskammer", "kennstdueinen",
+    "aroundhome", "stepstone", "wlw", "werliefertwas"]
 
 # Generische deutsche Wörter: NUR als ganzes Wort prüfen — sonst werden echte
 # Betriebe verworfen ("Listemann GmbH", "Findeisen", "Vergleichsweise …").

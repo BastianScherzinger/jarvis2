@@ -130,8 +130,10 @@ def insert_raw(lead: dict) -> int | None:
     row.setdefault("gefunden_am", datetime.now().isoformat(timespec="seconds"))
 
     with _lock, _conn() as c:
+        # Case-insensitiver Dedup-Check (vorher exakt → "Müller" ≠ "müller" doppelt).
         dup = c.execute(
-            "SELECT 1 FROM raw_leads WHERE name=? AND stadt=? LIMIT 1", (name, stadt)
+            "SELECT 1 FROM raw_leads WHERE LOWER(name)=LOWER(?) AND LOWER(stadt)=LOWER(?) LIMIT 1",
+            (name, stadt),
         ).fetchone()
         if dup:
             return None

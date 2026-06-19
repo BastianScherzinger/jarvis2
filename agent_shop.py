@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 HERE      = Path(__file__).parent
@@ -89,6 +90,41 @@ def fs_read(rel: str) -> str:
         return p.read_text(encoding="utf-8", errors="replace")[:20000]
     except Exception as e:
         return f"Lesefehler: {type(e).__name__}"
+
+
+def git_push(name: str, repo_url: str, message: str = "Initiales Shop-Projekt") -> str:
+    """git init → commit → push für ein Shop-Projekt. repo_url muss vom Nutzer kommen."""
+    target = _safe((name or "").strip().strip("/\\ "))
+    if target is None or not target.is_dir():
+        return "Projekt nicht gefunden — erst shop_new(name) ausführen."
+    repo_url = (repo_url or "").strip()
+    if not (repo_url.startswith("https://github.com/") or repo_url.startswith("git@")):
+        return "Bitte eine gültige GitHub-Repo-URL angeben (https://github.com/<user>/<repo>.git)."
+
+    # LF-Zeilenenden für .sh erzwingen (Railway-Container)
+    try:
+        (target / ".gitattributes").write_text("*.sh text eol=lf\n", encoding="utf-8")
+    except Exception:
+        pass
+
+    def _run(args: list) -> "subprocess.CompletedProcess":
+        return subprocess.run(["git", *args], cwd=str(target),
+                              capture_output=True, text=True, timeout=180)
+    try:
+        if not (target / ".git").exists():
+            _run(["init"])
+            _run(["branch", "-M", "main"])
+        _run(["add", "-A"])
+        _run(["commit", "-m", message or "Initiales Shop-Projekt"])
+        if _run(["remote", "add", "origin", repo_url]).returncode != 0:
+            _run(["remote", "set-url", "origin", repo_url])
+        push = _run(["push", "-u", "origin", "main"])
+        if push.returncode == 0:
+            return f"✓ Nach {repo_url} gepusht (Branch main). Jetzt auf Railway 'Deploy from GitHub'."
+        return ("Push fehlgeschlagen: " + (push.stderr or push.stdout or "")[:300]
+                + "\n(Existiert das Repo auf GitHub? Sind die Zugangsdaten gesetzt?)")
+    except Exception as e:
+        return f"Git-Fehler: {type(e).__name__}: {str(e)[:200]}"
 
 
 def fs_write(rel: str, content: str) -> str:

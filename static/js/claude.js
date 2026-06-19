@@ -106,6 +106,130 @@ function _claudeWire(){
     });
     _claudeUpdateVoiceBtn();   // Startzustand (aus)
   }
+
+  const convoBtn = document.getElementById('cc-convo');
+  if(convoBtn) convoBtn.addEventListener('click', _claudeToggleConvo);
+}
+
+// ── Freihändiger Gesprächsmodus (dauerhaft zuhören, VAD-basiert) ──────────────
+const _claudeConvo = {active:false, recording:false, processing:false, speaking:false,
+  ctx:null, analyser:null, src:null, stream:null, rec:null, chunks:[], buf:null,
+  raf:0, speechMs:0, silenceMs:0, lastT:0};
+const _VAD_THRESH = 0.030;      // RMS-Schwelle für Sprache
+const _VAD_SILENCE_END = 1100;  // ms Stille beendet die Äußerung
+const _VAD_MIN_SPEECH = 350;    // ms Mindest-Sprechdauer (gegen Geräusche)
+
+async function _claudeToggleConvo(){
+  if(_claudeConvo.active){ _claudeConvoStop(); return; }
+  try{
+    _claudeConvo.stream = await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){ _claudeToast('Mikrofon-Zugriff verweigert.'); return; }
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if(!Ctx || !window.MediaRecorder){ _claudeToast('Browser unterstützt keinen Gesprächsmodus.'); return; }
+  const c = _claudeConvo;
+  c.ctx = new Ctx();
+  c.src = c.ctx.createMediaStreamSource(c.stream);
+  c.analyser = c.ctx.createAnalyser();
+  c.analyser.fftSize = 1024;
+  c.buf = new Uint8Array(c.analyser.fftSize);
+  c.src.connect(c.analyser);
+  c.active = true; c.lastT = performance.now();
+  _claudeSpeakOn = true; _claudeUpdateVoiceBtn();   // im Gespräch wird vorgelesen
+  _claudeConvoBtnState();
+  _claudeConvoStatus('Höre zu…', 'listen');
+  _claudeVadTick();
+}
+
+function _claudeConvoStop(){
+  const c = _claudeConvo;
+  c.active = false;
+  if(c.raf) cancelAnimationFrame(c.raf);
+  try{ if(c.rec && c.rec.state !== 'inactive') c.rec.stop(); }catch(e){}
+  if(c.stream){ c.stream.getTracks().forEach(t=>t.stop()); c.stream = null; }
+  try{ if(c.ctx) c.ctx.close(); }catch(e){}
+  c.ctx = null; c.analyser = null; c.recording = false; c.processing = false; c.speaking = false;
+  _claudeStopAudio();
+  _claudeConvoBtnState();
+  _claudeConvoStatus('', '');
+}
+
+function _claudeVadTick(){
+  const c = _claudeConvo;
+  if(!c.active) return;
+  c.raf = requestAnimationFrame(_claudeVadTick);
+  const now = performance.now(); const dt = now - c.lastT; c.lastT = now;
+  if(c.processing || c.speaking) return;   // nicht zuhören, während verarbeitet/gesprochen wird
+  c.analyser.getByteTimeDomainData(c.buf);
+  let sum = 0;
+  for(let i=0;i<c.buf.length;i++){ const v = (c.buf[i] - 128) / 128; sum += v*v; }
+  const rms = Math.sqrt(sum / c.buf.length);
+  if(rms > _VAD_THRESH){
+    c.silenceMs = 0;
+    if(!c.recording) _claudeConvoStartRec(); else c.speechMs += dt;
+  } else if(c.recording){
+    c.silenceMs += dt; c.speechMs += dt;
+    if(c.silenceMs > _VAD_SILENCE_END) _claudeConvoStopRec();
+  }
+}
+
+function _claudeConvoStartRec(){
+  const c = _claudeConvo;
+  c.chunks = []; c.speechMs = 0; c.silenceMs = 0;
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  c.rec = new MediaRecorder(c.stream, mime ? {mimeType:mime} : undefined);
+  c.rec.ondataavailable = e=>{ if(e.data && e.data.size) c.chunks.push(e.data); };
+  c.rec.onstop = ()=>_claudeConvoOnStop();
+  c.rec.start();
+  c.recording = true;
+  _claudeConvoStatus('Ich höre…', 'rec');
+}
+
+function _claudeConvoStopRec(){
+  const c = _claudeConvo;
+  if(c.rec && c.rec.state !== 'inactive'){ try{ c.rec.stop(); }catch(e){} }
+}
+
+async function _claudeConvoOnStop(){
+  const c = _claudeConvo;
+  c.recording = false;
+  const spoke = c.speechMs;
+  const blob = new Blob(c.chunks, {type:'audio/webm'});
+  c.chunks = [];
+  if(!c.active) return;
+  if(spoke < _VAD_MIN_SPEECH || !blob.size){ _claudeConvoStatus('Höre zu…', 'listen'); return; }
+  c.processing = true;
+  _claudeConvoStatus('Verstehe…', 'think');
+  const text = await _transcribeBlob(blob);
+  if(!c.active) return;
+  if(text){
+    const inp = document.getElementById('cc-input');
+    if(inp) inp.value = text;
+    _claudeSpeakOn = true; _claudeUpdateVoiceBtn();
+    c.speaking = true;
+    _claudeConvoStatus('JARVIS antwortet…', 'speak');
+    try{ await claudeSend(); }catch(e){}
+    c.speaking = false;
+  } else {
+    _claudeToast('Nichts verstanden.');
+  }
+  c.processing = false;
+  if(c.active) _claudeConvoStatus('Höre zu…', 'listen');
+}
+
+function _claudeConvoBtnState(){
+  const b = document.getElementById('cc-convo');
+  if(b) b.classList.toggle('on', _claudeConvo.active);
+  if(!_claudeConvo.active){
+    const lbl = document.getElementById('cc-convo-lbl');
+    if(lbl) lbl.textContent = 'Gespräch';
+  }
+}
+
+function _claudeConvoStatus(text, cls){
+  const lbl = document.getElementById('cc-convo-lbl');
+  if(lbl) lbl.textContent = text || 'Gespräch';
+  const b = document.getElementById('cc-convo');
+  if(b){ b.classList.remove('listen','rec','think','speak'); if(cls) b.classList.add(cls); }
 }
 
 function _claudeRenderFiles(){
@@ -208,22 +332,38 @@ function _claudeStopAudio(){
   }
 }
 
-async function _claudeSpeak(text){
-  _claudeStopAudio();
+function _claudeSpeak(text){
+  // Promise löst auf, wenn die Wiedergabe endet (Gesprächsmodus wartet darauf).
+  return new Promise((resolve)=>{
+    _claudeStopAudio();
+    (async ()=>{
+      try{
+        const r = await fetch('/api/voice/speak', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({text}),
+        });
+        if(!r.ok){ resolve(); return; }
+        const blob = await r.blob();
+        const url  = URL.createObjectURL(blob);
+        const a = new Audio(url); a._url = url;
+        const fin = ()=>{ try{ URL.revokeObjectURL(url); }catch(e){} resolve(); };
+        a.onended = fin; a.onerror = fin;
+        _claudeAudio = a;
+        a.play().catch(fin);
+      }catch(e){ resolve(); }
+    })();
+  });
+}
+
+// Audio-Blob → Transkript (gemeinsam für Push-to-Talk + Gesprächsmodus)
+async function _transcribeBlob(blob){
   try{
-    const r = await fetch('/api/voice/speak', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text}),
-    });
-    if(!r.ok) return;
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a = new Audio(url);
-    a._url = url;
-    a.onended = ()=>{ try{ URL.revokeObjectURL(url); }catch(e){} };
-    _claudeAudio = a;
-    a.play().catch(()=>{});
-  }catch(e){}
+    const fd = new FormData();
+    fd.append('audio', blob, 'speech.webm');
+    const r = await fetch('/api/voice/transcribe', {method:'POST', body:fd});
+    const d = await r.json();
+    return d.ok ? (d.text || '').trim() : null;
+  }catch(e){ return null; }
 }
 
 function _claudeToast(msg){
@@ -302,7 +442,7 @@ async function claudeSend(){
   }
   if(hadToken && acc.trim()) _claudeHistory.push({role:'assistant', content:acc});
   _claudeBusy = false; _claudeSetBusy(false); _claudeScroll();
-  if(hadToken && !hadError && _claudeSpeakOn) _claudeSpeak(acc);   // Fehlertexte nicht vorlesen
+  if(hadToken && !hadError && _claudeSpeakOn) await _claudeSpeak(acc);   // Fehlertexte nicht vorlesen
 }
 
 function _claudeSetBusy(b){
@@ -339,8 +479,10 @@ const _CLAUDE_TOOL_LABELS = {
   browser_links:'Links', browser_back:'Zurück', browser_screenshot:'Screenshot',
   generate_image:'Bild erzeugen', generate_video:'Video erzeugen', media_job_status:'Job-Status',
   leads_top:'Top-Leads', leads_search:'Lead-Suche', web_search:'Websuche',
+  leads_update:'Lead aktualisieren', enrich_business:'Akquise-Analyse',
+  leads_conversion_stats:'Konversions-Statistik',
   shop_skill:'Shop-Anleitung', shop_new:'Shop erstellen', shop_list:'Projekt-Dateien',
-  shop_read:'Datei lesen', shop_write:'Datei schreiben',
+  shop_read:'Datei lesen', shop_write:'Datei schreiben', shop_git:'Nach GitHub pushen',
 };
 function _claudeToolLine(name, input){
   const label = _CLAUDE_TOOL_LABELS[name] || name;

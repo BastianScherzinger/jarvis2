@@ -27,6 +27,7 @@ _COLUMNS = [
     "erwartungswert_euro", "sicherheit", "sicherheit_breakdown",
     "potenzial_begruendung", "pitch_hook", "score", "lead_typ", "email_entwurf",
     "email_status", "email_gesendet_am", "email_fehler", "email_opt_out",
+    "notiz", "kontaktiert_am", "termin_am", "verkauft_am", "verkauft_euro",
     "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
 ]
 
@@ -52,6 +53,12 @@ _NEW_COLUMNS = {
     "email_gesendet_am":   "TEXT",
     "email_fehler":        "TEXT",
     "email_opt_out":       "INTEGER DEFAULT 0",
+    "notiz":               "TEXT",            # freie CRM-Notiz (vom Agenten/Dashboard)
+    # Konversions-Tracking (Feedback-Loop fürs Scoring)
+    "kontaktiert_am":      "TEXT",
+    "termin_am":           "TEXT",
+    "verkauft_am":         "TEXT",
+    "verkauft_euro":       "INTEGER DEFAULT 0",
 }
 
 
@@ -239,8 +246,16 @@ def get_stats() -> dict:
 
 
 def update_status(eval_id: int, status: str) -> None:
+    from datetime import datetime
+    ts  = datetime.now().isoformat(timespec="seconds")
+    col = {"kontaktiert": "kontaktiert_am", "termin": "termin_am",
+           "verkauft": "verkauft_am"}.get(status)          # feste Whitelist → f-string sicher
     with _lock, _conn() as c:
-        c.execute("UPDATE evaluated_leads SET status=? WHERE id=?", (status, eval_id))
+        if col:
+            c.execute(f"UPDATE evaluated_leads SET status=?, {col}=COALESCE({col}, ?) WHERE id=?",
+                      (status, ts, eval_id))
+        else:
+            c.execute("UPDATE evaluated_leads SET status=? WHERE id=?", (status, eval_id))
         c.commit()
         row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
     # Status-Änderung auch in die Cloud spiegeln (fire-and-forget, beste Mühe)
@@ -275,6 +290,65 @@ def set_opt_out(eval_id: int, opt_out: int = 1) -> None:
     with _lock, _conn() as c:
         c.execute("UPDATE evaluated_leads SET email_opt_out=? WHERE id=?", (int(opt_out), eval_id))
         c.commit()
+
+
+def set_notiz(eval_id: int, notiz: str) -> None:
+    """Setzt/ergänzt die freie CRM-Notiz und spiegelt sie in die Cloud."""
+    with _lock, _conn() as c:
+        c.execute("UPDATE evaluated_leads SET notiz=? WHERE id=?", (notiz, eval_id))
+        c.commit()
+        row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
+    if row:
+        try:
+            from cloud_sync import push_lead
+            push_lead(dict(row))
+        except Exception:
+            pass
+
+
+def set_verkauft_euro(eval_id: int, euro: int) -> None:
+    """Erfasst den realisierten Umsatz eines Leads (Feedback-Loop)."""
+    with _lock, _conn() as c:
+        c.execute("UPDATE evaluated_leads SET verkauft_euro=? WHERE id=?", (int(euro or 0), eval_id))
+        c.commit()
+        row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
+    if row:
+        try:
+            from cloud_sync import push_lead
+            push_lead(dict(row))
+        except Exception:
+            pass
+
+
+def get_conversion_stats() -> dict:
+    """Feedback-Loop: was wird tatsächlich zu Kunden? Konversion nach Status,
+    Branche und Score-Band — als Realitäts-Abgleich fürs Scoring-Modell."""
+    with _lock, _conn() as c:
+        by_status = {r["status"]: r["n"] for r in c.execute(
+            "SELECT status, COUNT(*) AS n FROM evaluated_leads GROUP BY status")}
+        umsatz = c.execute(
+            "SELECT COALESCE(SUM(verkauft_euro),0) FROM evaluated_leads WHERE status='verkauft'"
+        ).fetchone()[0] or 0
+        # Konversion (verkauft/gesamt) je Branche, nur Branchen mit Aktivität
+        br = c.execute(
+            "SELECT branche, "
+            " SUM(CASE WHEN status='verkauft' THEN 1 ELSE 0 END) AS verkauft, "
+            " SUM(CASE WHEN status IN ('kontaktiert','termin','verkauft') THEN 1 ELSE 0 END) AS aktiv, "
+            " COUNT(*) AS gesamt "
+            "FROM evaluated_leads GROUP BY branche "
+            "HAVING aktiv > 0 ORDER BY verkauft DESC LIMIT 15").fetchall()
+        # Konversion je Score-Band
+        band = c.execute(
+            "SELECT CASE WHEN score>=72 THEN 'Hot(72+)' WHEN score>=48 THEN 'Warm(48-71)' ELSE 'Cold(<48)' END AS band, "
+            " SUM(CASE WHEN status='verkauft' THEN 1 ELSE 0 END) AS verkauft, "
+            " SUM(CASE WHEN status IN ('kontaktiert','termin','verkauft') THEN 1 ELSE 0 END) AS aktiv "
+            "FROM evaluated_leads GROUP BY band").fetchall()
+    return {
+        "nach_status": by_status,
+        "umsatz_verkauft_euro": umsatz,
+        "nach_branche": [dict(r) for r in br],
+        "nach_score_band": [dict(r) for r in band],
+    }
 
 
 def clear_all() -> int:

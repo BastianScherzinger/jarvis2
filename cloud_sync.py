@@ -40,7 +40,9 @@ _SYNC_COLS = [
     "potenzial_euro", "erwartungswert_euro", "sicherheit", "sicherheit_breakdown",
     "potenzial_begruendung", "pitch_hook",
     "score", "lead_typ", "verifiziert",
-    "email_status", "email_opt_out", "status", "bewertet_am",
+    "email_status", "email_opt_out", "notiz",
+    "kontaktiert_am", "termin_am", "verkauft_am", "verkauft_euro",
+    "status", "bewertet_am",
 ]
 
 # Status-Funnel: höherer Rang gewinnt beim Merge (verkauft schlägt neu usw.).

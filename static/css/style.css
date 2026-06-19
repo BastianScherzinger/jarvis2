@@ -1414,6 +1414,20 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 .cc-toggle.on{color:var(--c);border-color:var(--c);background:rgba(0,212,255,.1);box-shadow:0 0 12px rgba(0,212,255,.15)}
 #cc-think.on{color:var(--pu);border-color:var(--pu);background:rgba(155,93,229,.12);box-shadow:0 0 12px rgba(155,93,229,.18)}
 
+/* Freihändiger Gesprächsmodus */
+.cc-convo{
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border-radius:18px;
+  background:transparent;border:1px solid var(--bdr2);color:var(--tx2);cursor:pointer;
+  font-family:var(--fu);font-size:12px;font-weight:600;transition:all .14s;
+}
+.cc-convo:hover{color:var(--tx);border-color:var(--c2)}
+.cc-convo.on{color:var(--c);border-color:var(--c);background:rgba(0,212,255,.1)}
+.cc-convo.listen{color:var(--g);border-color:var(--g);background:rgba(0,232,122,.1);animation:convoPulse 1.6s ease-in-out infinite}
+.cc-convo.rec{color:var(--r);border-color:var(--r);background:rgba(255,59,78,.12);animation:convoPulse 1s ease-in-out infinite}
+.cc-convo.think{color:var(--y);border-color:var(--y);background:rgba(255,201,61,.12)}
+.cc-convo.speak{color:var(--c);border-color:var(--c);background:rgba(0,212,255,.14);animation:convoPulse 1.2s ease-in-out infinite}
+@keyframes convoPulse{50%{box-shadow:0 0 0 4px rgba(0,212,255,.06)}}
+
 .cc-send{
   width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   border:none;cursor:pointer;color:#04121b;

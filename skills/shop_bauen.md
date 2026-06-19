@@ -6,22 +6,25 @@ die mitgelieferte Vorlage `shop_vorlage/` — eine bewährte, lauffähige Strukt
 
 ## Werkzeuge
 - `shop_skill` — diese Anleitung laden.
-- `shop_new(name)` — kopiert `shop_vorlage/` nach `<Desktop>/<name>` (neues Projekt).
+- `shop_new(name)` — kopiert `shop_vorlage/` nach `<Desktop>/<name>` (neuer Ordner).
 - `shop_list(pfad)` / `shop_read(pfad)` / `shop_write(pfad, inhalt)` — Dateien im Projekt
   lesen/schreiben (Pfad relativ zum Desktop, z.B. `meinshop/config/settings.py`).
+- `shop_git(name, repo_url)` — git init + commit + push nach GitHub (letzter Schritt).
 
 ## Workflow
 1. **Name + Theme klären** (kurz fragen, wenn nicht genannt): Projektname, Akzentfarbe,
    Branche/Inhalt.
-2. **`shop_new(name)`** — legt das Projekt aus der Vorlage an.
-3. **Anpassen** (mit `shop_read`/`shop_write`):
+2. **`shop_new(name)`** — legt das Projekt in einem NEUEN Ordner aus der Vorlage an.
+3. **Neu designen & anpassen** (mit `shop_read`/`shop_write`) — modernes, eigenständiges
+   Design statt 0815-Vorlage:
    - `<name>/config/settings.py` → `SITE_NAME`, `SITE_URL`.
    - `<name>/static/css/variables.css` → Akzentfarbe/Theme.
    - `<name>/templates/base.html` + `templates/components/navbar.html` → Navbar/Branding.
    - `<name>/templates/home.html` → Hero/Begrüßung, Inhalte.
    - `<name>/apps/core/models.py` + `views.py` → Inhalte/Logik nach Bedarf.
 4. **Prüfen** (lokal durch Sir): `python manage.py check` muss „0 issues" zeigen.
-5. **Deployen**: git init → GitHub → Railway (Env-Variablen unten).
+5. **Sir nach der GitHub-Repo-URL fragen**, dann `shop_git(name, repo_url)` → Push. Danach
+   auf Railway „Deploy from GitHub" (Env-Variablen unten).
 
 ## Vorlagen-Struktur (in `shop_vorlage/`)
 ```

@@ -282,6 +282,13 @@ def api_claude_status():
     return jsonify({"ready": claude_chat.is_ready(), "model": claude_chat.MODEL})
 
 
+@app.route("/api/metrics")
+def api_metrics():
+    """Observability: Claude-Token-Verbrauch + Tool-Latenzen/Fehlerraten."""
+    import metrics
+    return jsonify(metrics.snapshot())
+
+
 @app.route("/api/claude/chat", methods=["POST"])
 def api_claude_chat():
     """Streamt eine Claude-Antwort als SSE. Body: {messages:[...], think?, search?}."""

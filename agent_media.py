@@ -35,15 +35,23 @@ def generate_video(prompt: str, backend: str = "local") -> str:
             f"'Videos'-Tab. Status: GET /api/media/job/{job_id}.")
 
 
-def job_status(job_id: str) -> str:
+def job_status(job_id: str, wait: bool = False) -> str:
     import media_queue
-    job = media_queue.get(job_id)
-    if not job:
-        return f"Job {job_id} nicht gefunden."
-    st = job.get("status", "?")
-    url = job.get("result_url") or job.get("result") or ""
-    err = job.get("error") or ""
-    return f"Job {job_id}: {st}" + (f" — {url}" if url else "") + (f" (Fehler: {err})" if err else "")
+    import time
+    end = time.time() + (25 if wait else 0)   # optional bis zu 25s auf Fertigstellung warten
+    while True:
+        job = media_queue.get(job_id)
+        if not job:
+            return f"Job {job_id} nicht gefunden."
+        st  = job.get("status", "?")
+        url = job.get("result_url") or job.get("result") or ""
+        err = job.get("error") or ""
+        terminal = bool(url) or bool(err) or str(st).lower() in (
+            "done", "fertig", "completed", "error", "failed", "fehler")
+        if terminal or time.time() >= end:
+            return (f"Job {job_id}: {st}" + (f" — {url}" if url else "")
+                    + (f" (Fehler: {err})" if err else ""))
+        time.sleep(2)
 
 
 def capabilities() -> str:
