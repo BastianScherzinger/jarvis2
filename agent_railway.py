@@ -105,7 +105,7 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> d
         final_env["CSRF_TRUSTED_ORIGINS"] = f"https://{domain}"
         final_env["SITE_URL"] = f"https://{domain}"
     q_vars = """
-    mutation($projectId:String!,$environmentId:String!,$serviceId:String!,$variables:JSON!){
+    mutation($projectId:String!,$environmentId:String!,$serviceId:String!,$variables:EnvironmentVariables!){
       variableCollectionUpsert(input:{projectId:$projectId, environmentId:$environmentId,
         serviceId:$serviceId, variables:$variables}) }"""
     r = _gql(q_vars, {"projectId": project_id, "environmentId": env_id,

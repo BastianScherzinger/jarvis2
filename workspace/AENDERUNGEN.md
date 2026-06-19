@@ -49,6 +49,19 @@ Tokens gesetzt sind. Railways erster Repo-Deploy benötigt einmalig die Railway-
 - Gebaute Seite enthält die injizierten Lead-Daten (Name, Stadt, Telefon, Akzentfarbe).
 - 4 neue Unit-Tests (Slug, Akzent-Heuristik, JSON-Extraktion, Token-loses Degradieren).
 
+### ECHTER Live-Test bestanden (20.06.2026)
+Mit echten Tokens (GitHub + Railway) am Top-Lead **„Umzüge S. Klein GmbH & Co. KG"**
+(Wuppertal, Score 94) durchgeführt:
+- GitHub-Repo erstellt + gepusht: `github.com/BastianScherzinger/web-umzuege-s-klein-gmbh-und-co-kg`
+- Railway: Projekt + Service + **öffentliche Domain** + Variablen (SECRET_KEY/DEBUG/
+  ALLOWED_HOSTS/CSRF) + Deploy.
+- **Live & erreichbar (HTTP 200, Firmenname im HTML):**
+  `web-umzuege-s-klein-gmbh-und-co-kg-production-f685.up.railway.app`
+- Dabei gefixt: Railway-Variablen-Mutation (`EnvironmentVariables!` statt `JSON!`) und
+  ehrliches Status-Reporting (Railway-Meldung wird nicht mehr vom Schlusstext überschrieben).
+- **Test-Reste zum Aufräumen:** 1 GitHub-Repo, einige Railway-Projekte (mehrfacher
+  Verifikations-Deploy), 1 lokaler Ordner `Desktop/web_umzuege-...`.
+
 ---
 
 ## 1. Auto-E-Mail-Reife & Scoring (Durchgang Features)

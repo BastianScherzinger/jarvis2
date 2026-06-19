@@ -317,6 +317,7 @@ def _run(job_id: str) -> None:
 
         # 5) Railway ----------------------------------------------------------
         import agent_railway
+        railway_note = ""
         if agent_railway.is_ready() and repo_full:
             _set(job_id, progress=82, step="Railway-Deploy läuft (Projekt, Domain, Variablen)…")
             env = {
@@ -326,17 +327,19 @@ def _run(job_id: str) -> None:
             dep = agent_railway.deploy(f"web-{slug}", repo_full, env)
             if dep.get("ok") and dep.get("url"):
                 live_url = dep["url"]
-                _set(job_id, live_url=live_url)
-            elif not dep.get("ok"):
-                _set(job_id, step=f"Railway-Hinweis: {dep.get('error','')[:140]}")
+                _set(job_id, live_url=live_url, railway_log=dep.get("log", []))
+            else:
+                railway_note = dep.get("error") or "; ".join(dep.get("log", [])[-1:])
+                _set(job_id, railway_log=dep.get("log", []))
         elif agent_railway.is_ready() and not repo_full:
-            _set(job_id, step="Railway übersprungen (kein GitHub-Repo).")
+            railway_note = "Kein GitHub-Repo — Railway übersprungen."
 
         # Abschluss -----------------------------------------------------------
         if live_url:
             final_step = f"Fertig & live: {live_url}"
         elif repo_url:
-            final_step = "Fertig. Repo gepusht — Railway-Deploy per Token aktivierbar."
+            final_step = "Repo gepusht. " + (f"Railway: {railway_note[:120]}" if railway_note
+                                             else "Railway-Deploy angestoßen.")
         else:
             final_step = f"Lokal gebaut: {target}"
         _set(job_id, status="done", progress=100, step=final_step,
