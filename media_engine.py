@@ -26,6 +26,21 @@ for _d in [WORKSPACE_IMAGES, WORKSPACE_VIDEOS]:
 # ── Modell-Katalog ───────────────────────────────────────────────────────────
 
 IMAGE_MODELS: dict[str, dict] = {
+    "sd-turbo": {
+        "hf_id":          "stabilityai/sd-turbo",
+        "name":           "SD-Turbo (schnell)",
+        "pipeline":       "StableDiffusionPipeline",
+        "size_gb":        2.1,
+        "min_vram":       4,
+        "default_w":      768,
+        "default_h":      512,
+        "supports_neg":   False,   # destilliert → kein Negativ-Prompt, CFG=0
+        "gated":          False,
+        "default_steps":  2,
+        "guidance_scale": 0.0,
+        "keep_scheduler": True,    # Turbo braucht seinen trainierten Scheduler
+        "desc":           "Sehr schnell (1-4 Steps) — ideal auf CPU & für Hero-Banner",
+    },
     "sdxl": {
         "hf_id":          "stabilityai/stable-diffusion-xl-base-1.0",
         "name":           "Stable Diffusion XL 1.0",
@@ -173,14 +188,16 @@ def _load_image_pipe(model_key: str):
     except Exception: pass
 
     # Schnellerer Scheduler (DPM++ 2M Karras): gleiche Qualität bei ~20-25 Steps
-    # statt 30-50 → deutlich schneller, besonders auf GPU.
-    try:
-        from diffusers import DPMSolverMultistepScheduler
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipe.scheduler.config, use_karras_sigmas=True, algorithm_type="dpmsolver++"
-        )
-    except Exception:
-        pass
+    # statt 30-50 → deutlich schneller. NICHT für Turbo-Modelle (die brauchen ihren
+    # trainierten Scheduler, sonst werden 1-2-Step-Bilder unbrauchbar).
+    if not m.get("keep_scheduler"):
+        try:
+            from diffusers import DPMSolverMultistepScheduler
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+                pipe.scheduler.config, use_karras_sigmas=True, algorithm_type="dpmsolver++"
+            )
+        except Exception:
+            pass
 
     if dev == "cpu":
         try: pipe.enable_attention_slicing()
@@ -282,9 +299,11 @@ def generate_image(
         "width":               w,
         "height":              h,
     }
+    # guidance_scale IMMER setzen (0.0 für Turbo deaktiviert CFG korrekt);
+    # Negativ-Prompt nur bei Modellen, die ihn unterstützen.
+    kwargs["guidance_scale"] = gs
     if m["supports_neg"]:
-        kwargs["negative_prompt"]  = neg
-        kwargs["guidance_scale"]   = gs
+        kwargs["negative_prompt"] = neg
 
     result = pipe(**kwargs)
     image  = result.images[0]
@@ -295,11 +314,16 @@ def generate_image(
     out  = dest / fn
     image.save(str(out))
 
-    # Web-URL relativ zu WORKSPACE_IMAGES
-    rel = out.relative_to(WORKSPACE_IMAGES)
+    # Web-URL relativ zu WORKSPACE_IMAGES — fällt auf "" zurück, wenn das Ziel
+    # außerhalb des Workspace liegt (z.B. Hero-Banner in einem Projektordner).
+    try:
+        rel = out.relative_to(WORKSPACE_IMAGES)
+        web_url = f"/workspace/media/images/{rel.as_posix()}"
+    except ValueError:
+        web_url = ""
     return {
         "path":    str(out),
-        "web_url": f"/workspace/media/images/{rel.as_posix()}",
+        "web_url": web_url,
         "model":   m["name"],
         "prompt":  prompt,
         "elapsed": round(time.time() - t0, 1),

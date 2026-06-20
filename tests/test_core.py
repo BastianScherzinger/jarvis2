@@ -65,6 +65,19 @@ def test_domain_kein_lstrip_bug():
     assert _domain("https://web-mueller.de") == "web-mueller.de"   # 'w' nicht abgeschnitten
 
 
+def test_website_lehnt_ad_redirects_ab():
+    # DDG/Bing-Werbe-Redirects sind KEINE eigene Website (Datenqualitäts-Bug)
+    from agents.evaluator.web_analyst import _ist_eigene_domain, _pick_website
+    ad = "https://duckduckgo.com/y.js?ad_domain=3t-motors.de&ad_provider=bingv7aa"
+    assert _ist_eigene_domain(ad) is False
+    assert _ist_eigene_domain("https://www.bing.com/aclick?ld=abc") is False
+    # echte Seite kommt durch
+    assert _ist_eigene_domain("https://www.ruth-bauelemente.de/") is True
+    # _pick_website überspringt den Ad-Treffer und nimmt die echte Seite
+    hits = [{"url": ad}, {"url": "https://ruth-bauelemente.de/"}]
+    assert _pick_website({"name": "Ruth Bauelemente", "stadt": "Lingen"}, hits) == "https://ruth-bauelemente.de/"
+
+
 def test_ansprechpartner_aus_impressum():
     from agents.evaluator.web_analyst import _ansprechpartner
     assert _ansprechpartner("<p>Geschäftsführer: Max Mustermann</p>") == "Max Mustermann"

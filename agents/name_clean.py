@@ -174,7 +174,9 @@ def ai_clean(name: str, branche: str = "", stadt: str = "") -> str:
             f"Stadt: {stadt}\n"
             "Gib den sauberen offiziellen Firmennamen zurück."
         )
-        antwort = _http.ask_ollama(prompt, system)
+        # Kurzer Timeout: ein Namens-Feinschliff darf die Eval-Pipeline NIE blockieren.
+        # Bei langsamem/ausgelastetem Ollama → sofort Fallback auf quick_clean.
+        antwort = _http.ask_ollama(prompt, system, timeout=12)
         daten = _http.extract_json(antwort)
         clean = daten.get("name", "")
 

@@ -29,6 +29,9 @@ _NICHT_EIGENE = [
     'meinprospekt', 'goyellow', 'pointoo', 'opendi', 'yalwa', 'hotfrog', 'infobel',
     'northdata', 'companyhouse', 'unternehmensregister', 'firmenabc', 'wer-zu-wem',
     'stepstone', 'stellenanzeigen', 'kleinanzeigen', 'immobilienscout', 'immoscout',
+    # Suchmaschinen + Werbe-/Tracking-Redirects (DDG/Bing-Ads liefern keine eigene Seite)
+    'duckduckgo', 'bing.com', 'y.js', 'ad_domain', 'ad_provider', '/aclick',
+    'msclkid', 'doubleclick', 'googleadservices', 'googlesyndication',
 ]
 
 

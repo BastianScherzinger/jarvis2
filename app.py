@@ -184,7 +184,8 @@ def api_lead_mockup(lead_id):
     )
     job_id = media_queue.submit("mockup", {
         "prompt":    prompt,
-        "model_key": None,
+        "model_key": "sd-turbo",   # schnelle Vorschau (CPU-tauglich) statt SDXL-Minuten
+        "steps":     2,
         "lead_id":   lead_id,
     })
     return jsonify({"ok": True, "job_id": job_id})

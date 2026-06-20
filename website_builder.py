@@ -302,8 +302,10 @@ def _run(job_id: str) -> None:
                     "business, modern, clean, bright daylight, high quality, no text, "
                     "no logo, no watermark"
                 )
+                # SD-Turbo: 1-2 Steps, schnell genug auch ohne GPU (CPU). SDXL wäre
+                # auf CPU unbrauchbar langsam. Cover-Hintergrund → 768×512 genügt.
                 res = media_engine.generate_image(
-                    prompt, steps=22, width=1280, height=720,
+                    prompt, model_key="sd-turbo", steps=2, width=768, height=512,
                     output_dir=(target / "static" / "img"), filename="hero.png")
                 if (target / "static" / "img" / "hero.png").exists():
                     content["hero_image"] = "/static/img/hero.png"
