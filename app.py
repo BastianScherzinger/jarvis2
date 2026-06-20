@@ -182,10 +182,9 @@ def api_lead_mockup(lead_id):
         f"modern professional website hero image for a German {branche} business, "
         f"clean corporate design, high quality, no text"
     )
+    # Modell wählt media_queue hardware-abhängig (GPU → SDXL, CPU → SD-Turbo).
     job_id = media_queue.submit("mockup", {
         "prompt":    prompt,
-        "model_key": "sd-turbo",   # schnelle Vorschau (CPU-tauglich) statt SDXL-Minuten
-        "steps":     2,
         "lead_id":   lead_id,
     })
     return jsonify({"ok": True, "job_id": job_id})

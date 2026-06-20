@@ -207,7 +207,11 @@ def _worker() -> None:
                      result_url=urls[0], elapsed=round(time.time() - t0, 1))
                 continue
 
-            if kind in ("image", "mockup"):
+            if kind == "mockup":
+                # Hardware-abhängiges Modell (GPU → SDXL/FLUX, CPU → SD-Turbo).
+                hp = media_engine.hero_image_params()
+                result = media_engine.generate_image(params.get("prompt", ""), **hp)
+            elif kind == "image":
                 result = media_engine.generate_image(
                     params.get("prompt", ""),
                     params.get("model_key") or None,

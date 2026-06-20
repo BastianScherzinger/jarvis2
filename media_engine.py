@@ -250,6 +250,56 @@ def _open_image_model() -> str:
     return "sdxl"
 
 
+# ── Hardware-abhängige Modellwahl ────────────────────────────────────────────
+
+def hardware_info() -> dict:
+    """Erkennt das Rechen-Backend für die Bildgenerierung.
+    Returns {device:'cuda'|'mps'|'cpu', vram_gb:float, gpu_name:str}."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            p = torch.cuda.get_device_properties(0)
+            return {"device": "cuda", "vram_gb": round(p.total_memory / 1e9, 1), "gpu_name": p.name}
+        try:
+            if torch.backends.mps.is_available():
+                return {"device": "mps", "vram_gb": 0.0, "gpu_name": "Apple MPS"}
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return {"device": "cpu", "vram_gb": 0.0, "gpu_name": ""}
+
+
+def best_image_model() -> str:
+    """Bestes Bildmodell für die vorhandene Hardware:
+      starke GPU (≥12 GB + HF-Token) → FLUX (höchste Qualität),
+      GPU (≥6 GB) / Apple-MPS        → SDXL (krasse Qualität),
+      kleine GPU / CPU               → SD-Turbo (schnell)."""
+    hw = hardware_info()
+    dev, vram = hw["device"], hw["vram_gb"]
+    if dev == "cuda":
+        if vram >= 12 and "flux-schnell" in IMAGE_MODELS and _hf_token():
+            return "flux-schnell"
+        if vram >= 6:
+            return "sdxl"
+        return "sd-turbo"
+    if dev == "mps":
+        return "sdxl"
+    return "sd-turbo"
+
+
+def hero_image_params() -> dict:
+    """Modell + Parameter für ein hochwertiges Hero-/Vorschau-Bild, hardware-angepasst.
+    GPU → SDXL/FLUX in hoher Auflösung; CPU → SD-Turbo schnell. Direkt als
+    **kwargs an generate_image() übergebbar."""
+    key = best_image_model()
+    if key == "flux-schnell":
+        return {"model_key": "flux-schnell", "steps": 4, "width": 1344, "height": 768}
+    if key == "sdxl":
+        return {"model_key": "sdxl", "steps": 28, "width": 1280, "height": 720}
+    return {"model_key": "sd-turbo", "steps": 2, "width": 768, "height": 512}
+
+
 def generate_image(
     prompt: str,
     model_key: str | None = None,
@@ -539,6 +589,8 @@ def get_status() -> dict:
     img_key = get_active_image_model()
     vid_key = get_active_video_model()
     hf_key_set = bool(_hf_key())
+    hw = hardware_info()
+    auto_key = best_image_model()
     return {
         "image_model":        IMAGE_MODELS.get(img_key, {}).get("name", img_key),
         "image_model_key":    img_key,
@@ -546,6 +598,12 @@ def get_status() -> dict:
         "video_model_key":    vid_key,
         "diffusers_ok":       _check_diffusers(),
         "higgsfield_api_key": hf_key_set,
+        # Hardware + hardware-gewähltes Modell für Hero/Mockup (System-Auto-Wahl)
+        "device":             hw["device"],
+        "gpu_name":           hw["gpu_name"],
+        "vram_gb":            hw["vram_gb"],
+        "auto_image_model":   IMAGE_MODELS.get(auto_key, {}).get("name", auto_key),
+        "auto_image_model_key": auto_key,
     }
 
 

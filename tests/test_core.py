@@ -121,6 +121,20 @@ def test_deploy_clients_ohne_token(monkeypatch):
     assert agent_railway.deploy("x", "u/r", {})["ok"] is False
 
 
+# ── Hardware-abhängige Bildmodell-Wahl ────────────────────────────────────────
+def test_hardware_aware_image_model():
+    import media_engine as me
+    hw = me.hardware_info()
+    assert hw["device"] in ("cuda", "mps", "cpu")
+    hp = me.hero_image_params()
+    assert hp["model_key"] in me.IMAGE_MODELS
+    assert hp["steps"] >= 1 and hp["width"] >= 256 and hp["height"] >= 256
+    # ohne GPU MUSS das schnelle Modell gewählt werden (kein SDXL-Minutenlauf auf CPU)
+    if hw["device"] == "cpu":
+        assert me.best_image_model() == "sd-turbo"
+        assert hp["model_key"] == "sd-turbo"
+
+
 # ── Sicherheits-Score (deterministisch, ohne Ollama) ──────────────────────────
 def test_sicherheit_erreichbar_vs_kette():
     from agents.evaluator.score_writer import _sicherheit
