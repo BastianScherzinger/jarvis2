@@ -38,7 +38,7 @@ def get_ok(path, allowed=(200,)):
 # ── GET-Routen ────────────────────────────────────────────────────────────────
 for path in ["/", "/api/claude/status", "/api/email/status", "/api/evaluated/all",
              "/api/evaluated/stats", "/api/evaluated/top", "/api/export/csv",
-             "/api/graph/nodes", "/api/graph/stats", "/api/logs", "/api/media/gallery",
+             "/api/graph/nodes", "/api/graph/stats", "/api/graph/locations", "/api/logs", "/api/media/gallery",
              "/api/media/jobs", "/api/media/models", "/api/media/status", "/api/metrics",
              "/api/status", "/api/top", "/api/voice/status", "/api/websites", "/favicon.ico"]:
     check(f"GET {path}", get_ok(path, allowed=(200, 204)))

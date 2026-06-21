@@ -848,6 +848,28 @@ body::after{
 }
 .graph-wrap svg { width: 100%; height: 100%; display: block; }
 
+/* 3D-Globus (Lead-Standorte) */
+.globe-wrap{
+  position:relative; width:100%; height:460px; border-radius:12px; overflow:hidden;
+  background:radial-gradient(120% 120% at 50% 30%, #0a1726 0%, #05080d 70%);
+  border:1px solid var(--bdr2);
+}
+.globe-wrap canvas{ display:block; width:100%; height:100%; }
+.globe-legend{
+  position:absolute; left:14px; bottom:12px; display:flex; align-items:center; gap:8px;
+  font-size:11px; color:var(--tx2); background:rgba(5,8,13,.5); padding:6px 11px;
+  border-radius:20px; border:1px solid var(--bdr); backdrop-filter:blur(6px); user-select:none;
+}
+.gl-dot{ width:9px; height:9px; border-radius:50%; display:inline-block; margin-left:6px; }
+.gl-dot.hot{ background:#ff3b4e; box-shadow:0 0 8px #ff3b4e; }
+.gl-dot.warm{ background:#ffc93d; box-shadow:0 0 8px #ffc93d; }
+.gl-dot.cold{ background:#3b82f6; box-shadow:0 0 8px #3b82f6; }
+.globe-count{
+  position:absolute; right:14px; top:12px; font-family:var(--fm); font-size:11px;
+  color:var(--c); background:rgba(5,8,13,.5); padding:5px 11px; border-radius:20px;
+  border:1px solid var(--bdr); backdrop-filter:blur(6px); letter-spacing:.03em;
+}
+
 .graph-legend {
   position: absolute;
   top: 10px;

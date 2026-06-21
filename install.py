@@ -331,10 +331,16 @@ def run(quiet: bool = False) -> bool:
                     ["ollama", "list"], capture_output=True, text=True, timeout=10,
                     encoding="utf-8", errors="replace",
                 )
-                if model_name.split(":")[0] in list_res.stdout:
+                if model_name in list_res.stdout or model_name.split(":")[0] + ":" in list_res.stdout:
                     _ok(f"Ollama  {model_name}", "bereit")
                 else:
-                    _warn(f"Modell '{model_name}' nicht gefunden", f"manuell: ollama pull {model_name}")
+                    # Konfiguriertes Modell fehlt → automatisch nachladen (auch via update.py).
+                    print(f"  {CY}>{R}   Modell '{model_name}' wird geladen (einmalig) ...", flush=True)
+                    pull = subprocess.run(["ollama", "pull", model_name], timeout=3600)
+                    if pull.returncode == 0:
+                        _ok(f"Ollama  {model_name}", "geladen")
+                    else:
+                        _warn(f"Modell '{model_name}' nicht gefunden", f"manuell: ollama pull {model_name}")
 
     # ── Node.js / npx — für MCP-Server ─────────────────────────────
     node_ok = shutil.which("node") is not None

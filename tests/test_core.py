@@ -407,6 +407,20 @@ def test_db_websites_site_key_und_upsert_remote(tmp_path, monkeypatch):
     assert dbw.get_by_site_key("rk1")["live_url"].startswith("https://neu")
 
 
+def test_locations_aggregiert(monkeypatch, tmp_path):
+    # get_locations aggregiert je Stadt mit Typ-Zählung (für den 3D-Globus).
+    import db_evaluated
+    monkeypatch.setattr(db_evaluated, "DB_PATH", tmp_path / "ev.db")
+    db_evaluated.init_db()
+    for i, typ in enumerate(("Hot", "Warm", "Warm")):
+        db_evaluated.insert_evaluated({"name": f"Betrieb{i}", "stadt": "Ulm",
+                                       "bundesland": "Baden-Württemberg", "lead_typ": typ,
+                                       "lead_key": f"key-{i}"})
+    locs = db_evaluated.get_locations()
+    ulm = next((l for l in locs if l["stadt"] == "Ulm"), None)
+    assert ulm and ulm["n"] == 3 and ulm["warm"] == 2 and ulm["hot"] == 1
+
+
 def test_cloud_sync_websites_helpers():
     import cloud_sync_websites as cw
     from leadkey import lead_key

@@ -740,6 +740,12 @@ def api_graph_stats():
     return jsonify(db_evaluated.get_graph_stats())
 
 
+@app.route("/api/graph/locations")
+def api_graph_locations():
+    """Aggregierte Lead-Standorte (Stadt) für den 3D-Globus."""
+    return jsonify({"locations": db_evaluated.get_locations()})
+
+
 @app.route("/api/logs")
 def api_logs():
     limit   = int(request.args.get("limit", 150))

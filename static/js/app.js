@@ -757,6 +757,7 @@ function showPage(name){
   if(name === 'images' || name === 'videos') loadGallery();
   if(name === 'images'){ loadImageLeads(); _restoreActiveJob(); }
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
+  if(name === 'graph' && typeof initGlobe === 'function') initGlobe();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
   if(name === 'websites' && typeof initWebsites === 'function') initWebsites();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();

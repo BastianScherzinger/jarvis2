@@ -283,6 +283,22 @@
   <!-- Stat-Bar -->
   <div class="graph-stat-bar" id="graph-stat-bar"></div>
 
+  <!-- VIZ 0: 3D-Globus mit Lead-Standorten -->
+  <div class="viz-section">
+    <div class="viz-title">Lead-Standorte · Planet
+      <span class="viz-sub">3D-Globus · Start-Zoom Deutschland · ziehen zum Drehen, Rad zum Zoomen</span>
+    </div>
+    <div class="globe-wrap" id="globe-wrap">
+      <canvas id="globe-canvas"></canvas>
+      <div class="globe-legend" id="globe-legend">
+        <span class="gl-dot hot"></span>Hot
+        <span class="gl-dot warm"></span>Warm
+        <span class="gl-dot cold"></span>Cold
+      </div>
+      <div class="globe-count" id="globe-count">0 Standorte</div>
+    </div>
+  </div>
+
   <!-- VIZ 1: Force-Graph -->
   <div class="viz-section">
     <div class="viz-title">Lead-Netzwerk
@@ -447,6 +463,7 @@
 <script src="/static/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/static/js/graph.js"></script>
+<script src="/static/js/globe.js"></script>
 <script src="/static/js/ranking.js"></script>
 <script src="/static/js/websites.js"></script>
 <script src="/static/js/claude.js"></script>

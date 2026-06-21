@@ -425,6 +425,30 @@ def get_for_graph(limit: int = 2000, offset: int = 0, min_id: int = 0) -> list[d
     return [dict(r) for r in rows]
 
 
+def get_locations() -> list[dict]:
+    """Aggregierte Lead-Standorte je Stadt (für die 3D-Globus-Visualisierung).
+    Gibt [{stadt, bundesland, hot, warm, cold, n}] nach Häufigkeit absteigend."""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT stadt, bundesland, lead_typ, COUNT(*) AS n FROM evaluated_leads "
+            "WHERE stadt IS NOT NULL AND stadt != '' GROUP BY stadt, lead_typ"
+        ).fetchall()
+    agg: dict = {}
+    for r in rows:
+        stadt = (r["stadt"] or "").strip()
+        if not stadt:
+            continue
+        d = agg.setdefault(stadt, {"stadt": stadt, "bundesland": (r["bundesland"] or "").strip(),
+                                   "hot": 0, "warm": 0, "cold": 0, "n": 0})
+        typ = (r["lead_typ"] or "Cold").lower()
+        if typ in ("hot", "warm", "cold"):
+            d[typ] += r["n"]
+        d["n"] += r["n"]
+        if not d["bundesland"] and r["bundesland"]:
+            d["bundesland"] = r["bundesland"].strip()
+    return sorted(agg.values(), key=lambda x: -x["n"])
+
+
 def get_graph_stats() -> dict:
     """{bundesland: {branche: {hot: n, warm: n, cold: n}}}"""
     with _lock, _conn() as c:
