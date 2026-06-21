@@ -86,6 +86,7 @@ def _persist(job_id: str) -> None:
             folder=job.get("folder", ""),
             repo_url=job.get("repo_url", ""),
             live_url=job.get("live_url", ""),
+            live=int(job.get("live", 0) or 0),
             error=job.get("error", ""),
             log=job.get("log", []),
         )
@@ -350,6 +351,35 @@ def _django_secret_key() -> str:
 
 # ── Deploy (GitHub + Railway) — geteilt von _run und deploy_existing ──────────
 
+def _url_live(url: str, on_tick=None, timeout: int = 180) -> bool:
+    """Pollt eine URL, bis sie wirklich antwortet (Status < 500). Railway erzeugt
+    die Domain sofort, der Container-Build dauert aber 1-2 Min — erst danach ist die
+    Seite erreichbar. Gibt True, sobald sie antwortet, sonst False nach timeout."""
+    import urllib.error
+    import urllib.request
+    if not url:
+        return False
+    start = time.time()
+    versuch = 0
+    while time.time() - start < timeout:
+        versuch += 1
+        try:
+            req = urllib.request.Request(url, method="GET",
+                                         headers={"User-Agent": "JARVIS-LiveCheck"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status < 500:
+                    return True
+        except urllib.error.HTTPError as e:
+            if e.code < 500:          # 200/301/302/404 = App läuft (antwortet)
+                return True
+        except Exception:
+            pass                       # 502/503/Timeout/Reset → Build noch nicht fertig
+        if callable(on_tick):
+            on_tick(f"Railway: Build läuft… ({int(time.time() - start)}s)")
+        time.sleep(8)
+    return False
+
+
 def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
                    site_name: str, say) -> dict:
     """Legt ein GitHub-Repo an, pusht den Ordner und deployt auf Railway.
@@ -359,12 +389,18 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
     import agent_railway
     repo_full = repo_url = live_url = railway_note = ""
     railway_log: list = []
+    live_ok = False
 
     # GitHub --------------------------------------------------------------
     if agent_github.is_ready():
         say(74, "GitHub-Repo wird angelegt…")
+        # ÖFFENTLICH: (1) der Repo-Link funktioniert im Browser ohne Login,
+        # (2) Railway kann ein öffentliches Repo zuverlässig klonen/bauen (ein
+        # frisch per API erstelltes PRIVATES Repo ist für Railway oft nicht
+        # sichtbar → Build scheitert, Domain liefert 502). Keine Geheimnisse im
+        # Repo — SECRET_KEY kommt als Railway-Env-Variable.
         cr = agent_github.create_repo(
-            f"web-{slug}", description=f"Landing-Page für {name} (JARVIS)", private=True)
+            f"web-{slug}", description=f"Landing-Page für {name} (JARVIS)", private=False)
         if cr.get("ok"):
             repo_full = cr["full_name"]
             say(78, f"Repo {repo_full} — Code wird hochgeladen…")
@@ -391,8 +427,23 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
                                    on_step=lambda t: say(None, f"Railway: {t}"))
         railway_log = dep.get("log", [])
         if dep.get("ok") and dep.get("url"):
-            live_url = dep["url"]
-            say(98, f"Live erreichbar: {live_url}")
+            domain_url = dep["url"]
+            # Domain existiert sofort — der Container-Build dauert aber 1-2 Min.
+            # Erst als 'live' melden, wenn die Seite WIRKLICH antwortet.
+            say(90, "Railway baut den Container — warte auf Erreichbarkeit (bis 3 Min)…")
+            live_url = domain_url       # Link immer mitgeben (Build kann noch laufen)
+            if _url_live(domain_url, lambda s: say(None, s), timeout=180):
+                live_ok = True
+                say(98, f"Live erreichbar: {live_url}")
+            else:
+                # Domain da, aber Build nicht erreichbar → ehrlich melden + echten Grund.
+                railway_note = (
+                    f"Domain steht ({domain_url}), aber der Build ist nach 3 Min noch "
+                    "nicht erreichbar. Häufigste Ursachen: (1) Build läuft noch — in "
+                    "1-2 Min nochmal öffnen; (2) Railway ist nicht mit GitHub verbunden "
+                    "(railway.app → Account → GitHub verbinden); (3) Build-Fehler im "
+                    "Railway-Dashboard prüfen.")
+                say(96, "Domain erstellt — Build noch nicht erreichbar (siehe Hinweis).")
         else:
             railway_note = dep.get("error") or "; ".join(dep.get("log", [])[-1:]) or railway_note
             say(96, f"Railway-Hinweis: {str(railway_note)[:120]}")
@@ -404,7 +455,7 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
         say(96, "Railway übersprungen (kein RAILWAY_TOKEN in .env).")
 
     return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
-            "railway_note": railway_note, "railway_log": railway_log}
+            "live_ok": live_ok, "railway_note": railway_note, "railway_log": railway_log}
 
 
 # ── Worker ────────────────────────────────────────────────────────────────────
@@ -521,22 +572,24 @@ def _run(job_id: str) -> None:
         dep = _deploy_folder(target, slug, name, secret, content.get("site_name", name), _say)
         repo_url     = dep["repo_url"]
         live_url     = dep["live_url"]
+        live_ok      = bool(dep.get("live_ok"))
         railway_note = dep["railway_note"]
         if dep.get("railway_log"):
             _set(job_id, railway_log=dep["railway_log"])
         if repo_url:
             _set(job_id, repo_url=repo_url)
-        if live_url:
-            _set(job_id, live_url=live_url)
+        _set(job_id, live_url=live_url, live=1 if live_ok else 0)
 
-        # Abschluss -----------------------------------------------------------
-        if live_url:
+        # Abschluss — ehrlicher Status (deployt & erreichbar vs. Build offen) -
+        if live_ok and live_url:
             final_step = f"Fertig & live: {live_url}"
+        elif live_url:
+            final_step = f"Deploy läuft — Build noch nicht erreichbar. Domain: {live_url}"
         elif repo_url:
-            final_step = "Fertig. Repo gepusht — " + (f"Railway: {railway_note[:120]}" if railway_note
-                                                      else "Railway-Deploy angestoßen.")
+            final_step = "Repo gepusht — " + (f"Railway: {railway_note[:120]}" if railway_note
+                                              else "Railway-Deploy angestoßen.")
         else:
-            final_step = f"Fertig — lokal gebaut: {target}"
+            final_step = f"Lokal gebaut: {target}"
         _set(job_id, status="done", content_preview=content.get("headline", ""))
         _step(job_id, 100, final_step)
     except Exception as e:
@@ -607,10 +660,11 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
             _set(job_id, railway_log=dep["railway_log"])
         if dep["repo_url"]:
             _set(job_id, repo_url=dep["repo_url"])
-        if dep["live_url"]:
-            _set(job_id, live_url=dep["live_url"])
-        if dep["live_url"]:
+        _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
+        if dep.get("live_ok") and dep["live_url"]:
             final = f"Fertig & live: {dep['live_url']}"
+        elif dep["live_url"]:
+            final = f"Deploy läuft — Build noch nicht erreichbar. Domain: {dep['live_url']}"
         elif dep["repo_url"]:
             final = "Repo gepusht — " + (f"Railway: {str(dep['railway_note'])[:120]}"
                                          if dep["railway_note"] else "Railway-Deploy angestoßen.")

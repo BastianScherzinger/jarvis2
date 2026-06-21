@@ -29,6 +29,18 @@ const _WS_STATUS = {
   error:   {cls:'error',   lbl:'Fehler'},
 };
 
+// Echter Status-Badge: bei 'done' zählt das verifizierte live-Flag, nicht nur
+// das Vorhandensein einer Domain (Railway-Domain existiert vor dem Build).
+function _wsBadge(w){
+  if(w.status === 'done'){
+    if(w.live) return {cls:'done', lbl:'● LIVE'};
+    if(w.live_url) return {cls:'building', lbl:'Build läuft'};
+    if(w.repo_url) return {cls:'building', lbl:'Nicht live'};
+    return {cls:'queued', lbl:'Nur lokal'};
+  }
+  return _WS_STATUS[w.status] || {cls:'queued', lbl:w.status || '—'};
+}
+
 function initWebsites(){ loadWebsites(); _wsEnsureTimer(); }
 
 // Von app.js nach Bau-Start / Bau-Ende aufgerufen — Liste sofort nachziehen.
@@ -69,11 +81,11 @@ function _renderWebsites(){
 }
 
 function _wsCard(w){
-  const st   = _WS_STATUS[w.status] || {cls:'queued', lbl:w.status || '—'};
+  const st   = _wsBadge(w);
   const meta = [w.branche, w.stadt].filter(Boolean).map(_wse).join(' · ');
   const p    = Math.max(0, Math.min(100, w.progress || 0));
 
-  // Fortschritt (nur während des Baus)
+  // Fortschritt / Statushinweis
   let prog = '';
   if(w.status === 'running' || w.status === 'queued'){
     prog = `<div class="ws-prog">
@@ -82,6 +94,11 @@ function _wsCard(w){
     </div>`;
   }else if(w.status === 'error'){
     prog = `<div class="ws-errline">✕ ${_wse(w.error || w.step || 'Fehlgeschlagen')}</div>`;
+  }else if(w.status === 'done' && !w.live && w.live_url){
+    // Domain steht, Build evtl. noch nicht erreichbar — ehrlich anzeigen.
+    prog = `<div class="ws-hintline">⏳ ${_wse(w.step || 'Build läuft — in 1-2 Min erneut öffnen.')}</div>`;
+  }else if(w.status === 'done' && !w.live_url){
+    prog = `<div class="ws-hintline">${_wse(w.step || 'Lokal gebaut — noch nicht deployt.')}</div>`;
   }
 
   // Links + Ordner

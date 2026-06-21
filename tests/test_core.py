@@ -252,12 +252,13 @@ def test_db_websites_create_get_update(tmp_path, monkeypatch):
     row = dbw.get_by_job("job-aaa")
     assert row["name"] == "Foo GmbH" and row["status"] == "queued" and row["lead_id"] == 7
     assert row["images"] == [] and row["log"] == []
+    assert row.get("live", 0) == 0           # neu: verifiziertes live-Flag, Default 0
     # update setzt erlaubte Felder + serialisiert log als Liste zurück
-    dbw.update("job-aaa", status="running", progress=42, step="baut",
+    dbw.update("job-aaa", status="running", progress=42, step="baut", live=1,
                live_url="https://x.up.railway.app", log=[{"p": 42, "t": "baut"}])
     row = dbw.get(wid)
     assert row["status"] == "running" and row["progress"] == 42
-    assert row["live_url"].endswith("railway.app")
+    assert row["live_url"].endswith("railway.app") and row["live"] == 1
     assert row["log"] == [{"p": 42, "t": "baut"}]
 
 

@@ -18,8 +18,9 @@ DB_PATH = Path(__file__).parent / "data" / "websites.db"
 _lock   = threading.Lock()
 
 # Spalten, die update() schreiben darf (Whitelist — schützt vor Tippfehlern/Injection).
+# 'live' = 1 NUR wenn die Seite verifiziert erreichbar ist (echter Deploy-Status).
 _UPDATE_SPALTEN = {
-    "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log",
+    "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
 }
 
 
@@ -70,11 +71,18 @@ def init_db() -> None:
             error     TEXT,
             images    TEXT,
             log       TEXT,
+            live      INTEGER DEFAULT 0,
             created   REAL,
             updated   REAL
         )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_created ON websites(created DESC)")
+        # Migration für bestehende DBs: neue Spalten additiv ergänzen.
+        cols = {r[1] for r in c.execute("PRAGMA table_info(websites)").fetchall()}
+        if "live" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN live INTEGER DEFAULT 0")
+            # Bestandszeilen mit Live-URL galten unter der alten Logik als 'live'.
+            c.execute("UPDATE websites SET live=1 WHERE live_url IS NOT NULL AND live_url != ''")
         c.commit()
 
 
