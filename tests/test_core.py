@@ -366,9 +366,21 @@ def test_improve_extract_json():
     assert website_improve._extract_json("kein json") is None
 
 
-def test_offer_email_enthaelt_link():
+def test_offer_email_enthaelt_link_und_preis():
     import app
-    betreff, text, html = app._build_offer_email("Müller GmbH", "https://x.up.railway.app")
-    assert "Müller GmbH" in betreff
+    betreff, text, html = app._build_offer_email("Müller GmbH", "https://x.up.railway.app",
+                                                 "Dachdecker", "Köln")
+    assert "Müller GmbH" in betreff and "350" in betreff
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
+    assert "350" in text and "350" in html        # Angebot
     assert "Bastian Scherzinger" in text
+
+
+def test_db_websites_kontakt_email(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    wid = dbw.create("job-mail", name="Foo", kontakt_email="info@foo.de")
+    assert dbw.get(wid)["kontakt_email"] == "info@foo.de"
+    # idempotenter create füllt die Mail nach, falls vorher leer
+    dbw.create("job-mail2", name="Bar")
+    dbw.create("job-mail2", name="Bar", kontakt_email="kontakt@bar.de")
+    assert dbw.get_by_job("job-mail2")["kontakt_email"] == "kontakt@bar.de"

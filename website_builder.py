@@ -111,11 +111,20 @@ def build(lead: dict, use_higgsfield: bool = False) -> str:
     try:
         import db_websites
         lead_id = lead.get("id") or lead.get("raw_id")
+        kontakt = (lead.get("email") or lead.get("email_adresse")
+                   or lead.get("email_alle") or "").strip()
+        if kontakt.startswith("["):          # email_alle ist evtl. JSON-Liste
+            try:
+                arr = json.loads(kontakt)
+                kontakt = (arr[0] if arr else "").strip()
+            except Exception:
+                kontakt = ""
         db_websites.create(
             job_id, name=(lead.get("name") or "").strip(),
             stadt=(lead.get("stadt") or "").strip(),
             branche=(lead.get("branche") or "").strip(),
-            lead_id=int(lead_id) if lead_id else None)
+            lead_id=int(lead_id) if lead_id else None,
+            kontakt_email=kontakt if "@" in kontakt else "")
     except Exception:
         pass
     threading.Thread(target=_run, args=(job_id,), name=f"website-{job_id}", daemon=True).start()

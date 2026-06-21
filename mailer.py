@@ -65,18 +65,22 @@ def status() -> dict:
     }
 
 
-def send_email(to: str, betreff: str, text: str, *, html: str | None = None) -> dict:
+def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
+               bypass_redirect: bool = False) -> dict:
     """
     Versendet eine E-Mail. Gibt {ok, status, fehler} zurück.
     Kein echter Versand, wenn JARVIS_EMAIL_ENABLED != true (Trockenlauf).
+
+    bypass_redirect=True: ignoriert JARVIS_EMAIL_REDIRECT und sendet an die echte
+    Adresse — für bewusste, vom Nutzer ausgelöste Sendungen (z.B. Angebot an Kunde).
     """
     to = (to or "").strip()
     # SICHERHEITS-UMLEITUNG (Testmodus): ist JARVIS_EMAIL_REDIRECT gesetzt, geht
     # JEDE Mail an diese Adresse — egal an wen sie eigentlich gerichtet war. So
     # landet im Testbetrieb nichts versehentlich bei echten Betrieben. Den
-    # Original-Empfänger vermerken wir im Betreff. Später leeren = echter Versand.
+    # Original-Empfänger vermerken wir im Betreff. bypass_redirect hebt das auf.
     redirect = os.environ.get("JARVIS_EMAIL_REDIRECT", "").strip()
-    if redirect and "@" in redirect:
+    if redirect and "@" in redirect and not bypass_redirect:
         if to and to.lower() != redirect.lower():
             betreff = f"[Test → {to}] {betreff or ''}"
         to = redirect

@@ -1601,7 +1601,10 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 }
 .ws-act:hover{ color:var(--c); border-color:var(--c); background:rgba(0,212,255,.06); }
 .ws-act.danger:hover{ color:var(--r); border-color:var(--r); background:rgba(255,59,78,.06); }
-.ws-act:disabled{ opacity:.5; cursor:default; }
+.ws-act.mail{ color:var(--g); border-color:rgba(0,232,122,.35); }
+.ws-act.mail:hover{ color:#04121b; background:var(--g); border-color:var(--g); }
+.ws-act:disabled{ opacity:.4; cursor:not-allowed; }
+.ws-act:disabled:hover{ color:var(--tx); background:var(--bg3); border-color:var(--bdr2); }
 
 /* Mit-Claude-Modal */
 .ws-chat-bg{

@@ -144,7 +144,8 @@ function _wsCard(w){
     <div class="ws-actions">
       <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte & Bilder">✦ Top verbessern</button>
       <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
-      <button class="ws-act" onclick='wsSendOffer(${w.id})' title="Angebots-Mail mit Link senden">✉ Email an Kunde</button>
+      <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail (350 €) zum Test an dich senden">✉ Test an mich</button>
+      <button class="ws-act mail" onclick='wsSendOffer(${w.id}, "real")' title="${w.kontakt_email ? 'An '+_wse(w.kontakt_email)+' senden' : 'Keine Kontakt-E-Mail gefunden'}"${w.kontakt_email ? '' : ' disabled'}>✉ An Kunde senden</button>
       <button class="ws-act danger" onclick='wsDelete(${w.id}, ${JSON.stringify(w.name||"")})' title="Webseite komplett löschen">🗑 Löschen</button>
     </div>
     <div class="ws-foot">${_wse(_wsAgo(w.updated || w.created))}</div>
@@ -178,17 +179,21 @@ async function wsImprove(wid){
   }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
 }
 
-async function wsSendOffer(wid){
-  const ok = confirm('Angebots-Mail mit dem Webseiten-Link senden?\n\n'
-    + '(geht aktuell als Test an bastian.scherzinger05@gmail.com)');
-  if(!ok) return;
+async function wsSendOffer(wid, mode){
+  mode = mode || 'test';
+  const frage = mode === 'real'
+    ? 'Angebots-Mail (350 €) JETZT an die ECHTE Kontaktadresse des Kunden senden?\n\nDies geht an einen echten Betrieb.'
+    : 'Angebots-Mail (350 €) als Test an dich (bastian.scherzinger05@gmail.com) senden?';
+  if(!confirm(frage)) return;
   try{
-    const r = await(await fetch(`/api/websites/${wid}/offer-email`, {method:'POST'})).json();
+    const r = await(await fetch(`/api/websites/${wid}/offer-email`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode})})).json();
     if(r && r.ok){ alert('✓ E-Mail gesendet an ' + r.to); }
     else if(r && r.status === 'deaktiviert'){
       alert('E-Mail-Versand ist noch aus.\n\n' + (r.hinweis || 'JARVIS_EMAIL_ENABLED=true in der .env setzen.'));
     }else{
-      alert('E-Mail fehlgeschlagen: ' + ((r && (r.reason || r.status)) || 'unbekannt'));
+      alert('E-Mail fehlgeschlagen: ' + ((r && (r.reason || r.status)) || 'unbekannt')
+        + (r && r.hinweis ? '\n\n' + r.hinweis : ''));
     }
   }catch(e){ alert('E-Mail fehlgeschlagen: ' + e); }
 }

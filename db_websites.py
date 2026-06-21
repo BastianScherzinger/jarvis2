@@ -21,6 +21,7 @@ _lock   = threading.Lock()
 # 'live' = 1 NUR wenn die Seite verifiziert erreichbar ist (echter Deploy-Status).
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
+    "kontakt_email",
 }
 
 
@@ -69,11 +70,12 @@ def init_db() -> None:
             repo_url  TEXT,
             live_url  TEXT,
             error     TEXT,
-            images    TEXT,
-            log       TEXT,
-            live      INTEGER DEFAULT 0,
-            created   REAL,
-            updated   REAL
+            images        TEXT,
+            log           TEXT,
+            live          INTEGER DEFAULT 0,
+            kontakt_email TEXT,
+            created       REAL,
+            updated       REAL
         )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_created ON websites(created DESC)")
@@ -83,30 +85,36 @@ def init_db() -> None:
             c.execute("ALTER TABLE websites ADD COLUMN live INTEGER DEFAULT 0")
             # Bestandszeilen mit Live-URL galten unter der alten Logik als 'live'.
             c.execute("UPDATE websites SET live=1 WHERE live_url IS NOT NULL AND live_url != ''")
+        if "kontakt_email" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN kontakt_email TEXT")
         c.commit()
 
 
 def create(job_id: str, name: str, stadt: str = "", branche: str = "",
-           lead_id: "int | None" = None) -> int:
+           lead_id: "int | None" = None, kontakt_email: str = "") -> int:
     """Legt eine neue Zeile für einen Bau-Job an und gibt deren id zurück.
 
-    Idempotent: existiert job_id bereits, wird nur 'updated' gesetzt und die
-    vorhandene id zurückgegeben (kein doppelter Eintrag)."""
+    Idempotent: existiert job_id bereits, wird nur 'updated' (und ggf. die
+    Kontakt-E-Mail) gesetzt und die vorhandene id zurückgegeben."""
     now = time.time()
     with _lock, _conn() as c:
         vorhanden = c.execute(
             "SELECT id FROM websites WHERE job_id=?", (job_id,)
         ).fetchone()
         if vorhanden:
-            c.execute("UPDATE websites SET updated=? WHERE job_id=?", (now, job_id))
+            if kontakt_email:
+                c.execute("UPDATE websites SET updated=?, kontakt_email=? WHERE job_id=?",
+                          (now, kontakt_email, job_id))
+            else:
+                c.execute("UPDATE websites SET updated=? WHERE job_id=?", (now, job_id))
             c.commit()
             return int(vorhanden["id"])
         cur = c.execute(
             "INSERT INTO websites "
             "(job_id, lead_id, name, stadt, branche, status, progress, step, "
-            " folder, repo_url, live_url, error, images, log, created, updated) "
-            "VALUES (?, ?, ?, ?, ?, 'queued', 0, '', '', '', '', '', '[]', '[]', ?, ?)",
-            (job_id, lead_id, name, stadt, branche, now, now),
+            " folder, repo_url, live_url, error, images, log, kontakt_email, created, updated) "
+            "VALUES (?, ?, ?, ?, ?, 'queued', 0, '', '', '', '', '', '[]', '[]', ?, ?, ?)",
+            (job_id, lead_id, name, stadt, branche, kontakt_email, now, now),
         )
         c.commit()
         return int(cur.lastrowid)

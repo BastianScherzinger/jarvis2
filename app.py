@@ -392,61 +392,88 @@ def api_website_chat(wid):
 
 @app.route("/api/websites/<int:wid>/offer-email", methods=["POST"])
 def api_website_offer_email(wid):
-    """Sendet eine Angebots-Mail (mit Link) — vorerst immer an Bastians Postfach."""
+    """Sendet die designte Angebots-Mail (350 €). Body {mode}:
+       'test' → an Bastian (zum Testen);  'real' → an die gefundene Kontaktadresse."""
     import mailer
     row = db_websites.get(wid)
     if not row:
         return jsonify({"ok": False, "reason": "not_found"}), 404
+    mode = ((request.get_json(silent=True) or {}).get("mode") or "test").strip().lower()
     name = row.get("name") or "Ihr Betrieb"
     link = (row.get("live_url") or row.get("repo_url") or "").strip()
-    to = "bastian.scherzinger05@gmail.com"        # später: echte Kunden-E-Mail
-    betreff, text, html = _build_offer_email(name, link)
-    res = mailer.send_email(to, betreff, text, html=html)
+
+    if mode == "real":
+        to = (row.get("kontakt_email") or "").strip()
+        if "@" not in to:
+            return jsonify({"ok": False, "reason": "Keine Kontakt-E-Mail zu diesem Lead gefunden."}), 400
+    else:
+        to = "bastian.scherzinger05@gmail.com"        # Testempfänger
+
+    betreff, text, html = _build_offer_email(name, link, row.get("branche", ""), row.get("stadt", ""))
+    # Bewusste, vom Nutzer ausgelöste Sendung → Redirect umgehen (echter Empfänger).
+    res = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
     out = {"ok": bool(res.get("ok")), "status": res.get("status", ""),
-           "reason": res.get("fehler", ""), "to": to}
+           "reason": res.get("fehler", ""), "to": to, "mode": mode}
     if res.get("status") == "deaktiviert":
         out["hinweis"] = "Versand aus: setze JARVIS_EMAIL_ENABLED=true in der .env."
     elif "Auth" in str(res.get("fehler", "")):
-        out["hinweis"] = ("Gmail lehnt die Anmeldung ab. Neues App-Passwort erstellen "
-                          "(2-Schritt-Verifizierung muss an sein): myaccount.google.com → "
-                          "Sicherheit → App-Passwörter → in .env als SMTP_PASS eintragen.")
+        out["hinweis"] = ("Gmail lehnt die Anmeldung ab. App-Passwort gehört zum SMTP_USER? "
+                          "Neues unter myaccount.google.com → Sicherheit → App-Passwörter.")
     return jsonify(out)
 
 
-def _build_offer_email(name: str, link: str) -> tuple:
-    """Kurze, knackige Angebots-Mail (Text + HTML) mit dem Webseiten-Link."""
-    betreff = f"Ihre neue Webseite für {name} ist online — schauen Sie selbst"
+def _build_offer_email(name: str, link: str, branche: str = "", stadt: str = "") -> tuple:
+    """Designte Angebots-Mail (Text + HTML): Webseite für 350 €, alles anpassbar."""
     linkzeile = link or "(Link folgt)"
+    region = f" in {stadt}" if stadt else ""
+    fach = branche or "Ihr Betrieb"
+    betreff = f"Webseite für {name} – fertig & online (Komplettpreis 350 €)"
     text = (
         f"Guten Tag,\n\n"
-        f"wir sind über {name} gestolpert — ein Betrieb mit gutem Ruf, aber ohne "
-        f"professionellen Webauftritt. Deshalb haben wir Ihnen unverbindlich eine "
-        f"moderne Webseite gebaut. Sie ist bereits online:\n\n{linkzeile}\n\n"
-        f"Schauen Sie in Ruhe rein. Gefällt sie Ihnen, übernehmen wir sie für Sie — "
-        f"Texte, Farben, Bilder und Inhalte passen wir natürlich genau nach Ihren "
-        f"Wünschen an. Sie entscheiden, was bleibt und was sich ändert.\n\n"
-        f"Antworten Sie einfach auf diese Mail, dann besprechen wir die Details.\n\n"
+        f"wir sind auf {name}{region} aufmerksam geworden – ein Betrieb mit gutem Ruf, "
+        f"aber bislang ohne professionellen Webauftritt. Deshalb haben wir Ihnen "
+        f"unverbindlich eine moderne Webseite erstellt. Sie ist bereits online:\n\n"
+        f"{linkzeile}\n\n"
+        f"Unser Angebot, ehrlich und einfach:\n"
+        f"• Komplette, professionelle Webseite zum Festpreis von 350 € – keine versteckten Kosten.\n"
+        f"• Modernes, mobiloptimiertes Design, passend zu {fach}.\n"
+        f"• Alles individuell anpassbar: Texte, Farben, Bilder, Inhalte – ganz nach Ihren Wünschen.\n"
+        f"• Schnell startklar und sofort online.\n\n"
+        f"Schauen Sie in Ruhe rein. Gefällt sie Ihnen, übernehmen wir sie für Sie und passen "
+        f"jedes Detail an. Sie entscheiden, was bleibt und was sich ändert.\n\n"
+        f"Antworten Sie einfach auf diese Mail – wir besprechen die Details unverbindlich.\n\n"
         f"Beste Grüße\nBastian Scherzinger"
     )
-    html = f"""<!DOCTYPE html><html><body style="margin:0;background:#f6f4f1;font-family:Arial,Helvetica,sans-serif;color:#15181d">
-  <div style="max-width:560px;margin:0 auto;padding:28px 22px">
-    <div style="background:#fff;border-radius:16px;padding:32px 28px;box-shadow:0 8px 30px rgba(0,0,0,.06)">
-      <p style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#c8102e;margin:0 0 14px">Ihre neue Webseite</p>
-      <h1 style="font-size:24px;margin:0 0 14px;line-height:1.25">Für {name} — fertig und online.</h1>
-      <p style="font-size:15px;line-height:1.65;color:#454b54;margin:0 0 22px">
-        Wir sind über Ihren Betrieb gestolpert: guter Ruf, aber noch kein professioneller Webauftritt.
-        Deshalb haben wir Ihnen unverbindlich eine moderne Webseite gebaut — sie ist bereits live.
+    html = f"""<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#eef1f4;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1a1f27">
+  <div style="max-width:580px;margin:0 auto;padding:26px 18px">
+    <div style="background:#0f1b2d;border-radius:18px 18px 0 0;padding:30px 30px 22px;color:#fff">
+      <p style="margin:0 0 8px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#5fd0ff">Ihre neue Webseite – startklar</p>
+      <h1 style="margin:0;font-size:25px;line-height:1.25;font-weight:700">{name} ist online.</h1>
+      <p style="margin:12px 0 0;font-size:15px;line-height:1.6;color:#c7d4e3">
+        Wir haben {name}{region} unverbindlich eine moderne Webseite gebaut – schauen Sie selbst:</p>
+      <p style="margin:20px 0 4px">
+        <a href="{linkzeile}" style="display:inline-block;background:#1e8eff;color:#fff;font-weight:700;font-size:16px;padding:14px 30px;border-radius:999px;text-decoration:none">Webseite ansehen →</a>
       </p>
-      <p style="text-align:center;margin:0 0 24px">
-        <a href="{linkzeile}" style="display:inline-block;background:#c8102e;color:#fff;font-weight:bold;font-size:16px;padding:14px 30px;border-radius:999px;text-decoration:none">Webseite ansehen</a>
-      </p>
-      <p style="font-size:15px;line-height:1.65;color:#454b54;margin:0 0 18px">
-        Gefällt sie Ihnen, übernehmen wir sie für Sie. Texte, Farben, Bilder und Inhalte
-        passen wir genau nach Ihren Wünschen an — Sie entscheiden, was bleibt und was sich ändert.
-      </p>
-      <p style="font-size:15px;color:#454b54;margin:0">Antworten Sie einfach auf diese Mail.<br>Beste Grüße<br><strong>Bastian Scherzinger</strong></p>
     </div>
-    <p style="text-align:center;color:#9aa3ad;font-size:12px;margin:16px 0 0">{linkzeile}</p>
+    <div style="background:#fff;border-radius:0 0 18px 18px;padding:28px 30px;box-shadow:0 12px 40px rgba(15,27,45,.10)">
+      <div style="background:#f4f8ff;border:1px solid #d8e6fb;border-radius:14px;padding:18px 20px;margin:0 0 22px">
+        <div style="font-size:13px;color:#5b6b7e">Komplettpreis</div>
+        <div style="font-size:30px;font-weight:800;color:#0f1b2d;line-height:1.1">350&nbsp;€ <span style="font-size:14px;font-weight:600;color:#5b6b7e">– einmalig, alles inklusive</span></div>
+      </div>
+      <ul style="margin:0 0 22px;padding:0;list-style:none;font-size:15px;line-height:1.7;color:#333b46">
+        <li style="margin-bottom:6px">✓ Professionelle, mobiloptimierte Webseite passend zu {fach}</li>
+        <li style="margin-bottom:6px">✓ <strong>Alles individuell anpassbar</strong> – Texte, Farben, Bilder, Inhalte</li>
+        <li style="margin-bottom:6px">✓ Sofort online, schnell startklar</li>
+        <li>✓ Keine versteckten Kosten, kein Abo</li>
+      </ul>
+      <p style="font-size:15px;line-height:1.65;color:#454b54;margin:0 0 18px">
+        Gefällt sie Ihnen, übernehmen wir sie für Sie und passen jedes Detail nach Ihren
+        Wünschen an. Sie entscheiden, was bleibt und was sich ändert.</p>
+      <p style="font-size:15px;color:#454b54;margin:0">Einfach auf diese Mail antworten.<br>Beste Grüße<br><strong>Bastian Scherzinger</strong></p>
+    </div>
+    <p style="text-align:center;color:#90a0b3;font-size:12px;margin:16px 0 0">{linkzeile}</p>
   </div>
 </body></html>"""
     return betreff, text, html
