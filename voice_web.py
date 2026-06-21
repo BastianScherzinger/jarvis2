@@ -10,6 +10,14 @@ direkt über PyAV — kein separates ffmpeg nötig.
 from __future__ import annotations
 
 import os
+
+# WICHTIG: muss gesetzt sein, BEVOR faster-whisper/ctranslate2 die gebündelte
+# OpenBLAS-Lib laden. Sonst scheitert auf Windows mit vielen Kernen die
+# Thread-Allokation ("OpenBLAS error: Memory allocation still failed …") und
+# jede Transkription wirft einen HTTP 500. Ein Thread reicht für int8-CPU-STT.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import re
 import tempfile
 import threading
