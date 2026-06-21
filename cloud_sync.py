@@ -29,8 +29,10 @@ _BATCH        = 100          # Leads pro API-Request
 _TIMEOUT      = 20           # HTTP-Timeout
 _TABLE        = "jarvis_leads"
 
+# raw_id ist eine LOKALE db_raw-ID (pro PC verschieden) — sie wird NICHT in die Cloud
+# gesynct (dort bedeutungslos + verursachte NOT-NULL-Fehler). Dedup läuft über lead_key.
 _SYNC_COLS = [
-    "raw_id", "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
+    "lead_key", "schluessel", "name", "adresse", "stadt", "bundesland", "branche",
     "telefon", "email_vorhanden", "email_adresse", "email_alle", "ansprechpartner",
     "telefon_verifiziert",
     "has_website", "website_url", "discovered_website",
@@ -90,7 +92,9 @@ def _upsert_batch(url: str, key: str, leads: list[dict]) -> int:
         rows.append(row)
     payload = json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
     req = urllib.request.Request(
-        f"{url}/rest/v1/{_TABLE}",
+        # on_conflict=lead_key → echtes Upsert: bekannte Leads werden AKTUALISIERT
+        # (merge-duplicates), neue eingefügt. Dedup serverseitig über den UNIQUE-Index.
+        f"{url}/rest/v1/{_TABLE}?on_conflict=lead_key",
         data=payload, headers=_headers(key), method="POST",
     )
     # Transiente Netzfehler (URLError, RemoteDisconnected) bis zu 3x mit Backoff
