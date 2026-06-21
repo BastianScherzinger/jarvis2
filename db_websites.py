@@ -153,6 +153,21 @@ def get_by_job(job_id: str) -> "dict | None":
     return _row_to_dict(row) if row else None
 
 
+def get_by_folder(folder: str) -> "dict | None":
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM websites WHERE folder=? ORDER BY created DESC LIMIT 1",
+                        (folder,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def delete(wid: int) -> bool:
+    """Entfernt eine Webseiten-Zeile. Gibt True, wenn etwas gelöscht wurde."""
+    with _lock, _conn() as c:
+        cur = c.execute("DELETE FROM websites WHERE id=?", (wid,))
+        c.commit()
+        return cur.rowcount > 0
+
+
 def add_image(wid: int, filename: str) -> "dict | None":
     """Hängt einen Dateinamen an die images-Liste an (dedupliziert) und gibt die
     aktualisierte Zeile zurück."""

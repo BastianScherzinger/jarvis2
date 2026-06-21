@@ -141,8 +141,117 @@ function _wsCard(w){
     ${linkRow}
     ${folder}
     ${media}
+    <div class="ws-actions">
+      <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte & Bilder">✦ Top verbessern</button>
+      <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
+      <button class="ws-act" onclick='wsSendOffer(${w.id})' title="Angebots-Mail mit Link senden">✉ Email an Kunde</button>
+      <button class="ws-act danger" onclick='wsDelete(${w.id}, ${JSON.stringify(w.name||"")})' title="Webseite komplett löschen">🗑 Löschen</button>
+    </div>
     <div class="ws-foot">${_wse(_wsAgo(w.updated || w.created))}</div>
   </div>`;
+}
+
+async function wsDelete(wid, name){
+  const ok = confirm(`Webseite „${name||'?'}" komplett löschen?\n\n`
+    + 'Das entfernt den lokalen Ordner und (falls möglich) das GitHub-Repo '
+    + 'und den Railway-Service.\n\nAbbrechen = nichts löschen.');
+  if(!ok) return;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}?folder=1&remote=1`, {method:'DELETE'})).json();
+    if(r && r.ok){
+      loadWebsites(true);
+    }else{
+      alert('Löschen fehlgeschlagen: ' + ((r && r.reason) || 'unbekannt'));
+    }
+  }catch(e){ alert('Löschen fehlgeschlagen: ' + e); }
+}
+
+async function wsImprove(wid){
+  const ok = confirm('„Top verbessern" lässt 5 Profi-Agenten über die Seite gehen '
+    + '(Design, Texte, Referenzbilder, Über-uns, FAQ) und deployt neu.\n\n'
+    + 'Das überschreibt das aktuelle Design & die Texte mit verbesserten Versionen. Fortfahren?');
+  if(!ok) return;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/improve`, {method:'POST'})).json();
+    if(r && r.ok){ loadWebsites(true); }
+    else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
+  }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
+}
+
+async function wsSendOffer(wid){
+  const ok = confirm('Angebots-Mail mit dem Webseiten-Link senden?\n\n'
+    + '(geht aktuell als Test an bastian.scherzinger05@gmail.com)');
+  if(!ok) return;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/offer-email`, {method:'POST'})).json();
+    if(r && r.ok){ alert('✓ E-Mail gesendet an ' + r.to); }
+    else if(r && r.status === 'deaktiviert'){
+      alert('E-Mail-Versand ist noch aus.\n\n' + (r.hinweis || 'JARVIS_EMAIL_ENABLED=true in der .env setzen.'));
+    }else{
+      alert('E-Mail fehlgeschlagen: ' + ((r && (r.reason || r.status)) || 'unbekannt'));
+    }
+  }catch(e){ alert('E-Mail fehlgeschlagen: ' + e); }
+}
+
+// ── Mit-Claude-Modal (verbessern / debuggen) ────────────────────────────────
+function wsOpenChat(wid){
+  let bg = document.getElementById('ws-chat-bg');
+  if(!bg){
+    bg = document.createElement('div');
+    bg.id = 'ws-chat-bg'; bg.className = 'ws-chat-bg';
+    bg.innerHTML = `<div class="ws-chat" onclick="event.stopPropagation()">
+      <div class="ws-chat-head"><span>Mit Claude · verbessern &amp; debuggen</span>
+        <button class="ws-chat-x" onclick="wsCloseChat()" aria-label="Schließen">✕</button></div>
+      <div class="ws-chat-log" id="ws-chat-log"></div>
+      <div class="ws-chat-in">
+        <textarea id="ws-chat-text" rows="2" placeholder="z.B. „Mach die Headline knackiger und die Akzentfarbe dunkelblau" — oder stell eine Frage zur Seite."></textarea>
+        <button class="ws-chat-send" id="ws-chat-send">Senden</button>
+      </div></div>`;
+    bg.onclick = wsCloseChat;
+    document.body.appendChild(bg);
+    bg.querySelector('#ws-chat-send').onclick = wsChatSend;
+    bg.querySelector('#ws-chat-text').addEventListener('keydown', e=>{
+      if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); wsChatSend(); }
+    });
+  }
+  bg.dataset.wid = wid;
+  document.getElementById('ws-chat-log').innerHTML =
+    '<div class="ws-chat-hint">Beschreibe eine Änderung (wird umgesetzt &amp; neu deployt) oder stelle eine Frage zur Seite.</div>';
+  bg.classList.add('open');
+}
+function wsCloseChat(){ const b=document.getElementById('ws-chat-bg'); if(b) b.classList.remove('open'); }
+
+async function wsChatSend(){
+  const bg = document.getElementById('ws-chat-bg');
+  if(!bg) return;
+  const wid = bg.dataset.wid;
+  const ta  = document.getElementById('ws-chat-text');
+  const log = document.getElementById('ws-chat-log');
+  const q   = (ta.value || '').trim();
+  if(!q) return;
+  ta.value = '';
+  log.insertAdjacentHTML('beforeend', `<div class="ws-msg user">${_wse(q)}</div>`);
+  const wait = document.createElement('div');
+  wait.className = 'ws-msg bot';
+  wait.innerHTML = '<span class="jc-spin"></span> denkt nach…';
+  log.appendChild(wait); log.scrollTop = log.scrollHeight;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/chat`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({instruction:q})})).json();
+    wait.remove();
+    if(r && r.ok){
+      let m = _wse(r.answer || 'Erledigt, Sir.');
+      if(r.changed) m += '<div class="ws-msg-tag">✓ Änderung übernommen — Seite wird neu deployt.</div>';
+      log.insertAdjacentHTML('beforeend', `<div class="ws-msg bot">${m}</div>`);
+      if(r.changed) loadWebsites(true);
+    }else{
+      log.insertAdjacentHTML('beforeend', `<div class="ws-msg bot err">✕ ${_wse((r&&r.reason)||'Fehler')}</div>`);
+    }
+  }catch(e){
+    wait.remove();
+    log.insertAdjacentHTML('beforeend', `<div class="ws-msg bot err">✕ ${_wse(String(e))}</div>`);
+  }
+  log.scrollTop = log.scrollHeight;
 }
 
 async function wsUploadImage(wid, input){

@@ -124,6 +124,28 @@ def create_repo(name: str, description: str = "", private: bool = True) -> dict:
     return {"ok": False, "error": f"GitHub {r.status_code}: {r.text[:160]}"}
 
 
+def delete_repo(full_name: str) -> dict:
+    """Löscht ein Repo (best-effort). Braucht ein Token mit 'delete_repo'-Scope.
+    Gibt {ok, error}. Schlägt es fehl, wird der Rest des Löschvorgangs fortgesetzt."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "GITHUB_TOKEN fehlt"}
+    full_name = (full_name or "").strip().strip("/")
+    if "/" not in full_name:
+        return {"ok": False, "error": "Ungültiger Repo-Name"}
+    try:
+        r = requests.delete(f"{API}/repos/{full_name}", headers=_headers(token), timeout=20)
+    except Exception as e:
+        return {"ok": False, "error": f"GitHub nicht erreichbar: {type(e).__name__}"}
+    if r.status_code in (204, 202):
+        return {"ok": True, "error": ""}
+    if r.status_code == 403:
+        return {"ok": False, "error": "Token braucht 'delete_repo'-Scope"}
+    if r.status_code == 404:
+        return {"ok": True, "error": "Repo existierte nicht (bereits gelöscht)"}
+    return {"ok": False, "error": f"GitHub {r.status_code}"}
+
+
 def push_folder(folder: "str | Path", full_name: str, branch: str = "main",
                 message: str = "Initiale Website (JARVIS)") -> dict:
     """git init/add/commit + token-authentifizierter Push nach github.com/<full_name>."""

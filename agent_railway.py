@@ -126,6 +126,29 @@ def project_delete(project_id: str) -> dict:
     return {"ok": r["ok"], "error": r.get("error", "")}
 
 
+def service_delete_by_name(service_name: str) -> dict:
+    """Löscht den Service mit diesem Namen im Sammel-Projekt 'Generated Websites'
+    (best-effort). Gibt {ok, error}."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "RAILWAY_TOKEN fehlt"}
+    found = _find_project_with_env(token, PROJECT_NAME)
+    if not found.get("found"):
+        return {"ok": False, "error": f"Projekt '{PROJECT_NAME}' nicht gefunden"}
+    pid = found["project_id"]
+    q = ("query($id:String!){ project(id:$id){ services { edges { node { id name } } } } }")
+    r = _gql(q, {"id": pid}, token)
+    if not r["ok"]:
+        return {"ok": False, "error": r["error"]}
+    edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
+    sid = next((e["node"]["id"] for e in edges
+                if (e["node"].get("name") or "").strip() == service_name.strip()), "")
+    if not sid:
+        return {"ok": True, "error": "Service nicht gefunden (bereits gelöscht?)"}
+    d = _gql("mutation($id:String!){ serviceDelete(id:$id) }", {"id": sid}, token)
+    return {"ok": d["ok"], "error": d.get("error", "")}
+
+
 def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
            on_step=None) -> dict:
     """

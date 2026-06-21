@@ -333,3 +333,42 @@ def test_find_built_sites_ist_liste(tmp_path, monkeypatch):
     sites = website_builder.find_built_sites()
     assert len(sites) == 1 and sites[0]["name"] == "Demo GmbH"
     assert sites[0]["slug"] == "web_demo-gmbh"
+
+
+# ── Webseiten-Verbesserung + Angebots-Mail (reine Helfer) ─────────────────────
+def test_improve_premium_template_valides_django():
+    # Premium-Template muss als Django-Template kompilieren + alle Sektionen rendern.
+    import django
+    from django.conf import settings
+    if not settings.configured:
+        settings.configure(
+            TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates",
+                        "DIRS": [], "APP_DIRS": False, "OPTIONS": {}}],
+            INSTALLED_APPS=["django.contrib.staticfiles"], STATIC_URL="/static/")
+        django.setup()
+    from django.template import engines
+    import website_improve
+    tpl = engines["django"].from_string(website_improve._PREMIUM_HTML)
+    c = {"seo_title": "T", "seo_desc": "D", "akzent": "#123456", "site_name": "Demo",
+         "branche": "Elektro", "stadt": "Ulm", "telefon": "1", "email": "a@b.de",
+         "adresse": "Str", "headline": "H", "subline": "S", "cta_text": "CTA",
+         "kontakt_text": "K", "ueber_titel": "U", "ueber_text": "UT",
+         "hero_image": "/h.png", "about_image": "/u.png", "fotos": ["/x", "/y"],
+         "usps": ["A", "B"], "leistungen": [{"titel": "L", "text": "t"}],
+         "faq": [{"frage": "F?", "antwort": "A"}], "jahr": 2026}
+    html = tpl.render({"c": c})
+    assert "usp-dot" in html and "faq-item" in html and "about-img" in html
+
+
+def test_improve_extract_json():
+    import website_improve
+    assert website_improve._extract_json('vor {"a":1} nach') == {"a": 1}
+    assert website_improve._extract_json("kein json") is None
+
+
+def test_offer_email_enthaelt_link():
+    import app
+    betreff, text, html = app._build_offer_email("Müller GmbH", "https://x.up.railway.app")
+    assert "Müller GmbH" in betreff
+    assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
+    assert "Bastian Scherzinger" in text

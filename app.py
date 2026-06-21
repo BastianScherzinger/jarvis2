@@ -284,6 +284,57 @@ def api_website_add_image(wid):
     return jsonify({"ok": True, "website": updated})
 
 
+@app.route("/api/websites/<int:wid>", methods=["DELETE"])
+def api_website_delete(wid):
+    """Löscht eine generierte Webseite: DB-Eintrag immer; lokalen Ordner (folder=1)
+    und remote GitHub-Repo + Railway-Service (remote=1) best-effort."""
+    import shutil
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    del_folder = request.args.get("folder", "1") not in ("0", "false", "no")
+    del_remote = request.args.get("remote", "0") in ("1", "true", "yes")
+    report = []
+
+    # 1) Lokalen Ordner löschen (nur sichere web_-Ordner unterhalb der Shop-Basis)
+    folder = (row.get("folder") or "").strip()
+    if del_folder and folder:
+        try:
+            p = Path(folder).resolve()
+            if p.is_dir() and p.name.lower().startswith("web"):
+                shutil.rmtree(p, ignore_errors=True)
+                report.append("Ordner gelöscht")
+            else:
+                report.append("Ordner übersprungen (unsicherer Pfad)")
+        except Exception as e:
+            report.append(f"Ordner-Fehler: {type(e).__name__}")
+
+    # 2) Remote (GitHub-Repo + Railway-Service) — best-effort
+    if del_remote and row.get("repo_url"):
+        full = row["repo_url"].split("github.com/", 1)[-1].strip("/").removesuffix(".git")
+        if "/" in full:
+            try:
+                import agent_github
+                gr = agent_github.delete_repo(full)
+                report.append("GitHub-Repo gelöscht" if gr.get("ok")
+                              else f"GitHub: {gr.get('error', '')[:60]}")
+            except Exception as e:
+                report.append(f"GitHub-Fehler: {type(e).__name__}")
+            try:
+                import agent_railway
+                svc = full.split("/")[-1]            # Service-Name = Repo-Name (web-<slug>)
+                rr = agent_railway.service_delete_by_name(svc)
+                report.append("Railway-Service gelöscht" if rr.get("ok")
+                              else f"Railway: {rr.get('error', '')[:60]}")
+            except Exception as e:
+                report.append(f"Railway-Fehler: {type(e).__name__}")
+
+    # 3) DB-Eintrag entfernen (immer)
+    db_websites.delete(wid)
+    report.append("Eintrag entfernt")
+    return jsonify({"ok": True, "report": report})
+
+
 @app.route("/api/websites/<int:wid>/asset/<path:fname>")
 def api_website_asset(wid, fname):
     """Liefert ein hinzugefügtes Bild einer Seite aus (Thumbnail-Vorschau)."""
@@ -300,6 +351,101 @@ def api_website_asset(wid, fname):
     if not os.path.isfile(ziel_real):
         return ("", 404)
     return send_from_directory(base_real, os.path.basename(ziel_real))
+
+
+@app.route("/api/websites/<int:wid>/improve", methods=["POST"])
+def api_website_improve(wid):
+    """'Top verbessern': 5-Agenten-Pipeline + Re-Deploy (Hintergrund-Job)."""
+    import website_builder
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    folder = (row.get("folder") or "").strip()
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"ok": False, "reason": "Ordner nicht gefunden"}), 409
+    job_id = website_builder.improve_existing(folder, row.get("name") or None)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/websites/<int:wid>/chat", methods=["POST"])
+def api_website_chat(wid):
+    """Mit Claude debuggen/verbessern: freie Anweisung → Antwort und/oder Änderung
+    an content.json; bei Änderung wird die Seite neu deployt."""
+    import website_improve
+    import website_builder
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    folder = (row.get("folder") or "").strip()
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"ok": False, "reason": "Ordner nicht gefunden"}), 409
+    instruction = ((request.get_json(silent=True) or {}).get("instruction") or "").strip()
+    if not instruction:
+        return jsonify({"ok": False, "reason": "Keine Anweisung"}), 400
+    res = website_improve.chat_edit(folder, instruction)
+    job_id = ""
+    if res.get("ok") and res.get("changed"):
+        job_id = website_builder.deploy_existing(folder, row.get("name") or None)
+    return jsonify({"ok": bool(res.get("ok")), "answer": res.get("answer", ""),
+                    "changed": bool(res.get("changed")), "job_id": job_id})
+
+
+@app.route("/api/websites/<int:wid>/offer-email", methods=["POST"])
+def api_website_offer_email(wid):
+    """Sendet eine Angebots-Mail (mit Link) — vorerst immer an Bastians Postfach."""
+    import mailer
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    name = row.get("name") or "Ihr Betrieb"
+    link = (row.get("live_url") or row.get("repo_url") or "").strip()
+    to = "bastian.scherzinger05@gmail.com"        # später: echte Kunden-E-Mail
+    betreff, text, html = _build_offer_email(name, link)
+    res = mailer.send_email(to, betreff, text, html=html)
+    out = {"ok": bool(res.get("ok")), "status": res.get("status", ""),
+           "reason": res.get("fehler", ""), "to": to}
+    if res.get("status") == "deaktiviert":
+        out["hinweis"] = "Versand aus: setze JARVIS_EMAIL_ENABLED=true in der .env."
+    return jsonify(out)
+
+
+def _build_offer_email(name: str, link: str) -> tuple:
+    """Kurze, knackige Angebots-Mail (Text + HTML) mit dem Webseiten-Link."""
+    betreff = f"Ihre neue Webseite für {name} ist online — schauen Sie selbst"
+    linkzeile = link or "(Link folgt)"
+    text = (
+        f"Guten Tag,\n\n"
+        f"wir sind über {name} gestolpert — ein Betrieb mit gutem Ruf, aber ohne "
+        f"professionellen Webauftritt. Deshalb haben wir Ihnen unverbindlich eine "
+        f"moderne Webseite gebaut. Sie ist bereits online:\n\n{linkzeile}\n\n"
+        f"Schauen Sie in Ruhe rein. Gefällt sie Ihnen, übernehmen wir sie für Sie — "
+        f"Texte, Farben, Bilder und Inhalte passen wir natürlich genau nach Ihren "
+        f"Wünschen an. Sie entscheiden, was bleibt und was sich ändert.\n\n"
+        f"Antworten Sie einfach auf diese Mail, dann besprechen wir die Details.\n\n"
+        f"Beste Grüße\nBastian Scherzinger"
+    )
+    html = f"""<!DOCTYPE html><html><body style="margin:0;background:#f6f4f1;font-family:Arial,Helvetica,sans-serif;color:#15181d">
+  <div style="max-width:560px;margin:0 auto;padding:28px 22px">
+    <div style="background:#fff;border-radius:16px;padding:32px 28px;box-shadow:0 8px 30px rgba(0,0,0,.06)">
+      <p style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#c8102e;margin:0 0 14px">Ihre neue Webseite</p>
+      <h1 style="font-size:24px;margin:0 0 14px;line-height:1.25">Für {name} — fertig und online.</h1>
+      <p style="font-size:15px;line-height:1.65;color:#454b54;margin:0 0 22px">
+        Wir sind über Ihren Betrieb gestolpert: guter Ruf, aber noch kein professioneller Webauftritt.
+        Deshalb haben wir Ihnen unverbindlich eine moderne Webseite gebaut — sie ist bereits live.
+      </p>
+      <p style="text-align:center;margin:0 0 24px">
+        <a href="{linkzeile}" style="display:inline-block;background:#c8102e;color:#fff;font-weight:bold;font-size:16px;padding:14px 30px;border-radius:999px;text-decoration:none">Webseite ansehen</a>
+      </p>
+      <p style="font-size:15px;line-height:1.65;color:#454b54;margin:0 0 18px">
+        Gefällt sie Ihnen, übernehmen wir sie für Sie. Texte, Farben, Bilder und Inhalte
+        passen wir genau nach Ihren Wünschen an — Sie entscheiden, was bleibt und was sich ändert.
+      </p>
+      <p style="font-size:15px;color:#454b54;margin:0">Antworten Sie einfach auf diese Mail.<br>Beste Grüße<br><strong>Bastian Scherzinger</strong></p>
+    </div>
+    <p style="text-align:center;color:#9aa3ad;font-size:12px;margin:16px 0 0">{linkzeile}</p>
+  </div>
+</body></html>"""
+    return betreff, text, html
 
 
 @app.route("/api/lead/<int:lead_id>/competition")

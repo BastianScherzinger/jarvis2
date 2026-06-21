@@ -381,10 +381,14 @@ def _url_live(url: str, on_tick=None, timeout: int = 180) -> bool:
 
 
 def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
-                   site_name: str, say) -> dict:
+                   site_name: str, say, redeploy_url: str = "") -> dict:
     """Legt ein GitHub-Repo an, pusht den Ordner und deployt auf Railway.
     say(progress|None, text) meldet jeden Schritt. Gibt
-    {repo_full, repo_url, live_url, railway_note, railway_log}."""
+    {repo_full, repo_url, live_url, live_ok, railway_note, railway_log}.
+
+    redeploy_url: ist die Seite schon einmal deployt (Live-URL bekannt), wird NUR
+    gepusht — Railway baut bei git-push automatisch neu. So entstehen bei
+    'verbessern'/'mit Claude' keine doppelten Railway-Services."""
     import agent_github
     import agent_railway
     repo_full = repo_url = live_url = railway_note = ""
@@ -418,6 +422,20 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
     else:
         railway_note = "GITHUB_TOKEN fehlt in der .env."
         say(83, "GitHub übersprungen (kein GITHUB_TOKEN in .env).")
+
+    # Re-Deploy: Seite existiert schon → nur Push, Railway baut automatisch neu.
+    if redeploy_url and repo_full:
+        live_url = redeploy_url
+        say(90, "Push löst Railway-Rebuild aus — warte auf Erreichbarkeit (bis 3 Min)…")
+        if _url_live(redeploy_url, lambda s: say(None, s), timeout=180):
+            live_ok = True
+            say(98, f"Live erreichbar: {live_url}")
+        else:
+            railway_note = (f"Rebuild läuft ({redeploy_url}) — in 1-2 Min erneut öffnen. "
+                            "Falls dauerhaft 502: Railway-Build-Log prüfen.")
+            say(96, "Rebuild läuft — noch nicht erreichbar.")
+        return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
+                "live_ok": live_ok, "railway_note": railway_note, "railway_log": railway_log}
 
     # Railway -------------------------------------------------------------
     if agent_railway.is_ready() and repo_full:
@@ -654,8 +672,10 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
             else:
                 _step(job_id, p, t)
 
+        prev = get(job_id) or {}
         dep = _deploy_folder(target, slug, name, _django_secret_key(),
-                             content.get("site_name", name), _say)
+                             content.get("site_name", name), _say,
+                             redeploy_url=prev.get("live_url", ""))
         if dep.get("railway_log"):
             _set(job_id, railway_log=dep["railway_log"])
         if dep["repo_url"]:
@@ -677,34 +697,130 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
 
 
-def deploy_existing(folder: str, name: "str | None" = None) -> str:
-    """Deployt einen BEREITS gebauten Seiten-Ordner zu GitHub + Railway (ohne neu
-    zu bauen). Legt einen verfolgbaren Job an (erscheint im Webseiten-Reiter) und
-    gibt die job_id zurück."""
-    target = Path(folder)
-    if not name:
-        try:
-            c = json.loads((target / "content.json").read_text(encoding="utf-8"))
-            name = (c.get("site_name") or "").strip()
-        except Exception:
-            name = ""
-    name = name or target.name.replace("web_", "").replace("-", " ").strip() or "Webseite"
-    job_id = uuid.uuid4().hex[:12]
+def _folder_name(folder: Path, name: "str | None") -> str:
+    if name:
+        return name
+    try:
+        c = json.loads((folder / "content.json").read_text(encoding="utf-8"))
+        if (c.get("site_name") or "").strip():
+            return c["site_name"].strip()
+    except Exception:
+        pass
+    return folder.name.replace("web_", "").replace("-", " ").strip() or "Webseite"
+
+
+def _start_folder_job(folder: str, name: str, runner, first_step: str) -> str:
+    """Startet einen Hintergrund-Job für einen vorhandenen Ordner. Existiert für den
+    Ordner schon eine Webseiten-Zeile, wird DEREN job_id wiederverwendet (die Karte
+    aktualisiert sich an Ort und Stelle, statt zu duplizieren)."""
+    folder = str(folder)
+    job_id = ""
+    stadt = branche = ""
+    seed_repo = seed_live = ""
+    seed_liveflag = 0
+    try:
+        import db_websites
+        row = db_websites.get_by_folder(folder)
+        if row:
+            job_id = row.get("job_id") or ""
+            stadt, branche = row.get("stadt", ""), row.get("branche", "")
+            # Vorhandene Live-/Repo-URL übernehmen → _persist überschreibt sie nicht
+            # mit leer, und der Runner erkennt ein Re-Deploy (nur Push statt neuer Service).
+            seed_repo, seed_live = row.get("repo_url", ""), row.get("live_url", "")
+            seed_liveflag = int(row.get("live", 0) or 0)
+    except Exception:
+        pass
+    if not job_id:
+        job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {
-            "id": job_id, "status": "queued", "progress": 0, "step": "Deploy in Warteschlange…",
-            "folder": str(target), "repo_url": "", "live_url": "", "error": "", "log": [],
-            "created": time.time(), "_lead": {"name": name},
+            "id": job_id, "status": "queued", "progress": 0, "step": first_step,
+            "folder": folder, "repo_url": seed_repo, "live_url": seed_live, "live": seed_liveflag,
+            "error": "", "log": [], "created": time.time(), "_lead": {"name": name},
         }
     try:
         import db_websites
-        db_websites.create(job_id, name=name, stadt="", branche="", lead_id=None)
-        db_websites.update(job_id, folder=str(target))
+        if not db_websites.get_by_job(job_id):
+            db_websites.create(job_id, name=name, stadt=stadt, branche=branche, lead_id=None)
+        db_websites.update(job_id, folder=folder, status="queued", error="")
     except Exception:
         pass
-    threading.Thread(target=_run_deploy, args=(job_id, str(target), name),
-                     name=f"deploy-{job_id}", daemon=True).start()
+    threading.Thread(target=runner, args=(job_id, folder, name),
+                     name=f"job-{job_id}", daemon=True).start()
     return job_id
+
+
+def deploy_existing(folder: str, name: "str | None" = None) -> str:
+    """Deployt einen BEREITS gebauten Seiten-Ordner zu GitHub + Railway (ohne neu
+    zu bauen). Verfolgbar im Webseiten-Reiter. Gibt die job_id zurück."""
+    target = Path(folder)
+    nm = _folder_name(target, name)
+    return _start_folder_job(str(target), nm, _run_deploy, "Deploy in Warteschlange…")
+
+
+def improve_existing(folder: str, name: "str | None" = None) -> str:
+    """'Top verbessern': 5-Agenten-Pipeline (Design/Texte/Bilder/Struktur/QA) +
+    Re-Deploy. Verfolgbar im Webseiten-Reiter. Gibt die job_id zurück."""
+    target = Path(folder)
+    nm = _folder_name(target, name)
+    return _start_folder_job(str(target), nm, _run_improve, "Verbesserung in Warteschlange…")
+
+
+def _run_improve(job_id: str, folder: str, name: str) -> None:
+    try:
+        target = Path(folder)
+        if not target.is_dir():
+            raise RuntimeError("Ordner nicht gefunden.")
+        _set(job_id, status="running", folder=str(target), live=0)
+        _step(job_id, 5, f"Top-Verbesserung für {name} startet…")
+        lead = {"name": name}
+        try:
+            import db_websites
+            row = db_websites.get_by_job(job_id)
+            if row:
+                lead = {"name": row.get("name") or name, "stadt": row.get("stadt", ""),
+                        "branche": row.get("branche", "")}
+        except Exception:
+            pass
+
+        import website_improve
+        content = website_improve.enrich(target, lead, lambda p, t: _step(job_id, p, t))
+
+        # Re-Deploy der verbesserten Seite
+        slug = _slug(name)
+
+        def _say(p, t):
+            if p is None:
+                with _lock:
+                    j = _jobs.get(job_id)
+                    cur = (j.get("progress", 95) if j else 95)
+                _step(job_id, min(cur + 1, 99), t)
+            else:
+                _step(job_id, max(p, 95), t)   # nach der Verbesserung nie zurückspringen
+
+        prev = get(job_id) or {}
+        dep = _deploy_folder(target, slug, name, _django_secret_key(),
+                             content.get("site_name", name), _say,
+                             redeploy_url=prev.get("live_url", ""))
+        if dep.get("railway_log"):
+            _set(job_id, railway_log=dep["railway_log"])
+        if dep["repo_url"]:
+            _set(job_id, repo_url=dep["repo_url"])
+        _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
+        if dep.get("live_ok") and dep["live_url"]:
+            final = f"Verbessert & live: {dep['live_url']}"
+        elif dep["live_url"]:
+            final = f"Verbessert — Build läuft noch. Domain: {dep['live_url']}"
+        elif dep["repo_url"]:
+            final = "Verbessert & gepusht — " + (f"Railway: {str(dep['railway_note'])[:120]}"
+                                                 if dep["railway_note"] else "Deploy angestoßen.")
+        else:
+            final = "Verbessert (lokal). Deploy nicht möglich: " + str(dep.get("railway_note", ""))[:140]
+        _set(job_id, status="done")
+        _step(job_id, 100, final)
+    except Exception as e:
+        _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
 
 
 # ── Deploy-Bereitschaft (Diagnose für 'klappt nicht'-Fälle) ───────────────────
