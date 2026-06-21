@@ -74,13 +74,25 @@ def project_delete(project_id: str) -> dict:
     return {"ok": r["ok"], "error": r.get("error", "")}
 
 
-def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> dict:
+def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
+           on_step=None) -> dict:
     """
     Vollständiger Deploy aus einem GitHub-Repo. Gibt
     {ok, url, project_id, service_id, log:[...]} oder {ok:False, error, log}.
+
+    on_step(text): optionaler Callback, der bei jedem Teilschritt aufgerufen wird
+    (für eine genaue Fortschrittsanzeige im Dashboard).
     """
     token = _token()
     log: list[str] = []
+
+    def _say(text: str) -> None:
+        log.append(text)
+        if callable(on_step):
+            try:
+                on_step(text)
+            except Exception:
+                pass
     if not token:
         return {"ok": False, "error": "RAILWAY_TOKEN fehlt in .env", "log": log}
     if not repo_full_name:
@@ -100,7 +112,7 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> d
                   envs[0]["id"] if envs else None)
     if not env_id:
         return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
-    log.append(f"Projekt erstellt ({project_id[:8]}…), Environment ok")
+    _say("Projekt + Environment angelegt")
 
     # 2) Service aus dem GitHub-Repo anlegen (startet Auto-Deploy) ------------
     q_svc = """
@@ -111,7 +123,7 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> d
         return {"ok": False, "error": f"serviceCreate: {r['error']}",
                 "project_id": project_id, "log": log}
     service_id = r["data"]["serviceCreate"]["id"]
-    log.append(f"Service aus {repo_full_name} verbunden ({service_id[:8]}…)")
+    _say("Service aus GitHub-Repo verbunden")
 
     # 3) Öffentliche Domain erzeugen -----------------------------------------
     domain = ""
@@ -121,9 +133,9 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> d
     r = _gql(q_dom, {"environmentId": env_id, "serviceId": service_id}, token)
     if r["ok"]:
         domain = r["data"]["serviceDomainCreate"]["domain"]
-        log.append(f"Domain: {domain}")
+        _say(f"Öffentliche Domain erstellt: {domain}")
     else:
-        log.append(f"Domain-Erstellung fehlgeschlagen: {r['error']}")
+        _say(f"Domain-Erstellung fehlgeschlagen: {r['error']}")
 
     # 4) Umgebungsvariablen setzen (inkl. der frisch erzeugten Domain) --------
     final_env = dict(env or {})
@@ -137,14 +149,16 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main") -> d
         serviceId:$serviceId, variables:$variables}) }"""
     r = _gql(q_vars, {"projectId": project_id, "environmentId": env_id,
                       "serviceId": service_id, "variables": final_env}, token)
-    log.append("Variablen gesetzt" if r["ok"] else f"Variablen-Fehler: {r['error']}")
+    _say("Umgebungsvariablen gesetzt (SECRET_KEY, ALLOWED_HOSTS …)"
+         if r["ok"] else f"Variablen-Fehler: {r['error']}")
 
     # 5) Redeploy anstoßen, damit Variablen + Domain greifen ------------------
     q_redeploy = """
     mutation($environmentId:String!,$serviceId:String!){
       serviceInstanceRedeploy(environmentId:$environmentId, serviceId:$serviceId) }"""
     r = _gql(q_redeploy, {"environmentId": env_id, "serviceId": service_id}, token)
-    log.append("Deploy angestoßen" if r["ok"] else f"Redeploy-Hinweis: {r['error']}")
+    _say("Deploy angestoßen — Container wird gebaut" if r["ok"]
+         else f"Redeploy-Hinweis: {r['error']}")
 
     url = f"https://{domain}" if domain else ""
     return {"ok": True, "url": url, "domain": domain,

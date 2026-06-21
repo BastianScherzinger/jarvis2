@@ -621,17 +621,33 @@ function _pollMockup(jobId, out, btn){
   }, 1500);
 }
 // ── Webseite bauen & live stellen ────────────────────────────────────────────
-async function buildWebsite(id){
-  const btn = document.getElementById('m-web-btn');
-  const out = document.getElementById('m-web-out');
+// Fragt EINMAL (nur wenn Higgsfield konfiguriert ist), ob der Hero über die Cloud
+// erzeugt werden soll. Lokal bleibt der bewährte Standard.
+let _hfConfigured = null;
+async function _websiteHiggsfieldChoice(){
+  if(_hfConfigured === null){
+    try{ const s = await(await fetch('/api/media/status')).json(); _hfConfigured = !!s.higgsfield_api_key; }
+    catch{ _hfConfigured = false; }
+  }
+  if(!_hfConfigured) return false;   // kein Key → keine Frage, immer lokal
+  return confirm('Hero-Banner über Higgsfield-Cloud erzeugen?\n\n'
+    + 'OK = Higgsfield-Cloud (verbraucht Credits, oft schneller)\n'
+    + 'Abbrechen = lokal generieren (bewährt)');
+}
+
+// Gemeinsamer Start für Feed- und Rangliste-Button.
+async function _startWebsiteBuild(id, lead, btn, out){
   if(!btn || !out) return;
   btn.disabled = true;
   out.style.display = 'block';
+  out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Frage Hero-Modus ab…</span></div>`;
+  const useHf = await _websiteHiggsfieldChoice();
   out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Website-Bau wird gestartet…</span></div>`;
   try{
+    const body = Object.assign({}, lead || {}, {use_higgsfield: useHf});
     const d = await(await fetch(`/api/lead/${id}/website`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(_modalLead || {}),
+      body: JSON.stringify(body),
     })).json();
     if(d.ok && d.job_id){
       _pollWebsite(d.job_id, out, btn, d.github_ready, d.railway_ready);
@@ -642,6 +658,11 @@ async function buildWebsite(id){
   }catch(e){ out.innerHTML = `<div class="m-err-row">✕ ${_e(String(e))}</div>`; btn.disabled=false; }
 }
 
+async function buildWebsite(id){
+  await _startWebsiteBuild(id, _modalLead || {},
+    document.getElementById('m-web-btn'), document.getElementById('m-web-out'));
+}
+
 function _pollWebsite(jobId, out, btn, ghReady, rwReady){
   const hint = (!ghReady || !rwReady)
     ? `<div class="m-web-hint">Hinweis: ${!ghReady?'GITHUB_TOKEN':''}${(!ghReady&&!rwReady)?' + ':''}${!rwReady?'RAILWAY_TOKEN':''} fehlt in .env — die Seite wird lokal gebaut, Repo/Deploy aktivieren sich, sobald die Tokens gesetzt sind.</div>`
@@ -650,6 +671,7 @@ function _pollWebsite(jobId, out, btn, ghReady, rwReady){
     let job;
     try{ job = await(await fetch('/api/website/job/'+jobId)).json(); }
     catch{ return; }
+    const log = Array.isArray(job.log) ? job.log : [];
     if(job.status === 'done'){
       clearInterval(iv);
       btn.disabled = false;
@@ -664,10 +686,19 @@ function _pollWebsite(jobId, out, btn, ghReady, rwReady){
       out.innerHTML = `<div class="m-err-row">✕ ${_e(job.error||job.step||'Fehler')}</div>` + hint;
     }else{
       const p = job.progress || 0;
-      out.innerHTML = `<div class="m-web-prog"><div class="m-web-bar"><div class="m-web-fill" style="width:${p}%"></div></div>
-        <div class="m-spin-row"><span class="jc-spin"></span><span>${_e(job.step||'Arbeitet…')} (${p}%)</span></div></div>` + hint;
+      const recent = log.slice(-6);
+      const steps = recent.map((s,i)=>{
+        const last = i === recent.length-1;
+        return `<div class="m-web-step ${last?'cur':'ok'}">`
+          + (last ? `<span class="jc-spin"></span>` : `<span class="m-web-tick">✓</span>`)
+          + `<span>${_e(s.t||'')}</span></div>`;
+      }).join('') || `<div class="m-web-step cur"><span class="jc-spin"></span><span>${_e(job.step||'Arbeitet…')}</span></div>`;
+      out.innerHTML = `<div class="m-web-prog">
+        <div class="m-web-bar"><div class="m-web-fill" style="width:${p}%"></div></div>
+        <div class="m-web-pct">${p}%</div>
+        <div class="m-web-steps">${steps}</div></div>` + hint;
     }
-  }, 1800);
+  }, 1200);
 }
 
 function closeModal(){

@@ -62,17 +62,38 @@ def get(job_id: str) -> "dict | None":
         return {k: v for k, v in j.items() if not k.startswith("_")} if j else None
 
 
-def build(lead: dict) -> str:
-    """Startet einen Bau-Job für einen Lead. Gibt die job_id zurück."""
+def build(lead: dict, use_higgsfield: bool = False) -> str:
+    """Startet einen Bau-Job für einen Lead. Gibt die job_id zurück.
+
+    use_higgsfield: nur wenn True (vom Nutzer bestätigt) wird der Hero-Banner bei
+    schwacher Hardware über die Higgsfield-Cloud versucht. Standard = lokal (bewährt)."""
     job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {
             "id": job_id, "status": "queued", "progress": 0, "step": "In Warteschlange…",
-            "folder": "", "repo_url": "", "live_url": "", "error": "",
+            "folder": "", "repo_url": "", "live_url": "", "error": "", "log": [],
             "created": time.time(), "_lead": dict(lead or {}),
+            "_use_higgsfield": bool(use_higgsfield),
         }
     threading.Thread(target=_run, args=(job_id,), name=f"website-{job_id}", daemon=True).start()
     return job_id
+
+
+def _step(job_id: str, progress: "int | None" = None, text: "str | None" = None) -> None:
+    """Setzt Fortschritt (monoton, springt nie zurück) + Schritt-Text und hängt den
+    Schritt an ein Log an — so sieht der Nutzer im Dashboard genau, was passiert."""
+    with _lock:
+        j = _jobs.get(job_id)
+        if not j:
+            return
+        if progress is not None:
+            j["progress"] = max(int(j.get("progress", 0)), int(progress))
+        if text is not None:
+            j["step"] = text
+            log = j.setdefault("log", [])
+            log.append({"p": j.get("progress", 0), "t": text})
+            if len(log) > 50:
+                del log[:-50]
 
 
 # ── Helfer ────────────────────────────────────────────────────────────────────
@@ -97,16 +118,19 @@ def _unique_dir(slug: str) -> Path:
     return _SHOP_BASE / f"web_{slug}-{uuid.uuid4().hex[:4]}"
 
 
-def _download_photos(urls: list, target: Path) -> list:
-    """Lädt bis zu 6 Fotos nach static/img/lead/ und gibt /static/-Pfade zurück."""
+def _download_photos(urls: list, target: Path, on_progress=None) -> list:
+    """Lädt bis zu 6 Fotos nach static/img/lead/ und gibt /static/-Pfade zurück.
+    on_progress(geladen, gesamt) wird nach jedem Foto aufgerufen (für die Anzeige)."""
     import urllib.request
     out: list[str] = []
     dest = target / "static" / "img" / "lead"
     dest.mkdir(parents=True, exist_ok=True)
-    for i, url in enumerate(urls[:6]):
-        url = (url or "").strip()
-        if not url.startswith("http"):
-            continue
+    todo = [u for u in urls[:6] if (u or "").strip().startswith("http")]
+    total = len(todo)
+    for i, url in enumerate(todo):
+        url = url.strip()
+        if callable(on_progress):
+            on_progress(i + 1, total)
         ext = ".jpg"
         for e in (".jpg", ".jpeg", ".png", ".webp"):
             if e in url.lower():
@@ -264,40 +288,54 @@ def _django_secret_key() -> str:
 
 def _run(job_id: str) -> None:
     with _lock:
-        lead = dict(_jobs[job_id].get("_lead") or {})
+        j0 = _jobs[job_id]
+        lead = dict(j0.get("_lead") or {})
+        use_hf = bool(j0.get("_use_higgsfield"))
     name = (lead.get("name") or "Kunde").strip()
     try:
         if not _VORLAGE.exists():
             raise RuntimeError("vorlage_landing/ fehlt im Projekt.")
 
         # 1) Vorlage kopieren -------------------------------------------------
-        _set(job_id, status="running", progress=8, step="Vorlage wird kopiert…")
+        _set(job_id, status="running")
+        _step(job_id, 3, f"Projekt für {name} wird angelegt…")
         slug = _slug(name)
         target = _unique_dir(slug)
         shutil.copytree(_VORLAGE, target, ignore=shutil.ignore_patterns(
             "staticfiles", "__pycache__", "*.pyc", ".git"))
         _set(job_id, folder=str(target))
+        _step(job_id, 8, f"Vorlage kopiert → {target.name}")
 
         # 2) Fotos laden ------------------------------------------------------
-        _set(job_id, progress=24, step="Gefundene Fotos werden eingebaut…")
         raw_fotos = lead.get("foto_urls") or []
         if isinstance(raw_fotos, str):
             try:
                 raw_fotos = json.loads(raw_fotos)
             except Exception:
                 raw_fotos = [raw_fotos] if raw_fotos.startswith("http") else []
-        fotos = _download_photos(list(raw_fotos), target)
+        anz_fotos = len([u for u in list(raw_fotos)[:6] if (u or '').strip().startswith('http')])
+        if anz_fotos:
+            _step(job_id, 12, f"Lade {anz_fotos} gefundene Fotos…")
+        else:
+            _step(job_id, 12, "Keine Fotos gefunden — Hero-Banner wird generiert.")
+
+        def _foto_fortschritt(geladen, gesamt):
+            p = 12 + int((geladen / max(gesamt, 1)) * 18)   # 12 → 30
+            _step(job_id, p, f"Foto {geladen}/{gesamt} eingebaut…")
+        fotos = _download_photos(list(raw_fotos), target, on_progress=_foto_fortschritt)
+        _step(job_id, 32, f"{len(fotos)} Foto(s) eingebaut.")
 
         # 3) Claude textet + designt -----------------------------------------
-        _set(job_id, progress=44, step="Claude textet & gestaltet die Seite…")
+        _step(job_id, 38, "Claude schreibt Texte & wählt das Design…")
         content = _claude_content(lead, fotos)
         (target / "content.json").write_text(
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
-        _set(job_id, progress=54, step="Seite geschrieben.")
+        _step(job_id, 56, f"Texte & Design erstellt: {content.get('headline','')[:40]}")
 
-        # 3b) Hero-Banner. Schwache Hardware (CPU) + Higgsfield-Key + Guthaben → Cloud
-        # (schnell, hohe Qualität); sonst lokal (GPU=SDXL/FLUX, CPU=SD-Turbo). Best-effort,
-        # jeder Fehler fällt auf die nächste Option zurück — der Build bricht NIE ab.
+        # 3b) Hero-Banner. Higgsfield-Cloud NUR wenn der Nutzer es bestätigt hat
+        # (use_higgsfield) UND die Hardware schwach ist UND Guthaben da ist; sonst lokal
+        # (GPU=SDXL/FLUX, CPU=SD-Turbo). Best-effort — jeder Fehler fällt auf die nächste
+        # Option zurück, der Build bricht NIE ab.
         try:
             import media_engine  # lazy
             hero_path = target / "static" / "img" / "hero.png"
@@ -309,24 +347,25 @@ def _run(job_id: str) -> None:
             )
             schwach = media_engine.hardware_info()["device"] == "cpu"  # keine GPU → lokal langsam
 
-            # 1) Cloud (Higgsfield) bei schwacher Hardware, wenn Key vorhanden + genug Credits
-            if schwach and media_engine.higgsfield_available():
+            # 1) Cloud (Higgsfield) — nur auf ausdrücklichen Wunsch + schwache Hardware + Credits
+            if use_hf and schwach and media_engine.higgsfield_available():
                 bal = media_engine.higgsfield_balance()
-                if bal is None or bal >= _HF_HERO_COST:   # unbekannt → versuchen (Credit-Fehler fängt ab)
+                if bal is None or bal >= _HF_HERO_COST:
                     try:
-                        _set(job_id, progress=50,
-                             step="Hero-Banner wird über Higgsfield (Cloud) erzeugt…")
+                        _step(job_id, 60, "Hero-Banner wird über Higgsfield (Cloud) erzeugt…")
                         media_engine.generate_image_higgsfield(
                             prompt, output_dir=(target / "static" / "img"),
                             filename="hero.png", width=1280, height=720)
                     except Exception as e:
-                        _set(job_id, step=f"Higgsfield nicht möglich ({type(e).__name__}) — nutze lokal…")
+                        _step(job_id, 60, f"Higgsfield nicht möglich ({type(e).__name__}) — wechsle auf lokal…")
                 else:
-                    _set(job_id, step=f"Higgsfield-Guthaben zu niedrig ({bal}) — nutze lokal…")
+                    _step(job_id, 60, f"Higgsfield-Guthaben zu niedrig ({bal}) — nutze lokal…")
 
-            # 2) Lokal (Fallback ODER starke Hardware), falls noch kein Hero erzeugt wurde
+            # 2) Lokal (Standard, Fallback ODER starke Hardware), falls noch kein Hero da
             if not hero_path.exists() and media_engine.get_status().get("diffusers_ok"):
-                _set(job_id, progress=52, step="Hero-Banner wird mit lokaler KI erzeugt…")
+                modell = media_engine.hero_image_params().get("model_key", "lokal")
+                tempo = " (ca. 1-2 Min auf CPU)" if schwach else ""
+                _step(job_id, 60, f"Hero-Banner wird lokal erzeugt ({modell}){tempo}…")
                 hp = media_engine.hero_image_params()
                 media_engine.generate_image(
                     prompt, output_dir=(target / "static" / "img"), filename="hero.png", **hp)
@@ -335,8 +374,12 @@ def _run(job_id: str) -> None:
                 content["hero_image"] = "/static/img/hero.png"
                 (target / "content.json").write_text(
                     json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+                _step(job_id, 70, "Hero-Banner fertig.")
+            else:
+                _step(job_id, 70, "Ohne Hero-Bild — Seite nutzt einen Farbverlauf.")
         except Exception:
             content.setdefault("hero_image", "")
+            _step(job_id, 70, "Hero-Banner übersprungen.")
 
         secret = _django_secret_key()
         repo_full = ""
@@ -346,51 +389,67 @@ def _run(job_id: str) -> None:
         # 4) GitHub -----------------------------------------------------------
         import agent_github
         if agent_github.is_ready():
-            _set(job_id, progress=64, step="GitHub-Repo wird erstellt & gepusht…")
+            _step(job_id, 74, "GitHub-Repo wird angelegt…")
             repo_name = f"web-{slug}"
             cr = agent_github.create_repo(
                 repo_name, description=f"Landing-Page für {name} (JARVIS)", private=True)
             if cr.get("ok"):
                 repo_full = cr["full_name"]
+                _step(job_id, 78, f"Repo {repo_full} — Code wird hochgeladen…")
                 pr = agent_github.push_folder(target, repo_full,
                                               message=f"Landing-Page {name} (JARVIS)")
                 if pr.get("ok"):
                     repo_url = cr["html_url"]
-                    _set(job_id, repo_url=repo_url, step="Repo gepusht.")
+                    _set(job_id, repo_url=repo_url)
+                    _step(job_id, 83, "Code zu GitHub gepusht ✓")
                 else:
-                    _set(job_id, step=f"Push-Hinweis: {pr.get('error','')[:120]}")
+                    _step(job_id, 83, f"Push-Hinweis: {pr.get('error','')[:120]}")
             else:
-                _set(job_id, step=f"GitHub-Hinweis: {cr.get('error','')[:120]}")
+                _step(job_id, 83, f"GitHub-Hinweis: {cr.get('error','')[:120]}")
+        else:
+            _step(job_id, 83, "GitHub übersprungen (kein Token in .env).")
 
         # 5) Railway ----------------------------------------------------------
         import agent_railway
         railway_note = ""
         if agent_railway.is_ready() and repo_full:
-            _set(job_id, progress=82, step="Railway-Deploy läuft (Projekt, Domain, Variablen)…")
+            _step(job_id, 85, "Railway-Deploy startet…")
             env = {
                 "SECRET_KEY": secret, "DEBUG": "False",
                 "SITE_NAME": content.get("site_name", name),
             }
-            dep = agent_railway.deploy(f"web-{slug}", repo_full, env)
+
+            def _rw_step(text: str) -> None:
+                with _lock:
+                    j = _jobs.get(job_id)
+                    cur = (j.get("progress", 85) if j else 85)
+                _step(job_id, min(cur + 2, 96), f"Railway: {text}")
+
+            dep = agent_railway.deploy(f"web-{slug}", repo_full, env, on_step=_rw_step)
             if dep.get("ok") and dep.get("url"):
                 live_url = dep["url"]
                 _set(job_id, live_url=live_url, railway_log=dep.get("log", []))
+                _step(job_id, 98, f"Live erreichbar: {live_url}")
             else:
                 railway_note = dep.get("error") or "; ".join(dep.get("log", [])[-1:])
                 _set(job_id, railway_log=dep.get("log", []))
+                _step(job_id, 96, f"Railway-Hinweis: {railway_note[:100]}")
         elif agent_railway.is_ready() and not repo_full:
             railway_note = "Kein GitHub-Repo — Railway übersprungen."
+            _step(job_id, 96, railway_note)
+        elif not agent_railway.is_ready():
+            _step(job_id, 96, "Railway übersprungen (kein Token in .env).")
 
         # Abschluss -----------------------------------------------------------
         if live_url:
             final_step = f"Fertig & live: {live_url}"
         elif repo_url:
-            final_step = "Repo gepusht. " + (f"Railway: {railway_note[:120]}" if railway_note
-                                             else "Railway-Deploy angestoßen.")
+            final_step = "Fertig. Repo gepusht — " + (f"Railway: {railway_note[:120]}" if railway_note
+                                                      else "Railway-Deploy angestoßen.")
         else:
-            final_step = f"Lokal gebaut: {target}"
-        _set(job_id, status="done", progress=100, step=final_step,
-             content_preview=content.get("headline", ""))
+            final_step = f"Fertig — lokal gebaut: {target}"
+        _set(job_id, status="done", content_preview=content.get("headline", ""))
+        _step(job_id, 100, final_step)
     except Exception as e:
-        _set(job_id, status="error", progress=100,
-             error=f"{type(e).__name__}: {str(e)[:200]}", step="Fehlgeschlagen.")
+        _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")

@@ -194,7 +194,10 @@ def api_lead_website(eval_id):
     # liefert den vollständigen Lead inkl. foto_urls. Fehlende Felder werden aus
     # db_evaluated angereichert: per raw_id (Feed) ODER id (Rangliste), aber nur wenn
     # der Name passt (schützt gegen raw_id/eval_id-Namensraum-Kollision).
-    lead = dict(request.get_json(silent=True) or {})
+    body = request.get_json(silent=True) or {}
+    use_hf = bool(body.get("use_higgsfield"))   # Higgsfield-Cloud nur auf ausdrücklichen Wunsch
+    lead = dict(body)
+    lead.pop("use_higgsfield", None)
     for getter in (db_evaluated.get_by_raw_id, db_evaluated.get_by_id):
         try:
             row = getter(eval_id)
@@ -213,12 +216,14 @@ def api_lead_website(eval_id):
     if not lead.get("name"):
         return jsonify({"ok": False, "reason": "Kein Lead-Name."}), 400
 
-    job_id = website_builder.build(lead)
+    job_id = website_builder.build(lead, use_higgsfield=use_hf)
     import agent_github
     import agent_railway
+    import media_engine
     return jsonify({"ok": True, "job_id": job_id,
                     "github_ready": agent_github.is_ready(),
-                    "railway_ready": agent_railway.is_ready()})
+                    "railway_ready": agent_railway.is_ready(),
+                    "higgsfield_ready": media_engine.higgsfield_available()})
 
 
 @app.route("/api/website/job/<job_id>")

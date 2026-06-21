@@ -446,23 +446,9 @@ function _rankColorWebBtn(){
 async function rankBuildWebsite(btn){
   const lead = _rankCurrentLead;
   if(!lead || !lead.id || btn.disabled) return;
-  const out = document.getElementById('rank-web-out');
-  btn.disabled = true;
-  if(out){ out.style.display = 'block';
-    out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Website-Bau wird gestartet…</span></div>`; }
-  try{
-    const d = await(await fetch(`/api/lead/${Number(lead.id)}/website`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(lead),   // vollständiger Lead inkl. foto_urls
-    })).json();
-    if(d.ok && d.job_id && typeof _pollWebsite === 'function'){
-      _pollWebsite(d.job_id, out, btn, d.github_ready, d.railway_ready);
-    } else if(out){
-      out.innerHTML = `<div class="m-err-row">✕ ${_re(d.reason||'Fehler')}</div>`; btn.disabled = false;
-    }
-  }catch(e){
-    if(out) out.innerHTML = `<div class="m-err-row">✕ ${_re(String(e))}</div>`;
-    btn.disabled = false;
+  // Gemeinsame Logik (Higgsfield-Rückfrage, Start, granularer Fortschritt) aus app.js.
+  if(typeof _startWebsiteBuild === 'function'){
+    await _startWebsiteBuild(Number(lead.id), lead, btn, document.getElementById('rank-web-out'));
   }
 }
 
