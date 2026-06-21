@@ -28,17 +28,10 @@ app.config["SECRET_KEY"] = os.urandom(24)
 db_raw.init_db()
 db_evaluated.init_db()
 
-# Auto-Start Evaluator wenn ausstehende Roh-Leads aus vorherigen Sessions vorhanden.
-def _auto_start_evaluator():
-    try:
-        if db_raw.get_pending_count() > 0:
-            from scrapers import controller
-            controller.ensure_evaluator_running()
-    except Exception:
-        pass
-
+# Die Bewertung startet bewusst NICHT automatisch beim Boot — erst wenn Sir den
+# Start-Button drückt (/api/start → controller.start()). So bleibt der Programmstart
+# leicht und es laufen anfangs keine Scraper/Evaluator/Ollama-Last.
 import threading as _startup_t
-_startup_t.Thread(target=_auto_start_evaluator, daemon=True).start()
 
 # Cloud-Sync starten (batch alle 10 Min)
 cloud_sync.start()

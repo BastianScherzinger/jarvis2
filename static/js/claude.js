@@ -17,15 +17,9 @@ function initClaude(){
   if(_claudeInit) return;
   _claudeInit = true;
 
-  // 3D-Roboter laden (Spline-Web-Component) + Wasserzeichen entfernen
-  const wrap = document.getElementById('claude-robot-wrap');
-  if(wrap && !wrap.querySelector('spline-viewer')){
-    const v = document.createElement('spline-viewer');
-    v.setAttribute('url', _CLAUDE_SCENE);
-    v.setAttribute('events-target', 'global');
-    wrap.appendChild(v);
-    _claudeStripWatermark(v);
-  }
+  // Chat + Mikrofon SOFORT verdrahten → Tab ist augenblicklich nutzbar, unabhängig
+  // vom schweren 3D-Roboter (und der Mic wird IMMER verdrahtet, selbst wenn Spline fehlschlägt).
+  _claudeWire();
 
   // Bereitschaft (API-Key vorhanden?)
   fetch('/api/claude/status').then(r=>r.json()).then(d=>{
@@ -35,7 +29,26 @@ function initClaude(){
     el.classList.toggle('off', !d.ready);
   }).catch(()=>{});
 
-  _claudeWire();
+  // 3D-Roboter ERST DANACH und verzögert laden (mehrere MB von der Spline-CDN) —
+  // blockiert den Chat nie und ein Lade-Fehler kann den Tab nicht lahmlegen.
+  _claudeLoadRobot();
+}
+
+function _claudeLoadRobot(){
+  const run = ()=>{
+    try{
+      const wrap = document.getElementById('claude-robot-wrap');
+      if(wrap && !wrap.querySelector('spline-viewer')){
+        const v = document.createElement('spline-viewer');
+        v.setAttribute('url', _CLAUDE_SCENE);
+        v.setAttribute('events-target', 'global');
+        wrap.appendChild(v);
+        _claudeStripWatermark(v);
+      }
+    }catch(e){}
+  };
+  if('requestIdleCallback' in window) requestIdleCallback(run, {timeout:1500});
+  else setTimeout(run, 300);
 }
 
 // Spline-„Made with Spline"-Logo aus dem Shadow-DOM entfernen
@@ -254,8 +267,13 @@ function _claudeWireVoice(mic, inp){
 async function _claudeStartRecording(mic, inp){
   if(_claudeStarting || _claudeRecording) return;   // Doppelklick-Schutz (synchron)
   _claudeStarting = true;
-  if(!navigator.mediaDevices || !window.MediaRecorder){
-    _claudeToast('Mikrofon wird vom Browser nicht unterstützt.'); _claudeStarting = false; return;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder){
+    // Häufigste Ursache: Dashboard über LAN-IP geöffnet (unsicherer Kontext) →
+    // Browser sperrt das Mikrofon. Klartext-Hinweis statt stillem Versagen.
+    const why = !window.isSecureContext
+      ? 'Mikrofon braucht localhost oder HTTPS — öffne das Dashboard über http://localhost:5000.'
+      : 'Mikrofon wird von diesem Browser nicht unterstützt.';
+    _claudeToast(why); _claudeStarting = false; return;
   }
   try{
     _claudeStream = await navigator.mediaDevices.getUserMedia({audio:true});
