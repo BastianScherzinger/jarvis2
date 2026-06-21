@@ -43,7 +43,12 @@ _startup_t.Thread(target=cloud_sync.pull_and_cache, daemon=True).start()
 # Webseiten-Sync (Cross-PC): gebaute Seiten + Links + Bilder von allen PCs zeigen
 import cloud_sync_websites
 cloud_sync_websites.start()
-_startup_t.Thread(target=cloud_sync_websites.pull_into_db, daemon=True).start()
+
+
+def _websites_startup_sync():
+    cloud_sync_websites.pull_into_db()      # remote → lokal
+    cloud_sync_websites.push_all_local()    # bestehende lokale → cloud
+_startup_t.Thread(target=_websites_startup_sync, daemon=True).start()
 
 # Whisper-Modell für die Spracheingabe im Hintergrund vorladen (lädt es beim
 # ersten Start automatisch herunter — blockiert den Dashboard-Start nicht).

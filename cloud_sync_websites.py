@@ -157,6 +157,26 @@ def pull_into_db() -> dict:
     return {"ok": True, "pulled": n}
 
 
+def push_all_local() -> dict:
+    """Schiebt alle lokalen, identifizierbaren Webseiten in die Cloud — damit auch
+    bestehende (vor dem Sync gebaute) Seiten cross-PC erscheinen. Best-effort."""
+    if not is_configured():
+        return {"ok": False}
+    import db_websites
+    n = 0
+    for row in db_websites.get_all():
+        if not row.get("site_key"):
+            continue
+        if (row.get("job_id") or "").startswith("remote-"):   # rein gepullte nicht zurückschieben
+            continue
+        if row.get("live_url") or row.get("repo_url") or row.get("status") == "done":
+            _push_one(row)
+            n += 1
+    if n:
+        logger.info("WebSync", f"↑ {n} lokale Webseite(n) in die Cloud gesynct")
+    return {"ok": True, "pushed": n}
+
+
 def _pull_loop() -> None:
     time.sleep(PULL_INTERVAL)
     while True:
