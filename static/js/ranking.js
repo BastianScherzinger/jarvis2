@@ -409,6 +409,10 @@ function openRankDetail(lead){
     ${lead.schluessel?`<div class="rr-key">${_re(lead.schluessel)}</div>`:''}
 
     <div class="m-sec m-actions" style="margin-top:10px">
+      <button class="rank-web-btn" id="rank-web-btn" onclick="rankBuildWebsite(this)" title="prüfe Claude…">
+        🌐 Webseite bauen &amp; live stellen
+      </button>
+      <div class="rank-web-out" id="rank-web-out" style="display:none"></div>
       ${Number(lead.email_vorhanden)?`<button class="rank-mail-btn" onclick="rankSendEmail(${Number(lead.id)||0}, this)">✉ E-Mail an Lead senden</button>`:''}
       <button class="rank-img-btn" onclick="rankCreateImages()">
         🎨 Werbe-Bilder für diesen Lead erstellen
@@ -417,6 +421,49 @@ function openRankDetail(lead){
 
   document.getElementById('modal-bg').classList.add('open');
   document.getElementById('modal').classList.add('open');
+  _rankColorWebBtn();   // Button rot (Token fehlt) / grün (Claude bereit)
+}
+
+// ── Webseite bauen (shop-bauen) aus der Rangliste ─────────────────────────────
+let _claudeReadyCache = null;
+
+function _rankColorWebBtn(){
+  const btn = document.getElementById('rank-web-btn');
+  if(!btn) return;
+  const apply = (ready)=>{
+    btn.classList.toggle('ready', ready);
+    btn.classList.toggle('notready', !ready);
+    btn.disabled = !ready;
+    btn.title = ready ? 'Claude bereit — Seite wird mit KI-Texten + Hero-Banner gebaut'
+                      : 'ANTHROPIC_KEY fehlt in der .env — Claude nicht verfügbar';
+  };
+  if(_claudeReadyCache !== null){ apply(_claudeReadyCache); return; }
+  fetch('/api/claude/status').then(r=>r.json())
+    .then(d=>{ _claudeReadyCache = !!d.ready; apply(_claudeReadyCache); })
+    .catch(()=>apply(false));
+}
+
+async function rankBuildWebsite(btn){
+  const lead = _rankCurrentLead;
+  if(!lead || !lead.id || btn.disabled) return;
+  const out = document.getElementById('rank-web-out');
+  btn.disabled = true;
+  if(out){ out.style.display = 'block';
+    out.innerHTML = `<div class="m-spin-row"><span class="jc-spin"></span><span>Website-Bau wird gestartet…</span></div>`; }
+  try{
+    const d = await(await fetch(`/api/lead/${Number(lead.id)}/website`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(lead),   // vollständiger Lead inkl. foto_urls
+    })).json();
+    if(d.ok && d.job_id && typeof _pollWebsite === 'function'){
+      _pollWebsite(d.job_id, out, btn, d.github_ready, d.railway_ready);
+    } else if(out){
+      out.innerHTML = `<div class="m-err-row">✕ ${_re(d.reason||'Fehler')}</div>`; btn.disabled = false;
+    }
+  }catch(e){
+    if(out) out.innerHTML = `<div class="m-err-row">✕ ${_re(String(e))}</div>`;
+    btn.disabled = false;
+  }
 }
 
 // ── E-Mail an Lead senden (Trockenlauf solange JARVIS_EMAIL_ENABLED=false) ─────

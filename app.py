@@ -190,13 +190,26 @@ def api_lead_website(eval_id):
     if not website_builder.is_available():
         return jsonify({"ok": False, "reason": "vorlage_landing/ fehlt"}), 500
 
-    # Beste Datenquelle: bewerteter Lead (hat foto_urls, email_alle). Body füllt Lücken.
-    # Feed-Modal liefert raw_id → über raw_id auflösen (eindeutig).
-    lead = db_evaluated.get_by_raw_id(eval_id) or db_evaluated.get_by_id(eval_id) or {}
-    body = request.get_json(silent=True) or {}
-    for k, v in body.items():
-        if v not in (None, "", []) and not lead.get(k):
-            lead[k] = v
+    # Der Body ist die maßgebliche Quelle — das geöffnete Modal (Feed ODER Rangliste)
+    # liefert den vollständigen Lead inkl. foto_urls. Fehlende Felder werden aus
+    # db_evaluated angereichert: per raw_id (Feed) ODER id (Rangliste), aber nur wenn
+    # der Name passt (schützt gegen raw_id/eval_id-Namensraum-Kollision).
+    lead = dict(request.get_json(silent=True) or {})
+    for getter in (db_evaluated.get_by_raw_id, db_evaluated.get_by_id):
+        try:
+            row = getter(eval_id)
+        except Exception:
+            row = None
+        if not row:
+            continue
+        bn = (lead.get("name") or "").strip().lower()
+        rn = (row.get("name") or "").strip().lower()
+        if bn and rn and bn[:12] != rn[:12]:
+            continue   # falsche Zeile (ID-Namensraum-Kollision) → überspringen
+        for k, v in row.items():
+            if v not in (None, "", []) and not lead.get(k):
+                lead[k] = v
+        break
     if not lead.get("name"):
         return jsonify({"ok": False, "reason": "Kein Lead-Name."}), 400
 

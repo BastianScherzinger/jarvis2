@@ -405,6 +405,23 @@ body::after{
   border:1px solid var(--c);color:var(--c);transition:all .18s;
 }
 .rank-img-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.22),rgba(0,232,122,.14));transform:translateY(-1px)}
+/* Webseite-bauen-Button in der Rangliste — grün=Claude bereit, rot=Token fehlt */
+.rank-web-btn{
+  width:100%;padding:11px 14px;border-radius:8px;cursor:pointer;font-size:12px;
+  font-family:var(--fu);font-weight:600;letter-spacing:.03em;margin-bottom:8px;
+  border:1px solid var(--bdr2);background:var(--bg3);color:var(--tx2);transition:all .18s;
+}
+.rank-web-btn.ready{
+  border-color:var(--g);color:var(--g);
+  background:linear-gradient(135deg,rgba(0,232,122,.16),rgba(0,212,255,.06));
+}
+.rank-web-btn.ready:hover{background:linear-gradient(135deg,rgba(0,232,122,.26),rgba(0,212,255,.12));transform:translateY(-1px)}
+.rank-web-btn.notready{
+  border-color:#ff5a5a;color:#ff7a7a;background:rgba(255,80,80,.10);
+  cursor:not-allowed;opacity:.9;
+}
+.rank-web-btn:disabled{filter:saturate(.7)}
+.rank-web-out{margin-bottom:8px}
 .m-email-out,.m-mockup-out,.m-web-out{margin-top:8px}
 /* Webseite-bauen-Button + Fortschritt */
 .m-web-btn{
