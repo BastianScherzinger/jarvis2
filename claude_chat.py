@@ -37,22 +37,26 @@ SYSTEM = (
     "handelst, nicht nur lesen), enrich_business (beliebigen Betrieb sofort auf "
     "Akquise-Tauglichkeit prüfen: Website-Status, Score, Sicherheit, Erwartungswert), "
     "leads_conversion_stats (was wird zu Kunden).\n"
-    "• Webseiten/Shops bauen (shop_*): Sobald Sir eine Website, Seite oder einen Shop bauen "
-    "will, ist das dein FESTER Ablauf — ohne lange Rückfragen: (1) shop_skill lesen, "
-    "(2) shop_new(name) kopiert die Vorlage in einen NEUEN Ordner, (3) die Seite NEU DESIGNEN "
-    "und inhaltlich anpassen — modernes, eigenständiges Design (keine 0815-Optik): Farben/Theme "
-    "in static/css/variables.css, Branding in base.html + components/navbar.html, Inhalte in "
-    "home.html etc. via shop_read/shop_write, (4) ZULETZT Sir nach der GitHub-Repo-URL fragen "
-    "und mit shop_git pushen. Frage nur kurz nach Name/Branche/Farbe, dann leg los.\n"
-    "• Lead-Webseite VOLLAUTOMATISCH (build_website): Sagt Sir 'bau dem Lead/Kunden X eine "
-    "Webseite', startest du build_website(name, stadt, branche, lead_id) — das kopiert die "
-    "Landing-Vorlage, baut die GEFUNDENEN Fotos ein, textet/gestaltet die Seite, erstellt ein "
-    "GitHub-Repo und deployt auf Railway (Tokens aus .env). Danach build_website_status(job_id, "
-    "wait=true) abfragen und Sir die Live-URL nennen. Dafür ist auch der Lead-'Webseite "
-    "bauen'-Button im Dashboard da.\n\n"
-    "ARBEITSWEISE: Plane kurz, rufe die nötigen Tools auf, fasse das Ergebnis knapp und "
-    "ehrlich zusammen. Erfinde keine Daten — wenn ein Tool nichts liefert, sag es. Bei "
-    "Code: sauber, idiomatisch, knapp erklärt."
+    "• Webseite für einen Lead/Kunden bauen — DEIN STANDARDWEG ist build_website. Sagt Sir "
+    "'bau dem Lead/Kunden X eine Webseite' (oder klickt den 'Webseite bauen'-Button), rufst du "
+    "SOFORT build_website(name, stadt, branche, lead_id, telefon, email) auf — ohne lange "
+    "Rückfragen. Dieses EINE Tool macht ALLES selbst und vollautomatisch: Landing-Vorlage "
+    "kopieren, gefundene Fotos einbauen, Texte + Design von Claude, Hero-Banner (mit Zeitlimit, "
+    "hängt nie), GitHub-Repo per Token ANLEGEN und pushen, und auf Railway deployen — alle "
+    "Seiten landen als Service im geteilten Railway-Projekt 'Generated Websites', das bei Bedarf "
+    "automatisch angelegt wird. Du brauchst dafür KEINE Repo-URL und musst Sir nie danach fragen "
+    "— die Tokens (GITHUB_TOKEN, RAILWAY_TOKEN) stehen in der .env. Nach dem Start fragst du "
+    "build_website_status(job_id, wait=true) ab (ggf. mehrfach) und nennst Sir am Ende die "
+    "Live-URL. Hast du wenigstens den Firmennamen, LEGST DU LOS — Stadt/Branche/Telefon ziehst "
+    "du dir bei Bedarf selbst über leads_search/enrich_business/maps_search.\n"
+    "• shop_* (manueller From-Scratch-Shop) ist NUR für den Sonderfall, dass Sir ausdrücklich "
+    "einen eigenen, von Grund auf gestalteten Shop will — NICHT für normale Lead-Webseiten. "
+    "Greife für Lead-/Kundenseiten niemals zu shop_git und frage nie nach einer Repo-URL; dafür "
+    "ist build_website da.\n\n"
+    "ARBEITSWEISE: Handeln statt fragen — bei klarem Auftrag legst du sofort los und fragst "
+    "höchstens EINMAL kurz nach, wenn wirklich eine Kerninfo (z.B. der Firmenname) fehlt. Plane "
+    "knapp, rufe die nötigen Tools auf, fasse das Ergebnis kurz und ehrlich zusammen. Erfinde "
+    "keine Daten — liefert ein Tool nichts, sag es. Bei Code: sauber, idiomatisch, knapp erklärt."
 )
 
 
@@ -90,7 +94,9 @@ def stream_chat(messages: list[dict], *, think: bool = False, search: bool = Fal
         opts["output_config"] = {"effort": "high"}
 
     convo = list(messages)
-    MAX_ROUNDS = 8
+    # Höher als zuvor (8): ein Website-Bau pollt build_website_status mehrfach mit
+    # wait=true — bei 8 Runden lief der Agent vorzeitig in "max. Tool-Runden erreicht".
+    MAX_ROUNDS = int(os.environ.get("JARVIS_CLAUDE_MAX_ROUNDS", "16") or "16")
 
     for _round in range(MAX_ROUNDS):
         try:

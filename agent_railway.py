@@ -17,6 +17,10 @@ import requests
 
 ENDPOINT = "https://backboard.railway.com/graphql/v2"
 
+# Alle generierten Seiten landen als Services in EINEM geteilten Sammel-Projekt.
+# Existiert es noch nicht, wird es einmalig angelegt. Name via .env überschreibbar.
+PROJECT_NAME = (os.environ.get("JARVIS_RAILWAY_PROJECT") or "Generated Websites").strip()
+
 
 def _token() -> str:
     return (os.environ.get("RAILWAY_TOKEN") or os.environ.get("RAILWAY_API_TOKEN") or "").strip()
@@ -65,6 +69,29 @@ def list_projects() -> dict:
     return {"ok": True, "projects": [e["node"] for e in edges]}
 
 
+def _find_project_with_env(token: str, name: str) -> dict:
+    """Sucht ein Projekt nach Name (inkl. production-Environment-ID).
+    Gibt {found, project_id, env_id}."""
+    q = ("query{ me { projects { edges { node { id name "
+         "environments { edges { node { id name } } } } } } } }")
+    r = _gql(q, {}, token)
+    if r["ok"]:
+        edges = r["data"].get("me", {}).get("projects", {}).get("edges", [])
+    else:
+        q2 = ("query{ projects { edges { node { id name "
+              "environments { edges { node { id name } } } } } } }")
+        r2 = _gql(q2, {}, token)
+        edges = r2["data"].get("projects", {}).get("edges", []) if r2["ok"] else []
+    for e in edges:
+        node = e.get("node") or {}
+        if (node.get("name") or "").strip().lower() == name.strip().lower():
+            envs = [x["node"] for x in node.get("environments", {}).get("edges", [])]
+            env_id = next((x["id"] for x in envs if x.get("name") == "production"),
+                          envs[0]["id"] if envs else None)
+            return {"found": True, "project_id": node["id"], "env_id": env_id}
+    return {"found": False}
+
+
 def project_delete(project_id: str) -> dict:
     """Löscht ein Railway-Projekt unwiderruflich. Gibt {ok} oder {ok:False,error}."""
     token = _token()
@@ -98,32 +125,41 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
     if not repo_full_name:
         return {"ok": False, "error": "Kein GitHub-Repo für den Deploy.", "log": log}
 
-    # 1) Projekt anlegen ------------------------------------------------------
-    q_proj = """
-    mutation($name:String!){ projectCreate(input:{name:$name}){
-      id environments{edges{node{id name}}} } }"""
-    r = _gql(q_proj, {"name": name[:60]}, token)
-    if not r["ok"]:
-        return {"ok": False, "error": f"projectCreate: {r['error']}", "log": log}
-    proj = r["data"]["projectCreate"]
-    project_id = proj["id"]
-    envs = [e["node"] for e in proj.get("environments", {}).get("edges", [])]
-    env_id = next((e["id"] for e in envs if e.get("name") == "production"),
-                  envs[0]["id"] if envs else None)
-    if not env_id:
-        return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
-    _say("Projekt + Environment angelegt")
+    # 1) Geteiltes Sammel-Projekt "Generated Websites" finden ODER anlegen ----
+    found = _find_project_with_env(token, PROJECT_NAME)
+    if found.get("found") and found.get("env_id"):
+        project_id = found["project_id"]
+        env_id = found["env_id"]
+        _say(f"Projekt „{PROJECT_NAME}“ gefunden — Seite kommt als neuer Service hinein")
+    else:
+        q_proj = """
+        mutation($name:String!){ projectCreate(input:{name:$name}){
+          id environments{edges{node{id name}}} } }"""
+        r = _gql(q_proj, {"name": PROJECT_NAME[:60]}, token)
+        if not r["ok"]:
+            return {"ok": False, "error": f"projectCreate: {r['error']}", "log": log}
+        proj = r["data"]["projectCreate"]
+        project_id = proj["id"]
+        envs = [e["node"] for e in proj.get("environments", {}).get("edges", [])]
+        env_id = next((e["id"] for e in envs if e.get("name") == "production"),
+                      envs[0]["id"] if envs else None)
+        if not env_id:
+            return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
+        _say(f"Sammel-Projekt „{PROJECT_NAME}“ neu angelegt")
 
     # 2) Service aus dem GitHub-Repo anlegen (startet Auto-Deploy) ------------
+    # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt.
     q_svc = """
-    mutation($projectId:String!,$repo:String!,$branch:String!){
-      serviceCreate(input:{projectId:$projectId, branch:$branch, source:{repo:$repo}}){ id } }"""
-    r = _gql(q_svc, {"projectId": project_id, "repo": repo_full_name, "branch": branch}, token)
+    mutation($projectId:String!,$repo:String!,$branch:String!,$name:String!){
+      serviceCreate(input:{projectId:$projectId, name:$name, branch:$branch,
+        source:{repo:$repo}}){ id } }"""
+    r = _gql(q_svc, {"projectId": project_id, "repo": repo_full_name,
+                     "branch": branch, "name": name[:60]}, token)
     if not r["ok"]:
         return {"ok": False, "error": f"serviceCreate: {r['error']}",
                 "project_id": project_id, "log": log}
     service_id = r["data"]["serviceCreate"]["id"]
-    _say("Service aus GitHub-Repo verbunden")
+    _say(f"Service „{name[:60]}“ aus GitHub-Repo verbunden")
 
     # 3) Öffentliche Domain erzeugen -----------------------------------------
     domain = ""

@@ -34,6 +34,11 @@ MODEL = os.environ.get("JARVIS_CLAUDE_MODEL", "claude-opus-4-8")
 # da die echten Soul-Kosten je nach Qualität variieren.
 _HF_HERO_COST = int(os.environ.get("JARVIS_HF_HERO_COST", "1") or "1")
 
+# Hartes Zeitlimit für den lokalen Hero-Render. Auf der CPU kann sd-turbo hängen
+# bleiben (kam vor → Job blieb ewig bei 60 %). Reißt der Render das Limit, wird er
+# aufgegeben und die Seite nutzt den Farbverlauf-Hero — der Build steht NIE still.
+_HERO_TIMEOUT = int(os.environ.get("JARVIS_HERO_TIMEOUT", "180") or "180")
+
 _AKZENT = {  # Branchen-Heuristik für die Akzentfarbe (Claude darf überschreiben)
     "dachdecker": "#b23a23", "maler": "#1f6f54", "elektr": "#d98a00",
     "sanitär": "#1565a6", "heizung": "#c0392b", "garten": "#2e7d32",
@@ -273,6 +278,27 @@ def _claude_content(lead: dict, fotos: list) -> dict:
     return base
 
 
+def _generate_hero_local_timed(media_engine, prompt: str, out_dir: Path,
+                               params: dict, timeout: int) -> bool:
+    """Erzeugt das Hero-Bild lokal mit hartem Zeitlimit. Hängt der CPU-Render,
+    wird er (als Daemon) aufgegeben und es wird False zurückgegeben — der Build
+    läuft dann mit Farbverlauf-Hero weiter statt ewig bei 60 % zu stehen."""
+    done = {"ok": False}
+
+    def _work() -> None:
+        try:
+            media_engine.generate_image(prompt, output_dir=out_dir,
+                                        filename="hero.png", **params)
+            done["ok"] = True
+        except Exception:
+            done["ok"] = False
+
+    t = threading.Thread(target=_work, name="hero-render", daemon=True)
+    t.start()
+    t.join(timeout)
+    return (not t.is_alive()) and done["ok"]
+
+
 def _django_secret_key() -> str:
     try:
         from django.core.management.utils import get_random_secret_key
@@ -363,12 +389,14 @@ def _run(job_id: str) -> None:
 
             # 2) Lokal (Standard, Fallback ODER starke Hardware), falls noch kein Hero da
             if not hero_path.exists() and media_engine.get_status().get("diffusers_ok"):
-                modell = media_engine.hero_image_params().get("model_key", "lokal")
-                tempo = " (ca. 1-2 Min auf CPU)" if schwach else ""
-                _step(job_id, 60, f"Hero-Banner wird lokal erzeugt ({modell}){tempo}…")
                 hp = media_engine.hero_image_params()
-                media_engine.generate_image(
-                    prompt, output_dir=(target / "static" / "img"), filename="hero.png", **hp)
+                modell = hp.get("model_key", "lokal")
+                tempo = f" (max {_HERO_TIMEOUT}s, sonst Farbverlauf)" if schwach else ""
+                _step(job_id, 60, f"Hero-Banner wird lokal erzeugt ({modell}){tempo}…")
+                ok = _generate_hero_local_timed(
+                    media_engine, prompt, (target / "static" / "img"), hp, _HERO_TIMEOUT)
+                if not ok and not hero_path.exists():
+                    _step(job_id, 68, "Hero-Render zu langsam — Seite nutzt einen Farbverlauf.")
 
             if hero_path.exists():
                 content["hero_image"] = "/static/img/hero.png"

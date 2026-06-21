@@ -142,19 +142,25 @@ TOOLS = [
          "path": {"type": "string"}, "content": {"type": "string"}},
          "required": ["path", "content"]}},
     {"name": "shop_git",
-     "description": "git init + commit + push eines fertigen Shop-Projekts nach GitHub. "
-                    "Frag Sir ZUERST nach der Repo-URL, dann pushen. Letzter Schritt.",
+     "description": "NUR für einen manuell von Hand gebauten Shop (shop_new/shop_write): "
+                    "git init + commit + push in ein BEREITS EXISTIERENDES Repo (braucht repo_url). "
+                    "Legt selbst KEIN Repo an. Für normale Lead-/Kundenwebseiten NICHT verwenden — "
+                    "dafür build_website nutzen (das erstellt Repo + Railway-Deploy automatisch).",
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string"}, "repo_url": {"type": "string"},
          "message": {"type": "string"}}, "required": ["name", "repo_url"]}},
 
     # — Automatischer Website-Builder (Lead → Landing → GitHub → Railway live) —
     {"name": "build_website",
-     "description": "Baut für einen Lead/Kunden VOLLAUTOMATISCH eine Landing-Page und bringt "
-                    "sie live: kopiert die Landing-Vorlage, baut die GEFUNDENEN Fotos ein, "
-                    "textet/gestaltet die Seite, erstellt ein GitHub-Repo und deployt auf Railway "
-                    "(Tokens aus .env). Nutze dies, wenn Sir 'bau dem Lead/Kunden X eine Webseite' "
-                    "sagt. Läuft im Hintergrund — gib danach build_website_status mit der job_id ab.",
+     "description": "DER Standardweg für eine Lead-/Kundenwebseite. Baut VOLLAUTOMATISCH eine "
+                    "Landing-Page und bringt sie live — ein einziger Aufruf erledigt ALLES: "
+                    "Landing-Vorlage kopieren, GEFUNDENE Fotos einbauen, Texte/Design von Claude, "
+                    "Hero-Banner (mit Zeitlimit, hängt nie), GitHub-Repo per Token ANLEGEN + pushen, "
+                    "und auf Railway deployen (alle Seiten als Service im geteilten Projekt "
+                    "'Generated Websites'). Es wird KEINE Repo-URL benötigt und NICHT danach gefragt "
+                    "— Tokens kommen aus der .env. Nutze dies, wenn Sir 'bau dem Lead/Kunden X eine "
+                    "Webseite' sagt. Läuft im Hintergrund — danach build_website_status(job_id, "
+                    "wait=true) abfragen und die Live-URL nennen.",
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string", "description": "Firmenname des Leads"},
          "stadt": {"type": "string"}, "branche": {"type": "string"},
