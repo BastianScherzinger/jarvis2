@@ -135,6 +135,25 @@ def test_hardware_aware_image_model():
         assert hp["model_key"] == "sd-turbo"
 
 
+# ── Higgsfield-Cloud-Fallback (reine Helfer, ohne Netz) ───────────────────────
+def test_higgsfield_helpers():
+    import media_engine as me
+    # Auth-Format-Erkennung: KEY_ID:KEY_SECRET → 'Key …', sonst 'Bearer …'
+    assert me._hf_headers("abc:def")["Authorization"] == "Key abc:def"
+    assert me._hf_headers("sk-tok")["Authorization"] == "Bearer sk-tok"
+    # Bild-URL aus verschiedenen Antwortformen
+    assert me._hf_extract_image_url(
+        {"jobs": [{"results": {"raw": {"url": "http://x/i.png"}}}]}) == "http://x/i.png"
+    assert me._hf_extract_image_url({"outputs": ["http://y/o.png"]}) == "http://y/o.png"
+    assert me._hf_extract_image_url({}) == ""
+    # Ohne Key wirft die Cloud-Generierung → Aufrufer fällt auf lokal zurück.
+    # Nur prüfen, wenn wirklich kein Key gesetzt ist (sonst echter API-Call).
+    if not me._hf_key():
+        import pytest
+        with pytest.raises(Exception):
+            me.generate_image_higgsfield("test")
+
+
 # ── Sicherheits-Score (deterministisch, ohne Ollama) ──────────────────────────
 def test_sicherheit_erreichbar_vs_kette():
     from agents.evaluator.score_writer import _sicherheit

@@ -30,6 +30,10 @@ _SHOP_BASE = Path(os.environ.get("JARVIS_SHOP_DIR", str(Path.home() / "Desktop")
 
 MODEL = os.environ.get("JARVIS_CLAUDE_MODEL", "claude-opus-4-8")
 
+# Mindest-Guthaben (Higgsfield-Credits) für einen Cloud-Hero. Überschreibbar via .env,
+# da die echten Soul-Kosten je nach Qualität variieren.
+_HF_HERO_COST = int(os.environ.get("JARVIS_HF_HERO_COST", "1") or "1")
+
 _AKZENT = {  # Branchen-Heuristik für die Akzentfarbe (Claude darf überschreiben)
     "dachdecker": "#b23a23", "maler": "#1f6f54", "elektr": "#d98a00",
     "sanitär": "#1565a6", "heizung": "#c0392b", "garten": "#2e7d32",
@@ -291,29 +295,47 @@ def _run(job_id: str) -> None:
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         _set(job_id, progress=54, step="Seite geschrieben.")
 
-        # 3b) Hero-Banner mit lokaler KI (best-effort, darf den Build NIE killen)
+        # 3b) Hero-Banner. Schwache Hardware (CPU) + Higgsfield-Key + Guthaben → Cloud
+        # (schnell, hohe Qualität); sonst lokal (GPU=SDXL/FLUX, CPU=SD-Turbo). Best-effort,
+        # jeder Fehler fällt auf die nächste Option zurück — der Build bricht NIE ab.
         try:
-            import media_engine  # lazy — nur wenn überhaupt verfügbar
-            if media_engine.get_status().get("diffusers_ok"):
-                _set(job_id, progress=50, step="Hero-Banner wird mit lokaler KI erzeugt…")
-                branche = lead.get("branche", "")
-                prompt = (
-                    f"professional wide hero banner photograph for a German {branche} "
-                    "business, modern, clean, bright daylight, high quality, no text, "
-                    "no logo, no watermark"
-                )
-                # Hardware-abhängig: GPU → SDXL/FLUX (krasse Qualität, 1280×720),
-                # CPU → SD-Turbo (schnell, 768×512). media_engine prüft die Hardware.
+            import media_engine  # lazy
+            hero_path = target / "static" / "img" / "hero.png"
+            branche = lead.get("branche", "")
+            prompt = (
+                f"professional wide hero banner photograph for a German {branche} "
+                "business, modern, clean, bright daylight, high quality, no text, "
+                "no logo, no watermark"
+            )
+            schwach = media_engine.hardware_info()["device"] == "cpu"  # keine GPU → lokal langsam
+
+            # 1) Cloud (Higgsfield) bei schwacher Hardware, wenn Key vorhanden + genug Credits
+            if schwach and media_engine.higgsfield_available():
+                bal = media_engine.higgsfield_balance()
+                if bal is None or bal >= _HF_HERO_COST:   # unbekannt → versuchen (Credit-Fehler fängt ab)
+                    try:
+                        _set(job_id, progress=50,
+                             step="Hero-Banner wird über Higgsfield (Cloud) erzeugt…")
+                        media_engine.generate_image_higgsfield(
+                            prompt, output_dir=(target / "static" / "img"),
+                            filename="hero.png", width=1280, height=720)
+                    except Exception as e:
+                        _set(job_id, step=f"Higgsfield nicht möglich ({type(e).__name__}) — nutze lokal…")
+                else:
+                    _set(job_id, step=f"Higgsfield-Guthaben zu niedrig ({bal}) — nutze lokal…")
+
+            # 2) Lokal (Fallback ODER starke Hardware), falls noch kein Hero erzeugt wurde
+            if not hero_path.exists() and media_engine.get_status().get("diffusers_ok"):
+                _set(job_id, progress=52, step="Hero-Banner wird mit lokaler KI erzeugt…")
                 hp = media_engine.hero_image_params()
-                res = media_engine.generate_image(
+                media_engine.generate_image(
                     prompt, output_dir=(target / "static" / "img"), filename="hero.png", **hp)
-                if (target / "static" / "img" / "hero.png").exists():
-                    content["hero_image"] = "/static/img/hero.png"
-                    # content.json nach erfolgreicher Hero-Erzeugung erneut schreiben
-                    (target / "content.json").write_text(
-                        json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            if hero_path.exists():
+                content["hero_image"] = "/static/img/hero.png"
+                (target / "content.json").write_text(
+                    json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
-            # diffusers fehlt, Fehler bei Generierung o.ä. → kein Hero, Build läuft weiter
             content.setdefault("hero_image", "")
 
         secret = _django_secret_key()

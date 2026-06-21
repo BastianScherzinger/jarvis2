@@ -584,6 +584,140 @@ def generate_video_higgsfield(
     }
 
 
+def _hf_headers(api_key: str) -> dict:
+    """Higgsfield-Auth. Das SDK nutzt 'Key KEY_ID:KEY_SECRET'; ältere Keys 'Bearer'.
+    Auto-Erkennung anhand des Doppelpunkts."""
+    auth = f"Key {api_key}" if ":" in api_key else f"Bearer {api_key}"
+    return {"Authorization": auth, "Content-Type": "application/json"}
+
+
+def higgsfield_available() -> bool:
+    return bool(_hf_key())
+
+
+def higgsfield_balance() -> "int | None":
+    """Best-effort: verbleibende Higgsfield-Credits. None = unbekannt (kein dokumentierter
+    Endpunkt — daher mehrere Pfade probiert; bei Unbekannt wird trotzdem versucht und der
+    'NotEnoughCredits'-Fehler der Generierung greift als Rückfall)."""
+    key = _hf_key()
+    if not key:
+        return None
+    import urllib.request
+    import json
+    for path in ("/v1/credits", "/v1/balance", "/v1/account/credits", "/v1/me"):
+        try:
+            req = urllib.request.Request(_HIGGSFIELD_BASE + path, headers=_hf_headers(key))
+            with urllib.request.urlopen(req, timeout=12) as r:
+                d = json.loads(r.read().decode())
+            if isinstance(d, (int, float)):
+                return int(d)
+            if isinstance(d, dict):
+                for k in ("credits", "balance", "remaining", "available", "credit_balance"):
+                    v = d.get(k)
+                    if isinstance(v, (int, float)):
+                        return int(v)
+        except Exception:
+            continue
+    return None
+
+
+def _hf_extract_image_url(pd: dict) -> str:
+    """Bild-URL aus verschiedenen möglichen Higgsfield-Antwortstrukturen ziehen."""
+    jobs = pd.get("jobs") or (pd.get("job_set") or {}).get("jobs") or []
+    if jobs and isinstance(jobs[0], dict):
+        res = jobs[0].get("results") or {}
+        for key in ("raw", "min", "preview"):
+            u = (res.get(key) or {}).get("url") if isinstance(res.get(key), dict) else None
+            if u:
+                return u
+        if isinstance(jobs[0].get("result"), dict):
+            u = jobs[0]["result"].get("url")
+            if u:
+                return u
+    for key in ("image", "output"):
+        u = (pd.get(key) or {}).get("url") if isinstance(pd.get(key), dict) else None
+        if u:
+            return u
+    outs = pd.get("outputs") or []
+    if outs:
+        first = outs[0]
+        return first.get("url", "") if isinstance(first, dict) else str(first)
+    return pd.get("image_url", "") or pd.get("url", "")
+
+
+def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
+                              filename: str = "", width: int = 1280, height: int = 720) -> dict:
+    """
+    Bild via Higgsfield Soul (Cloud). Für schwache Hardware (CPU) gedacht, wenn lokale
+    Generierung zu langsam ist. Wirft bei jedem Problem eine Exception — der Aufrufer
+    fällt dann auf die lokale Generierung zurück. Enums sind per .env überschreibbar
+    (JARVIS_HF_IMAGE_SIZE, JARVIS_HF_IMAGE_QUALITY), da Higgsfield sie strikt prüft.
+    """
+    import urllib.request
+    import urllib.error
+    import json
+
+    key = _hf_key()
+    if not key:
+        raise ValueError("HIGGSFIELD_API_KEY fehlt in .env.")
+
+    size = os.environ.get("JARVIS_HF_IMAGE_SIZE") or ("1536x864" if width >= height else "864x1536")
+    quality = os.environ.get("JARVIS_HF_IMAGE_QUALITY", "1080p")
+    payload = {"prompt": prompt, "width_and_height": size,
+               "quality": quality, "batch_size": "1", "enhance_prompt": True}
+
+    t0 = time.time()
+    req = urllib.request.Request(
+        f"{_HIGGSFIELD_BASE}/v1/text2image/soul",
+        data=json.dumps(payload).encode(), headers=_hf_headers(key), method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            d = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"Higgsfield {e.code}: {body}")   # z.B. 402/insufficient credits
+
+    rid = (d.get("id") or d.get("request_id") or d.get("request_set_id")
+           or ((d.get("jobs") or [{}])[0].get("id") if d.get("jobs") else None))
+    if not rid:
+        raise RuntimeError(f"Keine Higgsfield-request-id: {str(d)[:200]}")
+
+    img_url = ""
+    for _ in range(40):                      # ~2 Minuten (40 × 3s)
+        time.sleep(3)
+        try:
+            pr = urllib.request.Request(f"{_HIGGSFIELD_BASE}/requests/{rid}/status",
+                                        headers=_hf_headers(key))
+            with urllib.request.urlopen(pr, timeout=15) as resp:
+                pd = json.loads(resp.read().decode())
+        except Exception:
+            continue
+        st = (pd.get("status") or "").lower()
+        if st in ("completed", "success", "done"):
+            img_url = _hf_extract_image_url(pd)
+            break
+        if st in ("failed", "error", "nsfw", "cancelled"):
+            raise RuntimeError(f"Higgsfield-Status: {st}")
+    if not img_url:
+        raise TimeoutError("Higgsfield Bild-Timeout (2 Min ohne Ergebnis).")
+
+    data = urllib.request.urlopen(
+        urllib.request.Request(img_url, headers={"User-Agent": "JARVIS/1.0"}), timeout=120
+    ).read()
+    dest = output_dir if output_dir else WORKSPACE_IMAGES
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / (filename or f"hf_{time.strftime('%Y%m%d_%H%M%S')}.png")
+    out.write_bytes(data)
+    try:
+        rel = out.relative_to(WORKSPACE_IMAGES)
+        web_url = f"/workspace/media/images/{rel.as_posix()}"
+    except ValueError:
+        web_url = ""
+    return {"path": str(out), "web_url": web_url, "model": "Higgsfield Soul",
+            "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
+
+
 def get_status() -> dict:
     """Gibt Konfigurationsstatus zurück."""
     img_key = get_active_image_model()
