@@ -380,22 +380,42 @@ def run(quiet: bool = False) -> bool:
     elif mcp_file.exists() and not npx_ok:
         _warn("MCP-Server", "npx fehlt — Node.js installieren")
 
-    # ── Google Maps Key → ~/.claude/.env synchen (für MCP-Server) ──
-    import pathlib as _pl, re as _re2
+    # ── Relevante Keys → ~/.claude/.env synchen (für Claude Code + MCP-Server) ──
+    # Damit der Claude des Kunden (MCPs/Skills/Tools) dieselben Zugänge hat wie JARVIS:
+    # Maps (MCP), GitHub/Railway (Deploy), Supabase (Cloud), Higgsfield, Anthropic.
+    import pathlib as _pl
     _jarvis_env = HERE / ".env"
     _claude_env = _pl.Path.home() / ".claude" / ".env"
+    _SYNC_KEYS = [
+        "GOOGLE_MAPS_API_KEY", "GITHUB_TOKEN", "GITHUB_USER", "RAILWAY_TOKEN",
+        "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "HIGGSFIELD_API_KEY",
+        "ANTHROPIC_KEY", "ANTHROPIC_API_KEY",
+    ]
     if _jarvis_env.exists():
-        _m = _re2.search(r"GOOGLE_MAPS_API_KEY=(.+)", _jarvis_env.read_text(encoding="utf-8"))
-        if _m:
-            _key = _m.group(1).strip()
-            _ce = _claude_env.read_text(encoding="utf-8") if _claude_env.exists() else ""
-            if "GOOGLE_MAPS_API_KEY" not in _ce:
-                _claude_env.parent.mkdir(parents=True, exist_ok=True)
-                with open(_claude_env, "a", encoding="utf-8") as _cf:
-                    _cf.write(f"\nGOOGLE_MAPS_API_KEY={_key}\n")
-                _ok("~/.claude/.env", "GOOGLE_MAPS_API_KEY gesetzt")
-            else:
-                _ok("~/.claude/.env", "GOOGLE_MAPS_API_KEY bereits vorhanden")
+        # JARVIS-.env BOM-tolerant parsen (KEY=VALUE, Kommentare/Leerzeilen ignorieren)
+        _jvals: dict = {}
+        for _ln in _jarvis_env.read_text(encoding="utf-8-sig").splitlines():
+            _ln = _ln.strip()
+            if not _ln or _ln.startswith("#") or "=" not in _ln:
+                continue
+            _k, _v = _ln.split("=", 1)
+            _jvals[_k.strip()] = _v.strip()
+        _ce = _claude_env.read_text(encoding="utf-8-sig") if _claude_env.exists() else ""
+        _neu = []
+        for _k in _SYNC_KEYS:
+            _v = _jvals.get(_k, "")
+            if _v and "dein_" not in _v and f"{_k}=" not in _ce:
+                _neu.append((_k, _v))
+        if _neu:
+            _claude_env.parent.mkdir(parents=True, exist_ok=True)
+            with open(_claude_env, "a", encoding="utf-8") as _cf:
+                for _k, _v in _neu:
+                    _cf.write(f"\n{_k}={_v}\n")
+            _ok("~/.claude/.env", f"{len(_neu)} Key(s) gesetzt: {', '.join(k for k, _ in _neu)}")
+        else:
+            _present = [k for k in _SYNC_KEYS if f"{k}=" in _ce]
+            _ok("~/.claude/.env", f"{len(_present)} Key(s) bereits vorhanden" if _present
+                else "keine zu synchenden Keys in .env")
 
     # ── obsidian_brain Ordner anlegen ───────────────────────────────
     (HERE / "obsidian_brain").mkdir(exist_ok=True)

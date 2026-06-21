@@ -172,6 +172,32 @@ TOOLS = [
                     "Live-URL). wait=true wartet bis zu 25s.",
      "input_schema": {"type": "object", "properties": {
          "job_id": {"type": "string"}, "wait": {"type": "boolean"}}, "required": ["job_id"]}},
+
+    # — Deploy: Diagnose + bereits gebaute Seiten nachträglich live stellen —
+    {"name": "deploy_check",
+     "description": "Prüft, ob der Webseiten-Deploy bereit ist: testet GITHUB_TOKEN (gültig + "
+                    "Scope 'repo'), RAILWAY_TOKEN und ob git installiert ist — und nennt bei "
+                    "Problemen die genaue Ursache. Nutze dies, wenn 'der Deploy klappt nicht' / "
+                    "GitHub oder Railway nicht funktioniert.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "list_built_websites",
+     "description": "Listet die bereits LOKAL gebauten Webseiten-Ordner (web_*) mit Name, Ordner "
+                    "und — falls schon geschehen — Live-URL. Nutze dies, um zu sehen, welche "
+                    "Seiten noch zu GitHub/Railway gepusht werden müssen.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "deploy_built_website",
+     "description": "Stellt EINE bereits gebaute Seite nachträglich live: legt GitHub-Repo an, "
+                    "pusht und deployt auf Railway (Tokens aus .env). Seite per name ODER folder "
+                    "angeben. Läuft im Hintergrund — danach build_website_status(job_id, wait=true).",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string", "description": "Name oder Ordnername der gebauten Seite"},
+         "folder": {"type": "string", "description": "alternativ: voller Ordnerpfad"}}}},
+    {"name": "deploy_built_websites",
+     "description": "Stellt ALLE bereits gebauten Seiten nachträglich live (GitHub + Railway). "
+                    "Standardmäßig nur die noch nicht deployten. Nutze dies für 'pushe alle "
+                    "gebauten Webseiten zu GitHub und Railway'. Gibt die Job-IDs zurück.",
+     "input_schema": {"type": "object", "properties": {
+         "alle": {"type": "boolean", "description": "true = auch schon deployte erneut pushen"}}}},
 ]
 
 
@@ -338,6 +364,57 @@ def _dispatch(name: str, a: dict) -> str:
                 if job.get("error"):    parts.append(f"Fehler: {job['error']}")
                 return " | ".join(parts)
             _t.sleep(2)
+
+    if name == "deploy_check":
+        import website_builder
+        return website_builder.deploy_status_text()
+
+    if name == "list_built_websites":
+        import website_builder
+        sites = website_builder.find_built_sites()
+        if not sites:
+            return "Keine bereits gebauten Webseiten-Ordner (web_*) gefunden."
+        out = []
+        for s in sites:
+            zustand = f"LIVE: {s['live_url']}" if s.get("live_url") else "noch nicht deployt"
+            out.append(f"- {s['name']}  ({s['slug']}) — {zustand}\n  Ordner: {s['folder']}")
+        return f"{len(sites)} gebaute Seite(n):\n" + "\n".join(out)
+
+    if name == "deploy_built_website":
+        import website_builder
+        folder = (a.get("folder") or "").strip()
+        nm = (a.get("name") or "").strip()
+        if not folder:
+            sites = website_builder.find_built_sites()
+            ql = nm.lower()
+            match = next((s for s in sites if ql and (ql in s["name"].lower() or ql in s["slug"].lower())), None)
+            if not match:
+                return (f"Keine gebaute Seite zu '{nm}' gefunden. "
+                        "Mit list_built_websites die verfügbaren Ordner anzeigen.")
+            folder, nm = match["folder"], match["name"]
+        import os as _os
+        if not _os.path.isdir(folder):
+            return f"Ordner nicht gefunden: {folder}"
+        jid = website_builder.deploy_existing(folder, nm or None)
+        return (f"Deploy gestartet für '{nm or folder}' (job_id {jid}). "
+                f"Status mit build_website_status(job_id='{jid}', wait=true). "
+                "Erscheint auch im Webseiten-Reiter.")
+
+    if name == "deploy_built_websites":
+        import website_builder
+        alle = bool(a.get("alle"))
+        sites = website_builder.find_built_sites()
+        ziele = sites if alle else [s for s in sites if not s.get("live_url")]
+        if not ziele:
+            return ("Keine zu deployenden Seiten gefunden."
+                    if not sites else "Alle gebauten Seiten sind bereits live (alle=true zum erneuten Pushen).")
+        gestartet = []
+        for s in ziele:
+            jid = website_builder.deploy_existing(s["folder"], s["name"])
+            gestartet.append(f"- {s['name']}: job_id {jid}")
+        return (f"Deploy für {len(gestartet)} Seite(n) gestartet (laufen parallel im Hintergrund, "
+                f"sichtbar im Webseiten-Reiter):\n" + "\n".join(gestartet)
+                + "\nStatus je Seite mit build_website_status(job_id, wait=true).")
 
     return f"Unbekanntes Tool: {name}"
 

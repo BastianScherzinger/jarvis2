@@ -83,6 +83,24 @@ def main() -> None:
     import install
     install.run()
 
+    # ── Webseiten-Deploy-Bereitschaft (GitHub + Railway + git) ────
+    print()
+    print(f"  {CY}[>]{R}  Pruefe Webseiten-Deploy (GitHub + Railway)...")
+    try:
+        import config            # laedt .env in os.environ
+        import website_builder
+        for line in website_builder.deploy_status_text().splitlines():
+            if line.startswith("[OK]") or line.startswith("Deploy bereit"):
+                col = GR
+            elif line.startswith("[!]") or line.startswith("Deploy NICHT"):
+                col = YL
+            else:
+                col = GY
+            print(f"     {col}{line}{R}")
+    except Exception as e:
+        print(f"     {YL}Deploy-Check uebersprungen: {str(e)[:80]}{R}")
+
+    print()
     print(f"  {GR}{B}Update abgeschlossen -- starte JARVIS mit: python start.py{R}")
     print()
 

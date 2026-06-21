@@ -348,6 +348,65 @@ def _django_secret_key() -> str:
         return "".join(secrets.choice(alpha) for _ in range(50))
 
 
+# ── Deploy (GitHub + Railway) — geteilt von _run und deploy_existing ──────────
+
+def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
+                   site_name: str, say) -> dict:
+    """Legt ein GitHub-Repo an, pusht den Ordner und deployt auf Railway.
+    say(progress|None, text) meldet jeden Schritt. Gibt
+    {repo_full, repo_url, live_url, railway_note, railway_log}."""
+    import agent_github
+    import agent_railway
+    repo_full = repo_url = live_url = railway_note = ""
+    railway_log: list = []
+
+    # GitHub --------------------------------------------------------------
+    if agent_github.is_ready():
+        say(74, "GitHub-Repo wird angelegt…")
+        cr = agent_github.create_repo(
+            f"web-{slug}", description=f"Landing-Page für {name} (JARVIS)", private=True)
+        if cr.get("ok"):
+            repo_full = cr["full_name"]
+            say(78, f"Repo {repo_full} — Code wird hochgeladen…")
+            pr = agent_github.push_folder(target, repo_full,
+                                          message=f"Landing-Page {name} (JARVIS)")
+            if pr.get("ok"):
+                repo_url = cr["html_url"]
+                say(83, "Code zu GitHub gepusht ✓")
+            else:
+                railway_note = pr.get("error", "")[:200]
+                say(83, f"Push-Hinweis: {railway_note[:120]}")
+        else:
+            railway_note = cr.get("error", "")[:200]
+            say(83, f"GitHub-Hinweis: {railway_note[:120]}")
+    else:
+        railway_note = "GITHUB_TOKEN fehlt in der .env."
+        say(83, "GitHub übersprungen (kein GITHUB_TOKEN in .env).")
+
+    # Railway -------------------------------------------------------------
+    if agent_railway.is_ready() and repo_full:
+        say(85, "Railway-Deploy startet…")
+        env = {"SECRET_KEY": secret, "DEBUG": "False", "SITE_NAME": site_name}
+        dep = agent_railway.deploy(f"web-{slug}", repo_full, env,
+                                   on_step=lambda t: say(None, f"Railway: {t}"))
+        railway_log = dep.get("log", [])
+        if dep.get("ok") and dep.get("url"):
+            live_url = dep["url"]
+            say(98, f"Live erreichbar: {live_url}")
+        else:
+            railway_note = dep.get("error") or "; ".join(dep.get("log", [])[-1:]) or railway_note
+            say(96, f"Railway-Hinweis: {str(railway_note)[:120]}")
+    elif agent_railway.is_ready() and not repo_full:
+        railway_note = railway_note or "Kein GitHub-Repo — Railway übersprungen."
+        say(96, str(railway_note)[:120])
+    elif not agent_railway.is_ready():
+        railway_note = railway_note or "RAILWAY_TOKEN fehlt in der .env."
+        say(96, "Railway übersprungen (kein RAILWAY_TOKEN in .env).")
+
+    return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
+            "railway_note": railway_note, "railway_log": railway_log}
+
+
 # ── Worker ────────────────────────────────────────────────────────────────────
 
 def _run(job_id: str) -> None:
@@ -448,63 +507,27 @@ def _run(job_id: str) -> None:
             _step(job_id, 70, "Hero-Banner übersprungen.")
 
         secret = _django_secret_key()
-        repo_full = ""
-        repo_url = ""
-        live_url = ""
 
-        # 4) GitHub -----------------------------------------------------------
-        import agent_github
-        if agent_github.is_ready():
-            _step(job_id, 74, "GitHub-Repo wird angelegt…")
-            repo_name = f"web-{slug}"
-            cr = agent_github.create_repo(
-                repo_name, description=f"Landing-Page für {name} (JARVIS)", private=True)
-            if cr.get("ok"):
-                repo_full = cr["full_name"]
-                _step(job_id, 78, f"Repo {repo_full} — Code wird hochgeladen…")
-                pr = agent_github.push_folder(target, repo_full,
-                                              message=f"Landing-Page {name} (JARVIS)")
-                if pr.get("ok"):
-                    repo_url = cr["html_url"]
-                    _set(job_id, repo_url=repo_url)
-                    _step(job_id, 83, "Code zu GitHub gepusht ✓")
-                else:
-                    _step(job_id, 83, f"Push-Hinweis: {pr.get('error','')[:120]}")
-            else:
-                _step(job_id, 83, f"GitHub-Hinweis: {cr.get('error','')[:120]}")
-        else:
-            _step(job_id, 83, "GitHub übersprungen (kein Token in .env).")
-
-        # 5) Railway ----------------------------------------------------------
-        import agent_railway
-        railway_note = ""
-        if agent_railway.is_ready() and repo_full:
-            _step(job_id, 85, "Railway-Deploy startet…")
-            env = {
-                "SECRET_KEY": secret, "DEBUG": "False",
-                "SITE_NAME": content.get("site_name", name),
-            }
-
-            def _rw_step(text: str) -> None:
+        # 4+5) GitHub + Railway — gemeinsame Logik (auch von deploy_existing genutzt)
+        def _say(p: "int | None", t: str) -> None:
+            if p is None:                       # Railway-Substep → Fortschritt leicht anheben
                 with _lock:
                     j = _jobs.get(job_id)
                     cur = (j.get("progress", 85) if j else 85)
-                _step(job_id, min(cur + 2, 96), f"Railway: {text}")
-
-            dep = agent_railway.deploy(f"web-{slug}", repo_full, env, on_step=_rw_step)
-            if dep.get("ok") and dep.get("url"):
-                live_url = dep["url"]
-                _set(job_id, live_url=live_url, railway_log=dep.get("log", []))
-                _step(job_id, 98, f"Live erreichbar: {live_url}")
+                _step(job_id, min(cur + 2, 96), t)
             else:
-                railway_note = dep.get("error") or "; ".join(dep.get("log", [])[-1:])
-                _set(job_id, railway_log=dep.get("log", []))
-                _step(job_id, 96, f"Railway-Hinweis: {railway_note[:100]}")
-        elif agent_railway.is_ready() and not repo_full:
-            railway_note = "Kein GitHub-Repo — Railway übersprungen."
-            _step(job_id, 96, railway_note)
-        elif not agent_railway.is_ready():
-            _step(job_id, 96, "Railway übersprungen (kein Token in .env).")
+                _step(job_id, p, t)
+
+        dep = _deploy_folder(target, slug, name, secret, content.get("site_name", name), _say)
+        repo_url     = dep["repo_url"]
+        live_url     = dep["live_url"]
+        railway_note = dep["railway_note"]
+        if dep.get("railway_log"):
+            _set(job_id, railway_log=dep["railway_log"])
+        if repo_url:
+            _set(job_id, repo_url=repo_url)
+        if live_url:
+            _set(job_id, live_url=live_url)
 
         # Abschluss -----------------------------------------------------------
         if live_url:
@@ -519,3 +542,142 @@ def _run(job_id: str) -> None:
     except Exception as e:
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+
+
+# ── Bereits gebaute Seiten finden + nachträglich deployen ─────────────────────
+
+def find_built_sites() -> list[dict]:
+    """Findet bereits gebaute Landing-Ordner (web_*) unter JARVIS_SHOP_DIR.
+    Gibt je Ordner {folder, name, slug, live_url} (live_url falls schon deployt)."""
+    out: list[dict] = []
+    base = _SHOP_BASE
+    if not base.exists():
+        return out
+    # bereits bekannte Live-URLs aus der DB (Ordner → live_url)
+    bekannt: dict = {}
+    try:
+        import db_websites
+        for w in db_websites.get_all():
+            if w.get("folder"):
+                bekannt[w["folder"]] = w.get("live_url") or bekannt.get(w["folder"], "")
+    except Exception:
+        pass
+    for d in sorted(base.glob("web_*")):
+        if not d.is_dir():
+            continue
+        if not (d / "content.json").exists() and not (d / "manage.py").exists():
+            continue
+        name = d.name
+        try:
+            c = json.loads((d / "content.json").read_text(encoding="utf-8"))
+            name = (c.get("site_name") or name).strip()
+        except Exception:
+            pass
+        out.append({"folder": str(d), "name": name, "slug": d.name,
+                    "live_url": bekannt.get(str(d), "")})
+    return out
+
+
+def _run_deploy(job_id: str, folder: str, name: str) -> None:
+    try:
+        target = Path(folder)
+        if not target.is_dir():
+            raise RuntimeError("Ordner nicht gefunden.")
+        content = {}
+        try:
+            content = json.loads((target / "content.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        _set(job_id, status="running", folder=str(target))
+        _step(job_id, 70, f"Deploy für {name} startet…")
+        slug = _slug(name)
+
+        def _say(p, t):
+            if p is None:
+                with _lock:
+                    j = _jobs.get(job_id)
+                    cur = (j.get("progress", 85) if j else 85)
+                _step(job_id, min(cur + 2, 96), t)
+            else:
+                _step(job_id, p, t)
+
+        dep = _deploy_folder(target, slug, name, _django_secret_key(),
+                             content.get("site_name", name), _say)
+        if dep.get("railway_log"):
+            _set(job_id, railway_log=dep["railway_log"])
+        if dep["repo_url"]:
+            _set(job_id, repo_url=dep["repo_url"])
+        if dep["live_url"]:
+            _set(job_id, live_url=dep["live_url"])
+        if dep["live_url"]:
+            final = f"Fertig & live: {dep['live_url']}"
+        elif dep["repo_url"]:
+            final = "Repo gepusht — " + (f"Railway: {str(dep['railway_note'])[:120]}"
+                                         if dep["railway_note"] else "Railway-Deploy angestoßen.")
+        else:
+            final = f"Deploy nicht möglich: {str(dep['railway_note'])[:160]}"
+        _set(job_id, status="done")
+        _step(job_id, 100, final)
+    except Exception as e:
+        _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+
+
+def deploy_existing(folder: str, name: "str | None" = None) -> str:
+    """Deployt einen BEREITS gebauten Seiten-Ordner zu GitHub + Railway (ohne neu
+    zu bauen). Legt einen verfolgbaren Job an (erscheint im Webseiten-Reiter) und
+    gibt die job_id zurück."""
+    target = Path(folder)
+    if not name:
+        try:
+            c = json.loads((target / "content.json").read_text(encoding="utf-8"))
+            name = (c.get("site_name") or "").strip()
+        except Exception:
+            name = ""
+    name = name or target.name.replace("web_", "").replace("-", " ").strip() or "Webseite"
+    job_id = uuid.uuid4().hex[:12]
+    with _lock:
+        _jobs[job_id] = {
+            "id": job_id, "status": "queued", "progress": 0, "step": "Deploy in Warteschlange…",
+            "folder": str(target), "repo_url": "", "live_url": "", "error": "", "log": [],
+            "created": time.time(), "_lead": {"name": name},
+        }
+    try:
+        import db_websites
+        db_websites.create(job_id, name=name, stadt="", branche="", lead_id=None)
+        db_websites.update(job_id, folder=str(target))
+    except Exception:
+        pass
+    threading.Thread(target=_run_deploy, args=(job_id, str(target), name),
+                     name=f"deploy-{job_id}", daemon=True).start()
+    return job_id
+
+
+# ── Deploy-Bereitschaft (Diagnose für 'klappt nicht'-Fälle) ───────────────────
+
+def deploy_status() -> dict:
+    """Aggregierter Bereitschaftscheck für den Webseiten-Deploy."""
+    import shutil
+    import agent_github
+    import agent_railway
+    gh = agent_github.diagnose()
+    rw = agent_railway.diagnose()
+    git_ok = bool(shutil.which("git"))
+    return {"ready": bool(gh.get("ok") and rw.get("ok") and git_ok),
+            "git": git_ok, "github": gh, "railway": rw}
+
+
+def deploy_status_text() -> str:
+    """Menschlich lesbarer Deploy-Bereitschaftsbericht (für Claude-Tab + update.py).
+    Bewusst ASCII-only — wird auch in der Kunden-Konsole (evtl. cp1252) gedruckt."""
+    s = deploy_status()
+    def _mark(ok): return "[OK]" if ok else "[!] "
+    lines = [
+        f"{_mark(s['github'].get('ok'))} GitHub:  {s['github'].get('msg','')}",
+        f"{_mark(s['railway'].get('ok'))} Railway: {s['railway'].get('msg','')}",
+        f"{_mark(s['git'])} Git:     " + ("installiert" if s["git"]
+                                          else "NICHT installiert -> https://git-scm.com/download/win"),
+    ]
+    kopf = ("Deploy bereit - Webseiten koennen live gestellt werden."
+            if s["ready"] else "Deploy NICHT bereit - Details unten:")
+    return kopf + "\n" + "\n".join(lines)

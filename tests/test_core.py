@@ -287,3 +287,48 @@ def test_db_websites_get_all_neueste_zuerst(tmp_path, monkeypatch):
     dbw.create("job-2", name="Zweite")
     namen = [w["name"] for w in dbw.get_all()]
     assert namen[:2] == ["Zweite", "Erste"]
+
+
+# ── Deploy-Diagnose (ohne Tokens → ehrliche Fehlmeldung, kein Crash) ──────────
+def test_github_diagnose_ohne_token(monkeypatch):
+    import agent_github
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    d = agent_github.diagnose()
+    assert d["ok"] is False and d["present"] is False
+    assert "GITHUB_TOKEN" in d["msg"]
+
+
+def test_railway_diagnose_ohne_token(monkeypatch):
+    import agent_railway
+    monkeypatch.delenv("RAILWAY_TOKEN", raising=False)
+    monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
+    d = agent_railway.diagnose()
+    assert d["ok"] is False and d["present"] is False
+    assert "RAILWAY_TOKEN" in d["msg"]
+
+
+def test_deploy_status_struktur(monkeypatch):
+    import website_builder
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("RAILWAY_TOKEN", raising=False)
+    s = website_builder.deploy_status()
+    assert set(["ready", "git", "github", "railway"]).issubset(s.keys())
+    assert s["ready"] is False               # ohne Tokens nie bereit
+    txt = website_builder.deploy_status_text()
+    assert "GitHub" in txt and "Railway" in txt
+    assert txt.isascii()                     # Kunden-Konsole (cp1252) sicher
+
+
+def test_find_built_sites_ist_liste(tmp_path, monkeypatch):
+    import website_builder
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    # leerer Ordner → leere Liste
+    assert website_builder.find_built_sites() == []
+    # ein gebauter Ordner (mit content.json) → wird gefunden
+    d = tmp_path / "web_demo-gmbh"
+    d.mkdir()
+    (d / "content.json").write_text('{"site_name": "Demo GmbH"}', encoding="utf-8")
+    sites = website_builder.find_built_sites()
+    assert len(sites) == 1 and sites[0]["name"] == "Demo GmbH"
+    assert sites[0]["slug"] == "web_demo-gmbh"

@@ -15,6 +15,8 @@ import os
 
 import requests
 
+import config  # noqa: F401 — lädt die .env in os.environ (sonst Token evtl. nicht sichtbar)
+
 ENDPOINT = "https://backboard.railway.com/graphql/v2"
 
 # Alle generierten Seiten landen als Services in EINEM geteilten Sammel-Projekt.
@@ -67,6 +69,29 @@ def list_projects() -> dict:
     else:
         edges = r["data"].get("me", {}).get("projects", {}).get("edges", [])
     return {"ok": True, "projects": [e["node"] for e in edges]}
+
+
+def diagnose() -> dict:
+    """Prüft live, ob das Railway-Token einsatzbereit ist (für die Deploy-Diagnose).
+    Gibt {ok, present, valid, account, msg} — verrät das Token nie."""
+    token = _token()
+    if not token:
+        return {"ok": False, "present": False, "valid": False,
+                "msg": "RAILWAY_TOKEN fehlt in der .env."}
+    r = _gql("query{ me { email name } }", {}, token)
+    if r["ok"]:
+        me = r["data"].get("me") or {}
+        who = me.get("email") or me.get("name") or "verbunden"
+        return {"ok": True, "present": True, "valid": True, "account": who,
+                "msg": f"OK — Account {who}. Hinweis: Railway muss die GitHub-App "
+                       "einmalig mit dem Account verbunden haben (railway.app → GitHub)."}
+    # me{} verweigert → evtl. Projekt-Token: über Projekt-Query gegenprüfen.
+    r2 = _gql("query{ projects { edges { node { id } } } }", {}, token)
+    if r2["ok"]:
+        return {"ok": True, "present": True, "valid": True, "account": "Projekt-Token",
+                "msg": "OK — Projekt-Token gültig (Account-Abfrage eingeschränkt)."}
+    return {"ok": False, "present": True, "valid": False,
+            "msg": f"Railway-Token ungültig oder ohne Rechte: {str(r.get('error',''))[:120]}"}
 
 
 def _find_project_with_env(token: str, name: str) -> dict:

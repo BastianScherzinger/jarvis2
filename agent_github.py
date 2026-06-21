@@ -13,6 +13,8 @@ from pathlib import Path
 
 import requests
 
+import config  # noqa: F401 — lädt die .env in os.environ (sonst Token evtl. nicht sichtbar)
+
 API = "https://api.github.com"
 
 
@@ -40,6 +42,40 @@ def _whoami(token: str) -> str:
     except Exception:
         pass
     return (os.environ.get("GITHUB_USER") or "").strip()
+
+
+def diagnose() -> dict:
+    """Prüft live, ob das GitHub-Token einsatzbereit ist (für die Deploy-Diagnose).
+    Gibt {ok, present, valid, login, scopes, msg} — verrät das Token nie."""
+    token = _token()
+    if not token:
+        return {"ok": False, "present": False, "valid": False,
+                "msg": "GITHUB_TOKEN fehlt in der .env."}
+    try:
+        r = requests.get(f"{API}/user", headers=_headers(token), timeout=20)
+    except Exception as e:
+        return {"ok": False, "present": True, "valid": False,
+                "msg": f"GitHub nicht erreichbar: {type(e).__name__}"}
+    if r.status_code == 401:
+        return {"ok": False, "present": True, "valid": False,
+                "msg": "GitHub-Token ungültig (401) — neues Token mit Scope 'repo' erstellen."}
+    if not r.ok:
+        return {"ok": False, "present": True, "valid": False,
+                "msg": f"GitHub antwortet {r.status_code}."}
+    login  = (r.json() or {}).get("login", "")
+    scopes = r.headers.get("X-OAuth-Scopes", "")
+    scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
+    # Klassischer PAT: braucht 'repo'. Fine-grained PAT: leeres Scope-Header.
+    if scopes and not ("repo" in scope_list or "public_repo" in scope_list):
+        return {"ok": False, "present": True, "valid": True, "login": login, "scopes": scopes,
+                "msg": f"Token gültig (User {login}), aber Scope 'repo' fehlt — "
+                       "Repo-Erstellung schlägt fehl. Token mit 'repo' neu erstellen."}
+    if not scopes:
+        return {"ok": True, "present": True, "valid": True, "login": login, "scopes": "",
+                "msg": f"OK — angemeldet als {login} (Fine-grained Token; es braucht "
+                       "Repository-Rechte 'Administration: Read & write' + 'Contents: Read & write')."}
+    return {"ok": True, "present": True, "valid": True, "login": login, "scopes": scopes,
+            "msg": f"OK — angemeldet als {login}, Scope 'repo' vorhanden."}
 
 
 def create_repo(name: str, description: str = "", private: bool = True) -> dict:
