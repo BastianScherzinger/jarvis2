@@ -18,6 +18,7 @@ from flask import (
 
 import db_raw
 import db_evaluated
+import db_websites
 import media_queue
 import cloud_sync
 import logger as _logger
@@ -27,6 +28,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
 db_raw.init_db()
 db_evaluated.init_db()
+db_websites.init_db()
 
 # Die Bewertung startet bewusst NICHT automatisch beim Boot — erst wenn Sir den
 # Start-Button drückt (/api/start → controller.start()). So bleibt der Programmstart
@@ -233,6 +235,71 @@ def api_website_job(job_id):
     if job is None:
         return jsonify({"ok": False, "reason": "not_found"}), 404
     return jsonify(job)
+
+
+@app.route("/api/websites")
+def api_websites():
+    """Alle persistierten Webseiten-Bau-Jobs (für den 'Webseiten'-Reiter)."""
+    return jsonify({"ok": True, "websites": db_websites.get_all()})
+
+
+def _website_added_dir(row: dict) -> "Path | None":
+    """Sicherer Pfad zum 'added'-Bilderordner einer gebauten Seite (oder None)."""
+    folder = (row or {}).get("folder") or ""
+    if not folder:
+        return None
+    base = Path(folder)
+    if not base.exists():
+        return None
+    return base / "static" / "img" / "added"
+
+
+@app.route("/api/websites/<int:wid>/image", methods=["POST"])
+def api_website_add_image(wid):
+    """Lädt ein Bild zu einer gebauten Seite hoch (für späteren Einsatz)."""
+    from werkzeug.utils import secure_filename
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    added = _website_added_dir(row)
+    if added is None:
+        return jsonify({"ok": False, "reason": "Ordner noch nicht bereit"}), 409
+    if "image" not in request.files:
+        return jsonify({"ok": False, "reason": "Keine Datei (Feld 'image')"}), 400
+    f = request.files["image"]
+    safe = secure_filename(f.filename or "")
+    if not safe:
+        return jsonify({"ok": False, "reason": "Ungültiger Dateiname"}), 400
+    added.mkdir(parents=True, exist_ok=True)
+    ziel = added / safe
+    if ziel.exists():                      # Kollision → Zahl anhängen
+        stem, suf = ziel.stem, ziel.suffix
+        for i in range(2, 9999):
+            cand = added / f"{stem}-{i}{suf}"
+            if not cand.exists():
+                ziel, safe = cand, cand.name
+                break
+    f.save(str(ziel))
+    updated = db_websites.add_image(wid, safe)
+    return jsonify({"ok": True, "website": updated})
+
+
+@app.route("/api/websites/<int:wid>/asset/<path:fname>")
+def api_website_asset(wid, fname):
+    """Liefert ein hinzugefügtes Bild einer Seite aus (Thumbnail-Vorschau)."""
+    row = db_websites.get(wid)
+    added = _website_added_dir(row) if row else None
+    if added is None:
+        return ("", 404)
+    ziel = (added / fname)
+    # Path-Traversal verhindern: realer Pfad MUSS im added-Ordner liegen.
+    base_real = os.path.realpath(str(added))
+    ziel_real = os.path.realpath(str(ziel))
+    if not (ziel_real == base_real or ziel_real.startswith(base_real + os.sep)):
+        return ("", 404)
+    if not os.path.isfile(ziel_real):
+        return ("", 404)
+    return send_from_directory(base_real, os.path.basename(ziel_real))
 
 
 @app.route("/api/lead/<int:lead_id>/competition")

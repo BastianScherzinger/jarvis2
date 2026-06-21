@@ -232,3 +232,58 @@ def test_nameclean_idempotent():
     for x in beispiele:
         once = quick_clean(x)
         assert quick_clean(once) == once, x
+
+
+# ── Webseiten-Persistenz (db_websites, temporäre DB) ──────────────────────────
+def _tmp_websites_db(tmp_path, monkeypatch):
+    import db_websites
+    from pathlib import Path
+    monkeypatch.setattr(db_websites, "DB_PATH", Path(tmp_path) / "websites.db")
+    db_websites.init_db()
+    return db_websites
+
+
+def test_db_websites_create_get_update(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    wid = dbw.create("job-aaa", name="Foo GmbH", stadt="Ulm", branche="Elektro", lead_id=7)
+    assert isinstance(wid, int) and wid > 0
+    # idempotent: gleicher job_id legt KEINE zweite Zeile an
+    assert dbw.create("job-aaa", name="Foo GmbH") == wid
+    row = dbw.get_by_job("job-aaa")
+    assert row["name"] == "Foo GmbH" and row["status"] == "queued" and row["lead_id"] == 7
+    assert row["images"] == [] and row["log"] == []
+    # update setzt erlaubte Felder + serialisiert log als Liste zurück
+    dbw.update("job-aaa", status="running", progress=42, step="baut",
+               live_url="https://x.up.railway.app", log=[{"p": 42, "t": "baut"}])
+    row = dbw.get(wid)
+    assert row["status"] == "running" and row["progress"] == 42
+    assert row["live_url"].endswith("railway.app")
+    assert row["log"] == [{"p": 42, "t": "baut"}]
+
+
+def test_db_websites_update_ignoriert_fremde_spalten(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    dbw.create("job-bbb", name="Bar")
+    # nicht-erlaubte Spalte wird stillschweigend ignoriert (kein Crash, keine Wirkung)
+    dbw.update("job-bbb", name="GEHACKT", status="done")
+    row = dbw.get_by_job("job-bbb")
+    assert row["name"] == "Bar" and row["status"] == "done"
+
+
+def test_db_websites_add_image_dedup(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    wid = dbw.create("job-ccc", name="Baz")
+    dbw.add_image(wid, "a.png")
+    dbw.add_image(wid, "a.png")   # Duplikat → nur einmal
+    dbw.add_image(wid, "b.png")
+    assert dbw.get(wid)["images"] == ["a.png", "b.png"]
+
+
+def test_db_websites_get_all_neueste_zuerst(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    import time
+    dbw.create("job-1", name="Erste")
+    time.sleep(0.01)
+    dbw.create("job-2", name="Zweite")
+    namen = [w["name"] for w in dbw.get_all()]
+    assert namen[:2] == ["Zweite", "Erste"]

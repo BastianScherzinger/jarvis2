@@ -28,6 +28,7 @@
     <button class="topnav-btn"        data-page="videos" onclick="showPage('videos')">Videos</button>
     <button class="topnav-btn"        data-page="graph"  onclick="showPage('graph')">Graph</button>
     <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
+    <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
     <button class="topnav-btn"        data-page="claude" onclick="showPage('claude')">Claude</button>
   </nav>
 
@@ -352,6 +353,26 @@
   <div class="rank-list" id="rank-list"></div>
 </main>
 
+<!-- ══════════════════════════ WEBSEITEN-SEITE ══════════════════════════════ -->
+<main class="websites-page page" data-page="websites">
+  <div class="media-head">
+    <div class="media-title">Generierte Webseiten</div>
+    <div class="media-sub">Status, Live-Links, GitHub & lokaler Ordner aller gebauten Lead-Seiten · Bilder für später hinzufügen</div>
+  </div>
+  <div class="ws-bar">
+    <span class="ws-count" id="ws-count">0 Seiten</span>
+    <span class="rank-live" id="ws-live">● LIVE</span>
+    <button class="gc-btn" style="margin-left:auto" onclick="loadWebsites()">↺ Aktualisieren</button>
+  </div>
+  <div class="ws-list" id="ws-list">
+    <div class="ws-empty" id="ws-empty">
+      <div class="empty-icon">◎</div>
+      <div class="empty-title">Noch keine Webseiten gebaut</div>
+      <div class="empty-sub">Bei einem Lead auf „Webseite bauen“ drücken — die Seite erscheint hier mit Live-Status.</div>
+    </div>
+  </div>
+</main>
+
 <!-- ══════════════════════════ CLAUDE-SEITE ═════════════════════════════════ -->
 <main class="claude-page page" data-page="claude">
 
@@ -427,6 +448,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/static/js/graph.js"></script>
 <script src="/static/js/ranking.js"></script>
+<script src="/static/js/websites.js"></script>
 <script src="/static/js/claude.js"></script>
 
 <!-- Log-Drawer (ausklappbar von unten) -->

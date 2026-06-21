@@ -40,7 +40,7 @@ for path in ["/", "/api/claude/status", "/api/email/status", "/api/evaluated/all
              "/api/evaluated/stats", "/api/evaluated/top", "/api/export/csv",
              "/api/graph/nodes", "/api/graph/stats", "/api/logs", "/api/media/gallery",
              "/api/media/jobs", "/api/media/models", "/api/media/status", "/api/metrics",
-             "/api/status", "/api/top", "/api/voice/status", "/favicon.ico"]:
+             "/api/status", "/api/top", "/api/voice/status", "/api/websites", "/favicon.ico"]:
     check(f"GET {path}", get_ok(path, allowed=(200, 204)))
 
 check("GET /api/lead/<id>/competition", get_ok(f"/api/lead/{_rid}/competition"))
@@ -61,6 +61,7 @@ check("agent_github.is_ready", lambda: __import__("agent_github").is_ready())
 check("agent_railway.is_ready", lambda: __import__("agent_railway").is_ready())
 check("agent_shop.is_available", lambda: __import__("agent_shop").is_available())
 check("website_builder.is_available", lambda: __import__("website_builder").is_available())
+check("db_websites.get_all", lambda: __import__("db_websites").get_all())
 check("metrics snapshot", lambda: __import__("metrics").snapshot())
 check("voice_web.status", lambda: __import__("voice_web").status())
 check("config.get_api_key", lambda: bool(__import__("config").get_api_key()))

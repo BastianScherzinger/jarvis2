@@ -59,12 +59,38 @@ def _set(job_id: str, **fields) -> None:
         j = _jobs.get(job_id)
         if j is not None:
             j.update(fields)
+    _persist(job_id)
 
 
 def get(job_id: str) -> "dict | None":
     with _lock:
         j = _jobs.get(job_id)
         return {k: v for k, v in j.items() if not k.startswith("_")} if j else None
+
+
+def _persist(job_id: str) -> None:
+    """Spiegelt den aktuellen Job-Stand in die persistente DB (db_websites), damit
+    der 'Webseiten'-Reiter ihn auch nach Wegklicken/Neustart zeigt. Persistenz-
+    Fehler dürfen den Bau NIE stoppen. WICHTIG: außerhalb von `with _lock` aufrufen
+    (get() nimmt selbst das Lock — threading.Lock ist nicht reentrant)."""
+    try:
+        job = get(job_id)
+        if not job:
+            return
+        import db_websites
+        db_websites.update(
+            job_id,
+            status=job.get("status", ""),
+            progress=int(job.get("progress", 0) or 0),
+            step=job.get("step", ""),
+            folder=job.get("folder", ""),
+            repo_url=job.get("repo_url", ""),
+            live_url=job.get("live_url", ""),
+            error=job.get("error", ""),
+            log=job.get("log", []),
+        )
+    except Exception:
+        pass
 
 
 def build(lead: dict, use_higgsfield: bool = False) -> str:
@@ -80,6 +106,17 @@ def build(lead: dict, use_higgsfield: bool = False) -> str:
             "created": time.time(), "_lead": dict(lead or {}),
             "_use_higgsfield": bool(use_higgsfield),
         }
+    # Persistenten Eintrag anlegen (überlebt Wegklicken/Neustart) — Fehler ignorieren.
+    try:
+        import db_websites
+        lead_id = lead.get("id") or lead.get("raw_id")
+        db_websites.create(
+            job_id, name=(lead.get("name") or "").strip(),
+            stadt=(lead.get("stadt") or "").strip(),
+            branche=(lead.get("branche") or "").strip(),
+            lead_id=int(lead_id) if lead_id else None)
+    except Exception:
+        pass
     threading.Thread(target=_run, args=(job_id,), name=f"website-{job_id}", daemon=True).start()
     return job_id
 
@@ -99,6 +136,7 @@ def _step(job_id: str, progress: "int | None" = None, text: "str | None" = None)
             log.append({"p": j.get("progress", 0), "t": text})
             if len(log) > 50:
                 del log[:-50]
+    _persist(job_id)
 
 
 # ── Helfer ────────────────────────────────────────────────────────────────────

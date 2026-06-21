@@ -650,6 +650,9 @@ async function _startWebsiteBuild(id, lead, btn, out){
       body: JSON.stringify(body),
     })).json();
     if(d.ok && d.job_id){
+      // Die Seite ist ab jetzt persistent — im 'Webseiten'-Reiter sofort sichtbar
+      // machen (läuft serverseitig im Hintergrund weiter, auch wenn man wegklickt).
+      if(typeof refreshWebsites === 'function') refreshWebsites();
       _pollWebsite(d.job_id, out, btn, d.github_ready, d.railway_ready);
     }else{
       out.innerHTML = `<div class="m-err-row">✕ ${_e(d.reason||'Fehler')}</div>`;
@@ -680,6 +683,7 @@ function _pollWebsite(jobId, out, btn, ghReady, rwReady){
       if(job.repo_url) html += `<a class="m-web-link sub" href="${_e(job.repo_url)}" target="_blank">GitHub-Repo ↗</a>`;
       if(job.folder)   html += `<div class="m-web-folder">Ordner: ${_e(job.folder)}</div>`;
       out.innerHTML = html + hint;
+      if(typeof refreshWebsites === 'function') refreshWebsites();            // 'Webseiten'-Reiter nachziehen
       if(typeof _claudeRefreshUsage === 'function') _claudeRefreshUsage();   // Token-Anzeige nachziehen
     }else if(job.status === 'error'){
       clearInterval(iv);
@@ -741,7 +745,7 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking', 'claude'];
+const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'claude'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -754,6 +758,7 @@ function showPage(name){
   if(name === 'images'){ loadImageLeads(); _restoreActiveJob(); }
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
+  if(name === 'websites' && typeof initWebsites === 'function') initWebsites();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
 }
 
