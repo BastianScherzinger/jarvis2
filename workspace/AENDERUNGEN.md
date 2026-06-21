@@ -5,6 +5,93 @@
 
 ---
 
+# Durchgang 21.06.2026 — Webseiten-Bau live, Datenqualität, Cloud-Fix, UX
+
+## A. Lead → Webseite → live (komplett, getestet & live)
+- Vorlage `vorlage_landing/` (schlanke, DB-freie Django-Landing) + `website_builder.py`
+  (Job-Orchestrator) + `agent_github.py` + `agent_railway.py`. Lead anklicken →
+  „Webseite bauen" → Claude textet/gestaltet, Fotos werden eingebaut, GitHub-Repo +
+  Railway-Deploy mit öffentlicher Domain. **Echt getestet & live** (Lead „Umzüge S. Klein").
+- Dabei zwei Railway-API-Bugs gefixt: Variablen-Mutation (`EnvironmentVariables!` statt
+  `JSON!`) + Status-Reporting; `list_projects()`/`project_delete()` für Aufräumen.
+
+## B. Lead-Namen mit lokaler KI säubern
+- `agents/name_clean.py`: `quick_clean` (deterministisch — SEO-Codes wie „F0507", Wort-
+  Wiederholungen, Marketing-Spam) schon beim Fund in `db_raw.insert_raw` (Feed + DB +
+  `lead_key` nutzen denselben sauberen Namen). `ai_clean` (Ollama, 12-s-Timeout) als
+  Feinschliff im Evaluator — **`lead_key` bleibt stabil** aus dem deterministischen Namen
+  (kein Cloud-Dedup-Bruch).
+
+## C. Hero-Banner (lokale KI) + hardware-abhängige Modellwahl
+- Jede gebaute Seite bekommt einen Hero-Banner. `media_engine.hardware_info/best_image_model/
+  hero_image_params`: **GPU → SDXL/FLUX (1280×720), CPU → SD-Turbo (768×512, ~90 s)**.
+- BUG gefixt: `generate_image` crashte bei `output_dir` außerhalb des Workspace (Hero-Fall).
+- **Higgsfield-Cloud als Fallback** für schwache Hardware — aber **nur auf Rückfrage**
+  („Hero über Higgsfield-Cloud?"), Default bleibt lokal. `generate_image_higgsfield` +
+  `higgsfield_balance` (best-effort, untestbar ohne Key, fällt immer auf lokal zurück).
+  Template/CSS: Hero-Bild > Foto > Gradient-Fallback.
+
+## D. Genauer Lade-Fortschritt beim Webseiten-Bauen
+- `website_builder._step` mit monotonem Fortschritt + **Schritt-Log**; granulare Schritte
+  (Projekt, Foto X/N, Claude, Hero mit Modell, GitHub anlegen/pushen, **jeder Railway-
+  Teilschritt** via `agent_railway.deploy(on_step=…)`). Frontend zeigt Prozent + Log mit
+  Haken/Spinner. Funktion unverändert.
+
+## E. „Webseite bauen"-Button in der Rangliste
+- `openRankDetail` hat den Button (neben der Bilder-Galerie) → `_startWebsiteBuild`
+  (gemeinsam mit dem Feed). **Grün wenn Claude bereit, rot/deaktiviert wenn ANTHROPIC_KEY
+  fehlt** (über `/api/claude/status`).
+
+## F. Token-Budget im Claude-Reiter
+- `metrics.budget_status()` + `/api/claude/status` liefern Tokens used/budget/remaining +
+  **„reicht für ~N Webseiten"**. Anzeige im Claude-Tab, Update nach jeder Antwort + jedem
+  Bau; rot bei ≤ 3 Webseiten. Budget via `JARVIS_SESSION_TOKENS` (Default 2 Mio.) +
+  `JARVIS_TOKENS_PER_WEBSITE` (2500) konfigurierbar.
+
+## G. `leads.db` (DB1) eliminiert — ein kanonischer Lead-Store
+- `db.py` + `scrapers/verifier.py` gelöscht. Scraper schreiben nur noch `db_raw`; Feed nutzt
+  die `raw_id`, Modal löst `raw_id → db_evaluated` auf. Dashboard-Zähler aus `db_raw`
+  (Funde/Quellen) + `db_evaluated` (Hot/Warm/Cold). Verifiziert per Integrationstest.
+
+## H. CloudSync-Fehler (HTTP 400 / 23502) behoben
+- Supabase: `raw_id` → **nullable** (war NOT NULL, blockierte Multi-PC-Leads); 145 leere
+  `lead_key` per `md5(lower(name)|lower(stadt))` nachgefüllt; **`UNIQUE(lead_key)`** ergänzt.
+- `cloud_sync.py`: Upsert mit **`?on_conflict=lead_key`** (echtes Update statt Doppel/Fehler);
+  `raw_id` aus dem Sync entfernt (lokale ID). Multi-PC-Sync ist jetzt sauber.
+
+## I. Start & Claude-Tab
+- **Bewertung startet nicht mehr beim Boot** — erst auf den Start-Button (`/api/start`).
+- Claude-Tab lädt sofort (Chat/Mic zuerst, Spline-3D verzögert + abgesichert).
+- **Mikrofon repariert**: Mic wird immer verdrahtet; Klartext-Hinweis bei unsicherem
+  Kontext (LAN-IP statt localhost). Voice-Backend (PyAV + faster-whisper) verifiziert.
+
+## J. Lokale Bildgenerierung + Datenqualität
+- SD-Turbo ergänzt (CPU-tauglich, ~7× schneller als SDXL). Mockup nutzt es ebenfalls.
+- **Datenqualitäts-Bug**: WebAnalyst akzeptierte DuckDuckGo/Bing-Werbe-Redirects
+  (`duckduckgo.com/y.js?ad_domain=…`) als „eigene Website" → ausgefiltert (+ Test).
+
+## K. .env-BOM-Fix
+- Mein PowerShell-Schreiben hatte ein UTF-8-BOM in die `.env` gesetzt → `ANTHROPIC_KEY`
+  wurde als `﻿ANTHROPIC_KEY` gelesen, Claude-Status rot. `.env` BOM-frei neu geschrieben.
+
+## L. Cross-PC / Setup
+- **`requests` in `requirements.txt`** ergänzt (agent_github/railway nutzen es; kam vorher
+  nur transitiv). Skill `shop-bauen` global unter `~/.claude/skills/`.
+- Verifiziert: 41 Module importieren, **24 Unit-Tests** grün, `smoke_audit.py` (alle
+  GET-Routen + Kernmodule) 41/41 grün, keine hartcodierten Pfade.
+
+## Neue/relevante .env-Variablen (alle optional, sauberes Degradieren)
+```
+GITHUB_TOKEN, GITHUB_USER, RAILWAY_TOKEN   # Webseiten-Deploy
+HIGGSFIELD_API_KEY                         # Cloud-Hero (Format KEY_ID:KEY_SECRET)
+JARVIS_SESSION_TOKENS=2000000              # Token-Budget der Session (Claude-Tab)
+JARVIS_TOKENS_PER_WEBSITE=2500             # Schätzung Tokens je Webseiten-Build
+JARVIS_HF_HERO_COST / JARVIS_HF_IMAGE_SIZE / JARVIS_HF_IMAGE_QUALITY
+JARVIS_SHOP_DIR                            # Zielordner gebauter Seiten (Default Desktop)
+```
+
+---
+
 ## 0. NEU — Lead → Webseite → live (automatischer Website-Builder)
 
 **Ziel:** Im Dashboard einen gefundenen Lead anklicken, „🌐 Webseite bauen" drücken — und

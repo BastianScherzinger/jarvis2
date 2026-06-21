@@ -67,10 +67,10 @@ ALLE_REGIONEN × BRANCHEN (~40.000 Combos)  →  gemischt, in 6 disjunkte Chunks
    └─ Worker ai_worker     (Ollama recherchiert via Websuche)
         │
         ▼ schreiben Roh-Leads in
-   ┌───────────────┐     ┌──────────────────────┐
-   │ db_raw.py     │     │ db.py (leads.db)     │  ← Legacy-DB, Scraper schreiben parallel rein;
-   │ leads_raw.db  │     │ "DB1"                │     der alte Verifier darauf ist DEAKTIVIERT
-   │ (Pending-Queue│     └──────────────────────┘     (JARVIS_VERIFIER_THREADS=0)
+   ┌───────────────┐
+   │ db_raw.py     │  "DB1" — Pending-Queue für den Evaluator. Der Feed nutzt die
+   │ leads_raw.db  │  raw_id als Lead-ID; das Modal löst raw_id → db_evaluated auf.
+   │ (Pending-Queue│  (Die alte leads.db/db.py + verifier.py wurden ENTFERNT.)
    │  für Evaluator│
    └───────┬───────┘
            │  claim_next_pending()  (atomar, status pending→running)
@@ -96,15 +96,18 @@ ALLE_REGIONEN × BRANCHEN (~40.000 Combos)  →  gemischt, in 6 disjunkte Chunks
 
 ### Kernkonzepte, die mehrere Dateien verbinden
 
-- **Drei DBs, klare Rollen:** `db.py` (`leads.db`) ist Scraper-Rohablage (Legacy, Verifier aus).
-  `db_raw.py` (`leads_raw.db`) ist die **Pending-Queue** für den Evaluator. `db_evaluated.py`
-  (`leads_evaluated.db`) ist die **finale Rangliste** und einzige Quelle fürs Frontend.
-  Alle drei: WAL-Modus, `check_same_thread=False`, modul-globaler `_lock`, `init_db()` mit
-  Spalten-Migration (`_NEW_COLUMNS` / `_VERIFY_COLUMNS`).
+- **Zwei DBs, klare Rollen** (die alte `leads.db`/`db.py` + `verifier.py` wurden ENTFERNT —
+  Konsolidierung 21.06.): `db_raw.py` (`leads_raw.db`) ist die **Pending-Queue** für den
+  Evaluator (Feed nutzt die `raw_id` als Lead-ID, Modal löst `raw_id → db_evaluated` auf).
+  `db_evaluated.py` (`leads_evaluated.db`) ist die **kanonische Rangliste** + einzige Quelle
+  fürs Frontend. Beide: WAL, `check_same_thread=False`, `_lock`, `busy_timeout`, `init_db()`
+  mit Spalten-Migration (`_NEW_COLUMNS`). Dashboard-Zähler: `db_raw` (Funde/Quellen) +
+  `db_evaluated` (Hot/Warm/Cold).
 
-- **Globaler Dedup-Key:** `lead_key = md5(lower(name)|lower(stadt))`. Definiert **doppelt** in
-  `db_evaluated._compute_lead_key` und `cloud_sync.make_lead_key` — beide müssen **identisch**
-  bleiben, sonst dedupliziert die Cloud falsch.
+- **Globaler Dedup-Key:** `lead_key = md5(lower(name)|lower(stadt))` — **EINE** Definition in
+  `leadkey.py`, importiert von `db_evaluated` + `cloud_sync`. Supabase hat `UNIQUE(lead_key)`,
+  der Upsert nutzt `?on_conflict=lead_key` (echtes Update statt Doppel). `raw_id` ist lokal und
+  wird NICHT in die Cloud gesynct.
 
 - **Ollama-Zugang zentralisiert** in `scrapers/_http.py`: `ask_ollama`, `best_chat_model`,
   `warmup_ollama`, `ollama_models`. Eine `Semaphore(2)` begrenzt parallele Ollama-Calls
@@ -118,15 +121,21 @@ ALLE_REGIONEN × BRANCHEN (~40.000 Combos)  →  gemischt, in 6 disjunkte Chunks
 
 - **Controller-Lebenszyklus:** `controller.start()` startet Scraper **und** Evaluator;
   `ensure_evaluator_running()` / `reevaluate_all()` starten den Evaluator auch **ohne** Scraper.
-  `app.py` startet beim Boot einen Auto-Evaluator, wenn `db_raw.get_pending_count() > 0`.
+  Die Bewertung startet **nicht mehr automatisch** beim Boot — erst über den Start-Button (`/api/start`).
 
 - **Medien-Generierung** (separater Strang): `media_queue.py` (Job-Queue) + `media_engine.py`
-  (Diffusers: SDXL/FLUX, Higgsfield-API) + `ad_prompts.py` (5er-Werbe-Asset-Set pro Lead).
+  (Diffusers **hardware-adaptiv**: GPU→SDXL/FLUX, CPU→SD-Turbo via `best_image_model`/
+  `hero_image_params`; Higgsfield-API für Bild+Video als Cloud-Fallback) + `ad_prompts.py`.
   Routes `/api/media/*`.
+
+- **Webseiten-Bau** (`website_builder.py`): Lead → Landing aus `vorlage_landing/` (Claude-Text +
+  Fotos + Hero-Banner) → `agent_github.py` (Repo+Push) → `agent_railway.py` (Projekt+Domain+Env).
+  Async-Job mit Schritt-Log; Routes `/api/lead/<id>/website` + `/api/website/job/<id>`.
+  Higgsfield-Cloud-Hero nur auf Rückfrage (`use_higgsfield`).
 
 ### Flask-API (`app.py`, Port 5000)
 
-- Steuerung: `/api/start`, `/api/stop`, `/api/status`, `/api/clear` (leert alle 3 DBs).
+- Steuerung: `/api/start`, `/api/stop`, `/api/status`, `/api/clear` (leert db_raw + db_evaluated).
 - Rangliste (DB2): `/api/evaluated/all` (Filter/Sort/Suche), `/api/evaluated/top`,
   `/api/evaluated/reeval`, `/api/export/csv` (Semikolon + BOM für deutsches Excel).
 - Live: `/api/stream` (SSE — Lead-/Stats-/Evaluated-Events, Keepalive alle 20s).
