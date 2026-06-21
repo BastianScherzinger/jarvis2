@@ -73,6 +73,7 @@ check("voice_web.status", lambda: __import__("voice_web").status())
 check("config.get_api_key", lambda: bool(__import__("config").get_api_key()))
 check("media_engine.get_status", lambda: __import__("media_engine").get_status())
 check("cloud_sync.make_lead_key", lambda: __import__("cloud_sync").make_lead_key("A", "B"))
+check("cloud_sync_websites.site_key", lambda: __import__("cloud_sync_websites").site_key("A", "B"))
 
 # agent_tools: Schema-Validität + ein DB-lesendes Tool
 def _tools():

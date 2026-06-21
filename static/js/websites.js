@@ -114,10 +114,12 @@ function _wsCard(w){
 
   // Bilder (für später) + Hinzufügen
   const ready = !!w.folder;
-  const thumbs = (w.images || []).map(fn =>
-    `<a class="ws-thumb" href="/api/websites/${w.id}/asset/${encodeURIComponent(fn)}" target="_blank" rel="noopener" title="${_wse(fn)}">
-       <img src="/api/websites/${w.id}/asset/${encodeURIComponent(fn)}" alt="${_wse(fn)}" loading="lazy">
-     </a>`).join('');
+  const thumbs = (w.images || []).map(fn => {
+    // Cloud-URL (http…) direkt anzeigen, lokalen Dateinamen über die Asset-Route.
+    const src = /^https?:\/\//i.test(fn) ? fn : `/api/websites/${w.id}/asset/${encodeURIComponent(fn)}`;
+    return `<a class="ws-thumb" href="${_wse(src)}" target="_blank" rel="noopener" title="${_wse(fn)}">
+       <img src="${_wse(src)}" alt="Bild" loading="lazy"></a>`;
+  }).join('');
   const addBtn = ready
     ? `<label class="ws-add" title="Bild zur Seite hinzufügen (für späteren Einsatz)">
          <input type="file" accept="image/*" hidden onchange="wsUploadImage(${w.id}, this)">

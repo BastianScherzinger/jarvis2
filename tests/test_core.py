@@ -384,3 +384,33 @@ def test_db_websites_kontakt_email(tmp_path, monkeypatch):
     dbw.create("job-mail2", name="Bar")
     dbw.create("job-mail2", name="Bar", kontakt_email="kontakt@bar.de")
     assert dbw.get_by_job("job-mail2")["kontakt_email"] == "kontakt@bar.de"
+
+
+# ── Cross-PC-Sync der Webseiten ───────────────────────────────────────────────
+def test_db_websites_site_key_und_upsert_remote(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    from leadkey import lead_key
+    wid = dbw.create("job-sk", name="Demo GmbH", stadt="Ulm")
+    sk = lead_key("Demo GmbH", "Ulm")
+    assert dbw.get(wid)["site_key"] == sk                  # create berechnet site_key
+    # Remote-Upsert einer NEUEN Seite → wird angelegt
+    dbw.upsert_remote({"site_key": "rk1", "name": "Remote AG", "stadt": "Köln",
+                       "live_url": "https://x.up.railway.app", "live": 1, "status": "done",
+                       "images": ["https://cdn/x.png"], "kontakt_email": "a@b.de"})
+    r = dbw.get_by_site_key("rk1")
+    assert r and r["live_url"].endswith("railway.app") and r["images"] == ["https://cdn/x.png"]
+    assert r["live"] == 1 and r["kontakt_email"] == "a@b.de"
+    # zweiter Upsert mit gleichem site_key → UPDATE, kein Duplikat
+    dbw.upsert_remote({"site_key": "rk1", "name": "Remote AG", "stadt": "Köln",
+                       "live_url": "https://neu.up.railway.app", "status": "done"})
+    assert len([w for w in dbw.get_all() if w["site_key"] == "rk1"]) == 1
+    assert dbw.get_by_site_key("rk1")["live_url"].startswith("https://neu")
+
+
+def test_cloud_sync_websites_helpers():
+    import cloud_sync_websites as cw
+    from leadkey import lead_key
+    assert cw.site_key("Müller GmbH", "Berlin") == lead_key("Müller GmbH", "Berlin")
+    rr = cw._remote_row({"name": "X", "stadt": "Y", "branche": "Z", "live_url": "u",
+                         "live": 1, "images": ["a"], "kontakt_email": "k@l.de"})
+    assert rr["site_key"] == lead_key("X", "Y") and rr["images"] == ["a"] and rr["live"] == 1

@@ -40,6 +40,11 @@ cloud_sync.start()
 # Startup-Pull: alle Supabase-Leads in lokalen Cache laden (andere PCs)
 _startup_t.Thread(target=cloud_sync.pull_and_cache, daemon=True).start()
 
+# Webseiten-Sync (Cross-PC): gebaute Seiten + Links + Bilder von allen PCs zeigen
+import cloud_sync_websites
+cloud_sync_websites.start()
+_startup_t.Thread(target=cloud_sync_websites.pull_into_db, daemon=True).start()
+
 # Whisper-Modell für die Spracheingabe im Hintergrund vorladen (lädt es beim
 # ersten Start automatisch herunter — blockiert den Dashboard-Start nicht).
 def _warmup_voice():
@@ -280,7 +285,24 @@ def api_website_add_image(wid):
                 ziel, safe = cand, cand.name
                 break
     f.save(str(ziel))
-    updated = db_websites.add_image(wid, safe)
+    # In Supabase-Storage laden → öffentliche URL (cross-PC sichtbar); sonst lokaler Name.
+    bild_ref = safe
+    try:
+        import cloud_sync_websites
+        url = cloud_sync_websites.upload_image(
+            row.get("name", ""), row.get("stadt", ""), safe,
+            ziel.read_bytes(), f.mimetype or "image/png")
+        if url:
+            bild_ref = url
+    except Exception:
+        pass
+    updated = db_websites.add_image(wid, bild_ref)
+    try:
+        import cloud_sync_websites
+        if updated:
+            cloud_sync_websites.push(updated)
+    except Exception:
+        pass
     return jsonify({"ok": True, "website": updated})
 
 
@@ -329,7 +351,12 @@ def api_website_delete(wid):
             except Exception as e:
                 report.append(f"Railway-Fehler: {type(e).__name__}")
 
-    # 3) DB-Eintrag entfernen (immer)
+    # 3) Cloud-Eintrag entfernen (Cross-PC) + lokalen DB-Eintrag (immer)
+    try:
+        import cloud_sync_websites
+        cloud_sync_websites.delete_remote(row.get("name", ""), row.get("stadt", ""))
+    except Exception:
+        pass
     db_websites.delete(wid)
     report.append("Eintrag entfernt")
     return jsonify({"ok": True, "report": report})

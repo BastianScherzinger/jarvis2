@@ -94,6 +94,18 @@ def _persist(job_id: str) -> None:
         pass
 
 
+def _sync_push(job_id: str) -> None:
+    """Pusht die fertige Webseiten-Zeile nach Supabase (Cross-PC). Best-effort."""
+    try:
+        import cloud_sync_websites
+        import db_websites
+        row = db_websites.get_by_job(job_id)
+        if row:
+            cloud_sync_websites.push(row)
+    except Exception:
+        pass
+
+
 def build(lead: dict, use_higgsfield: bool = False) -> str:
     """Startet einen Bau-Job für einen Lead. Gibt die job_id zurück.
 
@@ -619,6 +631,7 @@ def _run(job_id: str) -> None:
             final_step = f"Lokal gebaut: {target}"
         _set(job_id, status="done", content_preview=content.get("headline", ""))
         _step(job_id, 100, final_step)
+        _sync_push(job_id)
     except Exception as e:
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
@@ -701,6 +714,7 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
             final = f"Deploy nicht möglich: {str(dep['railway_note'])[:160]}"
         _set(job_id, status="done")
         _step(job_id, 100, final)
+        _sync_push(job_id)
     except Exception as e:
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
@@ -827,6 +841,7 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
             final = "Verbessert (lokal). Deploy nicht möglich: " + str(dep.get("railway_note", ""))[:140]
         _set(job_id, status="done")
         _step(job_id, 100, final)
+        _sync_push(job_id)
     except Exception as e:
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")

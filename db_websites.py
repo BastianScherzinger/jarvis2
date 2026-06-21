@@ -21,8 +21,18 @@ _lock   = threading.Lock()
 # 'live' = 1 NUR wenn die Seite verifiziert erreichbar ist (echter Deploy-Status).
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
-    "kontakt_email",
+    "kontakt_email", "site_key",
 }
+
+
+def _site_key(name: str, stadt: str) -> str:
+    """Cross-PC-Schlüssel je Webseite (= Lead-Key aus name|stadt)."""
+    try:
+        from leadkey import lead_key
+        return lead_key(name or "", stadt or "")
+    except Exception:
+        import hashlib
+        return hashlib.md5(f"{(name or '').lower()}|{(stadt or '').lower()}".encode()).hexdigest()
 
 
 def _conn() -> sqlite3.Connection:
@@ -74,6 +84,7 @@ def init_db() -> None:
             log           TEXT,
             live          INTEGER DEFAULT 0,
             kontakt_email TEXT,
+            site_key      TEXT,
             created       REAL,
             updated       REAL
         )
@@ -87,6 +98,13 @@ def init_db() -> None:
             c.execute("UPDATE websites SET live=1 WHERE live_url IS NOT NULL AND live_url != ''")
         if "kontakt_email" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN kontakt_email TEXT")
+        if "site_key" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN site_key TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_websites_sitekey ON websites(site_key)")
+        # Bestehende Zeilen ohne site_key nachfüllen (für Cross-PC-Dedup).
+        for r in c.execute("SELECT id, name, stadt FROM websites WHERE site_key IS NULL OR site_key=''").fetchall():
+            c.execute("UPDATE websites SET site_key=? WHERE id=?",
+                      (_site_key(r["name"], r["stadt"]), r["id"]))
         c.commit()
 
 
@@ -112,9 +130,10 @@ def create(job_id: str, name: str, stadt: str = "", branche: str = "",
         cur = c.execute(
             "INSERT INTO websites "
             "(job_id, lead_id, name, stadt, branche, status, progress, step, "
-            " folder, repo_url, live_url, error, images, log, kontakt_email, created, updated) "
-            "VALUES (?, ?, ?, ?, ?, 'queued', 0, '', '', '', '', '', '[]', '[]', ?, ?, ?)",
-            (job_id, lead_id, name, stadt, branche, kontakt_email, now, now),
+            " folder, repo_url, live_url, error, images, log, kontakt_email, site_key, created, updated) "
+            "VALUES (?, ?, ?, ?, ?, 'queued', 0, '', '', '', '', '', '[]', '[]', ?, ?, ?, ?)",
+            (job_id, lead_id, name, stadt, branche, kontakt_email,
+             _site_key(name, stadt), now, now),
         )
         c.commit()
         return int(cur.lastrowid)
@@ -165,6 +184,44 @@ def get_by_folder(folder: str) -> "dict | None":
     with _lock, _conn() as c:
         row = c.execute("SELECT * FROM websites WHERE folder=? ORDER BY created DESC LIMIT 1",
                         (folder,)).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def upsert_remote(fields: dict) -> None:
+    """Schreibt eine aus der Cloud gezogene Webseite in die lokale DB (Dedup über
+    site_key). Vorhandene lokale Zeile (z.B. der bauende PC) wird aktualisiert,
+    ihr lokaler 'folder' bleibt erhalten."""
+    sk = (fields.get("site_key") or "").strip()
+    if not sk:
+        return
+    cols = ["name", "stadt", "branche", "repo_url", "live_url", "status", "step", "kontakt_email"]
+    images = json.dumps(fields.get("images") or [], ensure_ascii=False)
+    live = int(fields.get("live") or 0)
+    now = time.time()
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM websites WHERE site_key=?", (sk,)).fetchone()
+        if row:
+            sets = ", ".join(f"{k}=?" for k in cols) + ", live=?, images=?, updated=?"
+            params = [fields.get(k) for k in cols] + [live, images, now, sk]
+            c.execute(f"UPDATE websites SET {sets} WHERE site_key=?", params)
+        else:
+            jid = "remote-" + sk[:16]
+            c.execute(
+                "INSERT INTO websites "
+                "(job_id, site_key, name, stadt, branche, status, progress, step, folder, "
+                " repo_url, live_url, live, error, images, log, kontakt_email, created, updated) "
+                "VALUES (?, ?, ?, ?, ?, ?, 100, ?, '', ?, ?, ?, '', ?, '[]', ?, ?, ?)",
+                (jid, sk, fields.get("name"), fields.get("stadt"), fields.get("branche"),
+                 fields.get("status") or "done", fields.get("step") or "",
+                 fields.get("repo_url") or "", fields.get("live_url") or "", live,
+                 images, fields.get("kontakt_email") or "", now, now))
+        c.commit()
+
+
+def get_by_site_key(sk: str) -> "dict | None":
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM websites WHERE site_key=? ORDER BY created DESC LIMIT 1",
+                        (sk,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
