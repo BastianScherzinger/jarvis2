@@ -1350,6 +1350,14 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 .claude-stage-sub::before{content:'● ';font-size:9px}
 .claude-stage-sub.off{color:var(--r)}
 
+/* Token-Budget der Session */
+.claude-usage{margin-top:7px;width:180px;max-width:62vw;margin-inline:auto}
+.cu-bar{height:4px;border-radius:4px;background:var(--bg3);border:1px solid var(--bdr2);overflow:hidden}
+.cu-fill{height:100%;background:linear-gradient(90deg,var(--g),var(--c));transition:width .5s ease-out}
+.cu-fill.low{background:linear-gradient(90deg,#ffb020,var(--r))}
+.cu-txt{font-family:var(--fm);font-size:9px;color:var(--tx2);margin-top:3px;letter-spacing:.03em;line-height:1.4}
+.cu-txt b{color:var(--g)}
+
 /* ── Chat-Verlauf ─────────────────────────────────────────────────────── */
 .claude-chat{
   flex:1 1 auto;min-height:0;            /* min-height:0 → schrumpft korrekt, Composer bleibt sichtbar */

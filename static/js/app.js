@@ -680,6 +680,7 @@ function _pollWebsite(jobId, out, btn, ghReady, rwReady){
       if(job.repo_url) html += `<a class="m-web-link sub" href="${_e(job.repo_url)}" target="_blank">GitHub-Repo ↗</a>`;
       if(job.folder)   html += `<div class="m-web-folder">Ordner: ${_e(job.folder)}</div>`;
       out.innerHTML = html + hint;
+      if(typeof _claudeRefreshUsage === 'function') _claudeRefreshUsage();   // Token-Anzeige nachziehen
     }else if(job.status === 'error'){
       clearInterval(iv);
       btn.disabled = false;

@@ -356,9 +356,11 @@ def api_voice_speak():
 
 @app.route("/api/claude/status")
 def api_claude_status():
-    """Ist der Claude-Chat einsatzbereit (API-Key vorhanden)?"""
+    """Ist der Claude-Chat einsatzbereit (API-Key vorhanden)? + Token-Budget der Session."""
     import claude_chat
-    return jsonify({"ready": claude_chat.is_ready(), "model": claude_chat.MODEL})
+    import metrics
+    return jsonify({"ready": claude_chat.is_ready(), "model": claude_chat.MODEL,
+                    "usage": metrics.budget_status()})
 
 
 @app.route("/api/metrics")

@@ -21,13 +21,8 @@ function initClaude(){
   // vom schweren 3D-Roboter (und der Mic wird IMMER verdrahtet, selbst wenn Spline fehlschlägt).
   _claudeWire();
 
-  // Bereitschaft (API-Key vorhanden?)
-  fetch('/api/claude/status').then(r=>r.json()).then(d=>{
-    const el = document.getElementById('claude-status');
-    if(!el) return;
-    el.textContent = d.ready ? ('Online · ' + (d.model||'claude')) : 'API-Key fehlt (.env)';
-    el.classList.toggle('off', !d.ready);
-  }).catch(()=>{});
+  // Bereitschaft (API-Key vorhanden?) + Token-Budget
+  _claudeRefreshUsage();
 
   // 3D-Roboter ERST DANACH und verzögert laden (mehrere MB von der Spline-CDN) —
   // blockiert den Chat nie und ein Lade-Fehler kann den Tab nicht lahmlegen.
@@ -49,6 +44,40 @@ function _claudeLoadRobot(){
   };
   if('requestIdleCallback' in window) requestIdleCallback(run, {timeout:1500});
   else setTimeout(run, 300);
+}
+
+// ── Token-Budget der Session (Claude-Tab) ─────────────────────────────────────
+function _claudeFmtNum(n){
+  n = Number(n) || 0;
+  if(n >= 1e6) return (n/1e6).toFixed(n % 1e6 ? 1 : 0) + 'M';
+  if(n >= 1e3) return (n/1e3).toFixed(n % 1e3 ? 1 : 0) + 'k';
+  return String(Math.round(n));
+}
+
+function _claudeRenderUsage(u){
+  const el = document.getElementById('claude-usage');
+  if(!el || !u) return;
+  const pct = Math.min(100, Number(u.pct_used) || 0);
+  const low = (u.websites_remaining || 0) <= 3;
+  el.innerHTML =
+    `<div class="cu-bar"><div class="cu-fill${low?' low':''}" style="width:${pct}%"></div></div>`
+    + `<div class="cu-txt">${_claudeFmtNum(u.used)} / ${_claudeFmtNum(u.budget)} Tokens`
+    + ` · reicht für <b>~${u.websites_remaining}</b> Webseiten</div>`;
+  el.title = `Session seit Start: ${u.requests} Anfragen · ~$${u.cost_usd} `
+    + `· ${_claudeFmtNum(u.remaining)} Tokens übrig · ~${u.per_website} Tokens je Webseite. `
+    + `Budget anpassbar via JARVIS_SESSION_TOKENS in der .env.`;
+}
+
+// Holt Bereitschaft + Token-Budget und aktualisiert die Anzeige.
+function _claudeRefreshUsage(){
+  fetch('/api/claude/status').then(r=>r.json()).then(d=>{
+    const el = document.getElementById('claude-status');
+    if(el){
+      el.textContent = d.ready ? ('Online · ' + (d.model||'claude')) : 'API-Key fehlt (.env)';
+      el.classList.toggle('off', !d.ready);
+    }
+    if(d.usage) _claudeRenderUsage(d.usage);
+  }).catch(()=>{});
 }
 
 // Spline-„Made with Spline"-Logo aus dem Shadow-DOM entfernen
@@ -461,6 +490,7 @@ async function claudeSend(){
   if(hadToken && acc.trim()) _claudeHistory.push({role:'assistant', content:acc});
   if(_claudeHistory.length > 40) _claudeHistory = _claudeHistory.slice(-40);  // Speicher/Kosten begrenzen
   _claudeBusy = false; _claudeSetBusy(false); _claudeScroll();
+  _claudeRefreshUsage();   // Token-Verbrauch nach jeder Antwort aktualisieren
   if(hadToken && !hadError && _claudeSpeakOn) await _claudeSpeak(acc);   // Fehlertexte nicht vorlesen
 }
 
