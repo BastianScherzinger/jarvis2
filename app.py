@@ -406,6 +406,10 @@ def api_website_offer_email(wid):
            "reason": res.get("fehler", ""), "to": to}
     if res.get("status") == "deaktiviert":
         out["hinweis"] = "Versand aus: setze JARVIS_EMAIL_ENABLED=true in der .env."
+    elif "Auth" in str(res.get("fehler", "")):
+        out["hinweis"] = ("Gmail lehnt die Anmeldung ab. Neues App-Passwort erstellen "
+                          "(2-Schritt-Verifizierung muss an sein): myaccount.google.com → "
+                          "Sicherheit → App-Passwörter → in .env als SMTP_PASS eintragen.")
     return jsonify(out)
 
 

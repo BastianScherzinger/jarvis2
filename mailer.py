@@ -61,6 +61,7 @@ def status() -> dict:
         "configured": is_configured(),
         "rate":       int(os.environ.get("JARVIS_EMAIL_RATE", "20") or 20),
         "from":       os.environ.get("SMTP_FROM", ""),
+        "redirect":   os.environ.get("JARVIS_EMAIL_REDIRECT", "").strip(),
     }
 
 
@@ -70,6 +71,15 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None) -> 
     Kein echter Versand, wenn JARVIS_EMAIL_ENABLED != true (Trockenlauf).
     """
     to = (to or "").strip()
+    # SICHERHEITS-UMLEITUNG (Testmodus): ist JARVIS_EMAIL_REDIRECT gesetzt, geht
+    # JEDE Mail an diese Adresse — egal an wen sie eigentlich gerichtet war. So
+    # landet im Testbetrieb nichts versehentlich bei echten Betrieben. Den
+    # Original-Empfänger vermerken wir im Betreff. Später leeren = echter Versand.
+    redirect = os.environ.get("JARVIS_EMAIL_REDIRECT", "").strip()
+    if redirect and "@" in redirect:
+        if to and to.lower() != redirect.lower():
+            betreff = f"[Test → {to}] {betreff or ''}"
+        to = redirect
     if "@" not in to:
         return {"ok": False, "status": "fehler", "fehler": "keine gültige Empfänger-Adresse"}
     if not is_enabled():
