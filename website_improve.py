@@ -105,7 +105,7 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
                  f"- Adresse: {content.get('adresse', '')}")
 
     # 1/5 — Stratege --------------------------------------------------------
-    say(15, "Agent 1/5 · Stratege: Positionierung & Tonalität…")
+    say(12, "Pass 1/7 · Stratege: Positionierung & Tonalität…")
     strat = _claude_json(
         "Du bist Marken-Stratege für lokale Handwerks-/Dienstleistungsbetriebe. "
         "Antworte NUR mit JSON.",
@@ -115,7 +115,7 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     akzent = strat.get("akzent") if re.fullmatch(r"#[0-9a-fA-F]{6}", str(strat.get("akzent", ""))) else base.get("akzent", "#c8102e")
 
     # 2/5 — Texter ----------------------------------------------------------
-    say(32, "Agent 2/5 · Texter: erweiterte, lead-genaue Texte…")
+    say(22, "Pass 2/7 · Texter: erweiterte, lead-genaue Inhalte…")
     texte = _claude_json(
         "Du bist Senior-Werbetexter (design-pro). Konkret, deutsch, vertrauenswürdig, "
         "kein KI-Geschwurbel, keine leeren Floskeln. Antworte NUR mit JSON.",
@@ -155,57 +155,145 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     content.setdefault("claim", strat.get("claim", ""))
     _write_content(folder, content)
 
-    # 3/5 — Bildregie -------------------------------------------------------
-    say(52, "Agent 3/5 · Bildregie: Referenzbilder generieren…")
-    _generate_reference_images(folder, branche, content, say)
+    # 3/7 — UI-UX-Pro-Max: Conversion, Hierarchie, Vertrauen ----------------
+    say(30, "Pass 3/7 · UI-UX-Pro-Max: Conversion & Hierarchie schärfen…")
+    content = _ux_pass(content, lead_info)
     _write_content(folder, content)
 
-    # 4/5 — Designer (Premium-Template + CSS) ------------------------------
-    say(74, "Agent 4/5 · Designer: Premium-Layout & -Design…")
+    # 4/7 — Bildregie: 5 Bilder lokal nacheinander -------------------------
+    say(42, "Pass 4/7 · Bildregie: 5 Bilder lokal generieren (dauert)…")
+    _generate_images(folder, branche, content, say)
+    _write_content(folder, content)
+
+    # 5/7 — Design-Pro: Premium-Layout + Effekte/Animationen ---------------
+    say(80, "Pass 5/7 · Design-Pro: Premium-Layout, Effekte & Animationen…")
     _install_premium_template(folder)
 
-    # 5/5 — QA --------------------------------------------------------------
-    say(88, "Agent 5/5 · QA: Konsistenz, SEO, Vollständigkeit…")
+    # 6/7 — Taste: Feinschliff & Microcopy ---------------------------------
+    say(88, "Pass 6/7 · Taste: Microcopy & Feinschliff…")
+    content = _polish_pass(content)
+    _write_content(folder, content)
+
+    # 7/7 — QA: Bugs, Konsistenz, Vollständigkeit --------------------------
+    say(94, "Pass 7/7 · QA: Bugs, Konsistenz & Vollständigkeit prüfen…")
+    content = _qa_pass(content, name, branche, stadt, base)
+    _write_content(folder, content)
+    say(97, "Verbesserung fertig — bereit zum Deploy.")
+    return content
+
+
+def _ux_pass(content: dict, lead_info: str) -> dict:
+    """ui-ux-pro-max: Conversion, Klarheit, Hierarchie & Vertrauen schärfen."""
+    data = _claude_json(
+        "Du bist UI/UX- & Conversion-Experte (ui-ux-pro-max). Du schärfst die INHALTE einer "
+        "Landing-Page für maximale Klarheit & Conversion: in 5 Sek. muss klar sein WAS, WOZU, "
+        "WAS TUN. Starke konkrete Headline (Nutzen sofort), überzeugende Subline, EIN klarer "
+        "handlungsstarker CTA, Vertrauenssignale. Kein Geschwurbel. Antworte NUR mit JSON.",
+        f"Betrieb:\n{lead_info}\n\nAktuelle Inhalte:\n{json.dumps(content, ensure_ascii=False)}\n\n"
+        "Gib JSON NUR mit den verbesserten Feldern: "
+        '{"headline":"…","subline":"…","cta_text":"…","kontakt_text":"…","usps":["…","…","…"]}',
+        max_tokens=1200) or {}
+    for k in ("headline", "subline", "cta_text", "kontakt_text"):
+        if isinstance(data.get(k), str) and data[k].strip():
+            content[k] = data[k].strip()
+    if isinstance(data.get("usps"), list) and data["usps"]:
+        content["usps"] = [str(u).strip() for u in data["usps"][:4] if str(u).strip()]
+    return content
+
+
+def _polish_pass(content: dict) -> dict:
+    """taste: ruhiger, hochwertiger Ton; jede Zeile verdient ihren Platz."""
+    data = _claude_json(
+        "Du bist Texter mit exzellentem Geschmack (taste). Politur: konsistenter, ruhiger, "
+        "hochwertiger Ton, keine Übertreibung, nichts Überflüssiges. Verbessere subtil "
+        "headline/subline/ueber_text und die Leistungstexte. Antworte NUR mit JSON.",
+        f"Inhalte:\n{json.dumps(content, ensure_ascii=False)}\n\nGib JSON: "
+        '{"headline":"…","subline":"…","ueber_text":"…","leistungen":[{"titel":"…","text":"…"}]}',
+        max_tokens=1700) or {}
+    for k in ("headline", "subline", "ueber_text"):
+        if isinstance(data.get(k), str) and data[k].strip():
+            content[k] = data[k].strip()
+    if isinstance(data.get("leistungen"), list) and data["leistungen"]:
+        clean = [{"titel": str(x.get("titel", "")).strip(), "text": str(x.get("text", "")).strip()}
+                 for x in data["leistungen"][:6] if isinstance(x, dict) and x.get("titel")]
+        if clean:
+            content["leistungen"] = clean
+    return content
+
+
+def _qa_pass(content: dict, name: str, branche: str, stadt: str, base: dict) -> dict:
+    """QA: Lücken/Inkonsistenzen/abgeschnittene Felder/SEO prüfen + fixen."""
+    data = _claude_json(
+        "Du bist Senior-QA für Landing-Pages. Prüfe die content.json auf Lücken, "
+        "Inkonsistenzen, abgeschnittene oder leere Felder und fehlende SEO. Korrigiere sie. "
+        "Gib das VOLLSTÄNDIGE, korrigierte content.json zurück (alle Felder behalten). "
+        "Antworte NUR mit JSON: {\"content\":{…}}.",
+        f"content.json:\n{json.dumps(content, ensure_ascii=False)}", max_tokens=2800) or {}
+    neu = data.get("content")
+    if isinstance(neu, dict) and neu.get("site_name"):
+        content = neu
+    content.setdefault("site_name", name)
     content.setdefault("jahr", base.get("jahr") or 2026)
     if not content.get("seo_title"):
         content["seo_title"] = f"{name}" + (f" — {branche} {stadt}" if stadt else "")
     if not content.get("seo_desc"):
-        content["seo_desc"] = f"{branche} aus {stadt}. Jetzt anfragen." if stadt else f"{branche}. Jetzt anfragen."
-    _write_content(folder, content)
-    say(95, "Verbesserung fertig — bereit zum Deploy.")
+        content["seo_desc"] = (f"{branche} aus {stadt}. Jetzt anfragen." if stadt
+                               else f"{branche}. Jetzt anfragen.")
     return content
 
 
-def _generate_reference_images(folder: Path, branche: str, content: dict, say) -> None:
-    """Erzeugt Hero- + Über-uns-Referenzbild lokal (best-effort, mit Zeitlimit)."""
+def _generate_images(folder: Path, branche: str, content: dict, say) -> None:
+    """Erzeugt 5 Bilder LOKAL nacheinander: Über-uns + 3 Referenz/Galerie + 1 Hero
+    (zuletzt, bleibt 'hero.png'). Best-effort, jedes mit Zeitlimit — der Build hängt nie."""
     try:
         import media_engine
         if not media_engine.get_status().get("diffusers_ok"):
+            say(78, "Bildgenerierung übersprungen (Diffusers nicht installiert).")
             return
         import website_builder
         img_dir = folder / "static" / "img"
-        jobs = [
-            ("hero.png", "hero_image",
-             f"professional wide hero banner photograph for a German {branche} business, "
-             "modern, clean, bright daylight, high quality, no text, no logo"),
-            ("ueber.png", "about_image",
-             f"authentic photo of a German {branche} team at work, friendly, professional, "
-             "natural light, high quality, no text, no logo"),
-        ]
+        img_dir.mkdir(parents=True, exist_ok=True)
+        timeout = getattr(website_builder, "_HERO_TIMEOUT", 180)
         hp = media_engine.hero_image_params()
-        for fn, field, prompt in jobs:
-            target = img_dir / fn
-            ok = website_builder._generate_hero_local_timed(
-                media_engine, prompt, img_dir, {**hp}, getattr(website_builder, "_HERO_TIMEOUT", 180))
-            # generate_hero_local_timed schreibt immer 'hero.png' → ggf. umbenennen
+        # Hero ZULETZT (generate_hero_local_timed schreibt immer hero.png).
+        specs = [
+            ("ueber.png", "about",
+             f"authentic editorial photo of a friendly German {branche} team at work, warm "
+             "natural light, professional, trustworthy, ultra detailed, high quality, no text, no logo"),
+            ("ref1.png", "gal",
+             f"close-up detail photograph of high-quality {branche} craftsmanship, sharp focus, "
+             "premium, natural light, high quality, no text, no logo"),
+            ("ref2.png", "gal",
+             f"modern clean {branche} workplace or finished result, bright, professional editorial "
+             "photograph, high quality, no text, no logo"),
+            ("ref3.png", "gal",
+             f"happy satisfied German customer after {branche} service, candid, warm light, "
+             "high quality, no text, no logo"),
+            ("hero.png", "hero",
+             f"cinematic wide hero banner photograph of a premium German {branche} business, modern, "
+             "dramatic natural light, ultra detailed, high quality, no text, no logo, no watermark"),
+        ]
+        fotos = []
+        for i, (fn, role, prompt) in enumerate(specs, 1):
+            say(42 + int(i / len(specs) * 34), f"Bild {i}/5 wird generiert ({role})…")
+            ok = website_builder._generate_hero_local_timed(media_engine, prompt, img_dir, {**hp}, timeout)
             src = img_dir / "hero.png"
             if ok and fn != "hero.png" and src.exists():
                 try:
-                    src.replace(target)
+                    src.replace(img_dir / fn)
                 except Exception:
                     pass
             if (img_dir / fn).exists():
-                content[field] = f"/static/img/{fn}"
+                path = f"/static/img/{fn}"
+                if role == "hero":
+                    content["hero_image"] = path
+                elif role == "about":
+                    content["about_image"] = path
+                else:
+                    fotos.append(path)
+        if fotos:
+            content["fotos"] = fotos
+        say(78, f"{(1 if content.get('hero_image') else 0) + (1 if content.get('about_image') else 0) + len(fotos)} Bilder eingebaut.")
     except Exception:
         pass
 
@@ -370,7 +458,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
 
     <!-- LEISTUNGEN -->
     {% if c.leistungen %}
-    <section id="leistungen" class="section">
+    <section id="leistungen" class="section reveal">
       <div class="wrap">
         <h2 class="section-t">Was wir für Sie tun</h2>
         <div class="grid">
@@ -387,7 +475,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
     {% endif %}
 
     <!-- ÜBER (mit Bild) -->
-    <section id="ueber" class="section section-tint">
+    <section id="ueber" class="section section-tint reveal">
       <div class="wrap about">
         <div class="about-copy">
           <h2 class="section-t">{{ c.ueber_titel }}</h2>
@@ -404,7 +492,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
 
     <!-- GALERIE -->
     {% if c.fotos|length > 1 %}
-    <section class="section">
+    <section class="section reveal">
       <div class="wrap">
         <h2 class="section-t">Einblicke</h2>
         <div class="gallery">
@@ -416,7 +504,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
 
     <!-- FAQ -->
     {% if c.faq %}
-    <section id="faq" class="section">
+    <section id="faq" class="section reveal">
       <div class="wrap wrap-narrow">
         <h2 class="section-t">Häufige Fragen</h2>
         <div class="faq">
@@ -429,7 +517,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
     {% endif %}
 
     <!-- KONTAKT -->
-    <section id="kontakt" class="section cta">
+    <section id="kontakt" class="section cta reveal">
       <div class="wrap cta-in">
         <h2>{{ c.cta_text }}</h2>
         <p>{{ c.kontakt_text|default:"Wir melden uns kurzfristig zurück — versprochen." }}</p>
@@ -448,6 +536,15 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
       <span class="foot-sub">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
     </div>
   </footer>
+  <script>
+  (function(){
+    var rm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var els = document.querySelectorAll('.reveal');
+    if(rm || !('IntersectionObserver' in window)){ els.forEach(function(e){e.classList.add('in');}); return; }
+    var io = new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } }); }, {threshold:0.12, rootMargin:'0px 0px -8% 0px'});
+    els.forEach(function(e){ io.observe(e); });
+  })();
+  </script>
 </body>
 </html>
 """
@@ -543,6 +640,30 @@ h1{font-size:clamp(38px,6vw,62px);font-weight:700}
 /* Footer */
 .foot{border-top:1px solid var(--line);padding:28px 0}
 .foot-in{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;color:var(--ink2);font-size:14px}
+
+/* Effekte & Animationen (taste) */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal.in .card{animation:rise .7s both} .reveal.in .card:nth-child(2){animation-delay:.07s} .reveal.in .card:nth-child(3){animation-delay:.14s} .reveal.in .card:nth-child(4){animation-delay:.21s} .reveal.in .card:nth-child(5){animation-delay:.28s} .reveal.in .card:nth-child(6){animation-delay:.35s}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+.hero-copy>*{animation:heroIn .8s both}
+.hero-copy h1{animation-delay:.08s}.hero-copy .lead{animation-delay:.18s}.hero-copy .hero-cta{animation-delay:.28s}
+@keyframes heroIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.nav-links a{position:relative}
+.nav-links a::after{content:"";position:absolute;left:0;right:100%;bottom:-4px;height:2px;background:var(--accent);transition:right .25s ease}
+.nav-links a:hover::after{right:0}
+.about-img img,.g-item img{transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+.about-img:hover img,.g-item:hover img{transform:scale(1.05)}
+.g-item{overflow:hidden;border-radius:12px}
+.btn{position:relative;overflow:hidden}
+.btn::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,.28),transparent);transform:translateX(-120%);transition:transform .6s}
+.btn:hover::after{transform:translateX(120%)}
+.usp-dot{box-shadow:0 0 0 0 var(--accent);animation:uspPulse 2.4s ease-in-out infinite}
+@keyframes uspPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+@media(prefers-reduced-motion:reduce){
+  .reveal,.reveal.in .card,.hero-copy>*{opacity:1!important;transform:none!important;animation:none!important}
+  .btn::after,.usp-dot{animation:none}
+}
 
 @media(max-width:760px){
   .about{grid-template-columns:1fr;gap:28px}
