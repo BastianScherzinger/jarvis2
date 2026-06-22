@@ -421,6 +421,31 @@ def test_locations_aggregiert(monkeypatch, tmp_path):
     assert ulm and ulm["n"] == 3 and ulm["warm"] == 2 and ulm["hot"] == 1
 
 
+def test_offer_mail_build():
+    import offer_mail
+    betreff, text, html = offer_mail.build("Müller GmbH", "https://x.up.railway.app", "Dachdecker", "Köln")
+    assert "Müller GmbH" in betreff and "350" in betreff
+    assert "350" in text and "350" in html
+    assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
+
+
+def test_auto_builder_pick_next_lead(monkeypatch):
+    import db_evaluated, db_websites, auto_builder
+    from leadkey import lead_key
+    leads = [
+        {"name": "MitWeb GmbH", "stadt": "Ulm", "has_website": 1, "erwartungswert_euro": 9000},
+        {"name": "OhneWeb GmbH", "stadt": "Köln", "has_website": 0, "erwartungswert_euro": 5000},
+    ]
+    monkeypatch.setattr(db_evaluated, "get_all", lambda **k: leads)
+    monkeypatch.setattr(db_websites, "get_all", lambda: [])
+    # Lead MIT Website wird übersprungen → der ohne Website wird gewählt
+    assert auto_builder._pick_next_lead()["name"] == "OhneWeb GmbH"
+    # schon gebaut (site_key in db_websites) → übersprungen → None
+    monkeypatch.setattr(db_websites, "get_all",
+                        lambda: [{"site_key": lead_key("OhneWeb GmbH", "Köln")}])
+    assert auto_builder._pick_next_lead() is None
+
+
 def test_cloud_sync_websites_helpers():
     import cloud_sync_websites as cw
     from leadkey import lead_key

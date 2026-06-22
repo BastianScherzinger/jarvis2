@@ -728,6 +728,39 @@ function clearFeed(){
 
 function exportCSV(){ window.location.href='/api/export/csv'; }
 
+// ── Auto-Website-Builder ────────────────────────────────────────────────────
+let _autoOn = false, _autoTimer = null;
+async function toggleAutoBuild(){
+  if(!_autoOn){
+    const ok = confirm('Auto-Website-Builder starten?\n\n'
+      + 'Er sucht automatisch die besten Leads OHNE Website, baut + deployt eine Seite, '
+      + 'verbessert sie und schickt jedes Mal eine E-Mail an Bastian. '
+      + 'Läuft im Hintergrund, bis du stoppst.');
+    if(!ok) return;
+    try{ await fetch('/api/auto-build/start', {method:'POST'}); }catch{}
+  }else{
+    try{ await fetch('/api/auto-build/stop', {method:'POST'}); }catch{}
+  }
+  _autoPoll();
+}
+async function _autoPoll(){
+  let s;
+  try{ s = await(await fetch('/api/auto-build/status')).json(); }catch{ return; }
+  _autoOn = !!s.running;
+  const btn = document.getElementById('auto-btn'), lbl = document.getElementById('auto-lbl');
+  if(btn){
+    btn.classList.toggle('on', _autoOn);
+    if(_autoOn){
+      const txt = s.current ? `${s.current} — ${s.phase||''}` : (s.phase||'läuft…');
+      lbl.textContent = txt.length > 38 ? txt.slice(0,37)+'…' : txt;
+    }else{
+      lbl.textContent = s.done ? `Auto-Builder · ${s.done} gebaut` : 'Auto-Builder';
+    }
+  }
+  clearTimeout(_autoTimer);
+  if(_autoOn) _autoTimer = setTimeout(_autoPoll, 3000);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async()=>{
   try{
@@ -740,6 +773,7 @@ function exportCSV(){ window.location.href='/api/export/csv'; }
   loadMediaModels();
   setInterval(loadTop, 30000);
   _initPageFromHash();
+  _autoPoll();
 })();
 
 // ════════════════════════════════════════════════════════════════════════════

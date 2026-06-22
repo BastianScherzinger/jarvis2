@@ -99,6 +99,23 @@ body::after{
 }
 .export-btn:hover{border-color:var(--c);color:var(--c)}
 
+/* Auto-Website-Builder-Button */
+.auto-btn{
+  padding:7px 14px;border-radius:8px;max-width:280px;
+  background:rgba(155,93,229,.12);border:1px solid rgba(155,93,229,.45);
+  color:var(--pu);font-family:var(--fh);font-size:10px;letter-spacing:.08em;
+  cursor:pointer;transition:all .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:inline-flex;align-items:center;
+}
+.auto-btn:hover{background:rgba(155,93,229,.22);box-shadow:0 0 14px rgba(155,93,229,.25)}
+.auto-btn.on{
+  background:rgba(0,212,255,.12);border-color:rgba(0,212,255,.55);color:var(--c);
+  animation:auto-pulse 1.6s ease-in-out infinite;
+}
+.auto-btn.on #auto-ic{ display:inline-block; animation:auto-spin 1.4s linear infinite; }
+@keyframes auto-pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.0)} 50%{box-shadow:0 0 16px rgba(0,212,255,.35)} }
+@keyframes auto-spin{ to{ transform:rotate(360deg); } }
+
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .layout{
   display:grid;
@@ -869,6 +886,13 @@ body::after{
   color:var(--c); background:rgba(5,8,13,.5); padding:5px 11px; border-radius:20px;
   border:1px solid var(--bdr); backdrop-filter:blur(6px); letter-spacing:.03em;
 }
+.globe-tip{
+  position:absolute; display:none; pointer-events:none; z-index:5;
+  background:rgba(5,10,18,.92); border:1px solid var(--c); border-radius:9px;
+  padding:7px 11px; font-size:12px; color:var(--tx); line-height:1.5;
+  box-shadow:0 6px 22px rgba(0,0,0,.5); white-space:nowrap; backdrop-filter:blur(4px);
+}
+.globe-tip b{ color:var(--c); font-family:var(--fh); font-size:12.5px; letter-spacing:.03em; }
 
 .graph-legend {
   position: absolute;

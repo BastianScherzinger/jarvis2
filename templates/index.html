@@ -42,6 +42,10 @@
   </div>
 
   <div class="topbar-right">
+    <button class="auto-btn" id="auto-btn" onclick="toggleAutoBuild()"
+            title="Auto-Website-Builder: baut automatisch Seiten für die besten Leads ohne Website">
+      <span id="auto-ic">⚡</span>&nbsp;<span id="auto-lbl">Auto-Builder</span>
+    </button>
     <div class="live-ind" id="live-ind">
       <span class="live-dot-wrap"><span class="live-dot"></span></span>
       <span id="live-lbl">OFFLINE</span>
@@ -290,6 +294,7 @@
     </div>
     <div class="globe-wrap" id="globe-wrap">
       <canvas id="globe-canvas"></canvas>
+      <div class="globe-tip" id="globe-tip"></div>
       <div class="globe-legend" id="globe-legend">
         <span class="gl-dot hot"></span>Hot
         <span class="gl-dot warm"></span>Warm

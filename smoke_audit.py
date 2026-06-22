@@ -40,7 +40,8 @@ for path in ["/", "/api/claude/status", "/api/email/status", "/api/evaluated/all
              "/api/evaluated/stats", "/api/evaluated/top", "/api/export/csv",
              "/api/graph/nodes", "/api/graph/stats", "/api/graph/locations", "/api/logs", "/api/media/gallery",
              "/api/media/jobs", "/api/media/models", "/api/media/status", "/api/metrics",
-             "/api/status", "/api/top", "/api/voice/status", "/api/websites", "/favicon.ico"]:
+             "/api/status", "/api/top", "/api/voice/status", "/api/websites",
+             "/api/auto-build/status", "/favicon.ico"]:
     check(f"GET {path}", get_ok(path, allowed=(200, 204)))
 
 check("GET /api/lead/<id>/competition", get_ok(f"/api/lead/{_rid}/competition"))
