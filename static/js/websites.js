@@ -126,9 +126,16 @@ function _wsCard(w){
          <span class="ws-add-plus">＋</span><span>Bild</span>
        </label>`
     : `<span class="ws-add disabled" title="Ordner wird noch erstellt">＋ Bild</span>`;
+  const integrate = ready ? `
+      <textarea class="ws-textarea" id="ws-txt-${w.id}" rows="2" placeholder="Text einfügen, den Claude sinnvoll einbauen soll (z.B. Über-uns, Leistung, Angebot) …"></textarea>
+      <div class="ws-int-row">
+        <button class="ws-act mail" onclick='wsIntegrate(${w.id})'>✨ Von Claude einbauen lassen</button>
+        <span class="ws-int-out" id="ws-int-${w.id}"></span>
+      </div>` : '';
   const media = `<div class="ws-media">
-      <div class="ws-media-lbl">Bilder${(w.images && w.images.length) ? ' · ' + w.images.length : ''}</div>
+      <div class="ws-media-lbl">Inhalte einbauen — Bilder &amp; Text${(w.images && w.images.length) ? ' · ' + w.images.length + ' Bild(er)' : ''}</div>
       <div class="ws-thumbs">${thumbs}${addBtn}</div>
+      ${integrate}
     </div>`;
 
   return `<div class="ws-card ${st.cls}">
@@ -275,6 +282,25 @@ async function wsUploadImage(wid, input){
     }
   }catch(e){ alert('Bild-Upload fehlgeschlagen: ' + e); }
   finally{ if(input) input.value = ''; }
+}
+
+async function wsIntegrate(wid){
+  const ta = document.getElementById('ws-txt-'+wid);
+  const out = document.getElementById('ws-int-'+wid);
+  const text = (ta && ta.value || '').trim();
+  if(!text && !confirm('Kein Text eingegeben — nur die hochgeladenen Bilder einbauen lassen?')) return;
+  if(out){ out.textContent = 'Claude baut ein …'; out.className = 'ws-int-out busy'; }
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/integrate`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})})).json();
+    if(r && r.ok){
+      if(out){ out.textContent = '✓ ' + (r.answer || 'eingebaut') + (r.changed ? ' — wird neu deployt.' : ''); out.className='ws-int-out ok'; }
+      if(ta) ta.value='';
+      if(r.changed) loadWebsites(true);
+    }else{
+      if(out){ out.textContent = '✕ ' + ((r && r.reason) || 'Fehler'); out.className='ws-int-out err'; }
+    }
+  }catch(e){ if(out){ out.textContent = '✕ ' + e; out.className='ws-int-out err'; } }
 }
 
 function wsCopy(text, btn){

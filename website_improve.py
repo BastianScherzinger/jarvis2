@@ -261,6 +261,50 @@ def chat_edit(folder: "str | Path", instruction: str) -> dict:
     return {"ok": True, "answer": antwort, "changed": False, "content": content}
 
 
+def integrate(folder: "str | Path", text: str, image_paths: list) -> dict:
+    """Baut vom Nutzer bereitgestellte Texte + Bilder sinnvoll in die Seite ein
+    (Claude platziert Bilder als Hero/Galerie/Über-uns, arbeitet Text in passende
+    Felder). Gibt {ok, answer, changed, content}."""
+    folder = Path(folder)
+    content = _read_content(folder)
+    if not content:
+        return {"ok": False, "answer": "content.json nicht gefunden.", "changed": False}
+    if not (text or "").strip() and not image_paths:
+        return {"ok": False, "answer": "Kein Text und keine Bilder angegeben.", "changed": False}
+    client = _client()
+    if client is None:
+        return {"ok": False, "answer": "ANTHROPIC_KEY fehlt — Claude nicht verfügbar.", "changed": False}
+
+    sys = (
+        "Du baust vom Nutzer bereitgestellte Inhalte SINNVOLL in eine Landing-Page ein. "
+        "Du bekommst die aktuelle content.json, optional einen TEXT und eine Liste BILDER "
+        "(als /static/-Pfade). Regeln: Platziere die Bilder passend — ein starkes als "
+        "'hero_image', eines als 'about_image', weitere in die Galerie-Liste 'fotos'. "
+        "Arbeite den TEXT sinnvoll in passende Felder ein (z.B. ueber_text, subline, "
+        "leistungen) ODER ergänze passende Inhalte — erfinde nichts dazu, behalte den "
+        "seriösen Stil und alle übrigen Felder. Antworte NUR als JSON: "
+        "{\"antwort\":\"kurz, was du eingebaut hast\",\"content\":{…vollständige content.json…}}."
+    )
+    prompt = (f"Aktuelle content.json:\n{json.dumps(content, ensure_ascii=False)}\n\n"
+              f"TEXT vom Nutzer:\n{(text or '(keiner)')}\n\n"
+              f"BILDER (Pfade):\n{json.dumps(image_paths or [], ensure_ascii=False)}")
+    try:
+        msg = client.messages.create(model=MODEL, max_tokens=3000, system=sys,
+                                     messages=[{"role": "user", "content": prompt}])
+        out = "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text")
+        data = _extract_json(out) or {}
+    except Exception as e:
+        return {"ok": False, "answer": f"Fehler: {type(e).__name__}", "changed": False}
+
+    antwort = str(data.get("antwort") or "").strip() or "Inhalte eingebaut."
+    neu = data.get("content")
+    if isinstance(neu, dict) and neu:
+        neu.setdefault("site_name", content.get("site_name", ""))
+        _write_content(folder, neu)
+        return {"ok": True, "answer": antwort, "changed": True, "content": neu}
+    return {"ok": True, "answer": antwort, "changed": False, "content": content}
+
+
 # ── Premium-Assets (deterministisch, garantiert valides Django/CSS) ───────────
 
 _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>

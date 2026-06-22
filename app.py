@@ -422,6 +422,35 @@ def api_website_chat(wid):
                     "changed": bool(res.get("changed")), "job_id": job_id})
 
 
+@app.route("/api/websites/<int:wid>/integrate", methods=["POST"])
+def api_website_integrate(wid):
+    """Baut Nutzer-Texte + die hochgeladenen Bilder per Claude sinnvoll in die Seite
+    ein und deployt neu. Body {text}."""
+    import website_improve
+    import website_builder
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    folder = (row.get("folder") or "").strip()
+    if not folder or not os.path.isdir(folder):
+        return jsonify({"ok": False, "reason": "Ordner nicht gefunden"}), 409
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()
+    # Hochgeladene Bilder als /static/-Pfade (so referenziert die deployte Seite sie)
+    added = Path(folder) / "static" / "img" / "added"
+    image_paths = []
+    if added.is_dir():
+        for f in sorted(added.iterdir()):
+            if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+                image_paths.append(f"/static/img/added/{f.name}")
+    res = website_improve.integrate(folder, text, image_paths)
+    job_id = ""
+    if res.get("ok") and res.get("changed"):
+        job_id = website_builder.deploy_existing(folder, row.get("name") or None)
+    return jsonify({"ok": bool(res.get("ok")), "answer": res.get("answer", ""),
+                    "changed": bool(res.get("changed")), "job_id": job_id,
+                    "images_used": len(image_paths)})
+
+
 @app.route("/api/websites/<int:wid>/offer-email", methods=["POST"])
 def api_website_offer_email(wid):
     """Sendet die designte Angebots-Mail (350 €). Body {mode}:
