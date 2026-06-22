@@ -104,25 +104,34 @@ function initGlobe(){
   const R = 1.35;
   const loader = new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
 
-  // Erd-Körper (zunächst dunkelblau, Texturen werden asynchron nachgeladen)
-  const earthMat = new THREE.MeshPhongMaterial({color:0x143a5a, specular:0x224466, shininess:14});
-  const earth = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 64), earthMat); group.add(earth);
+  // Erd-Körper mit Relief (Bump) + Glanz
+  const earthMat = new THREE.MeshPhongMaterial({color:0x122f4a, specular:0x224466, shininess:16});
+  const earth = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 96), earthMat); group.add(earth);
   loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ earthMat.specularMap=t; earthMat.specular.set(0x666666); earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ earthMat.bumpMap=t; earthMat.bumpScale=0.04; earthMat.needsUpdate=true; });
+
+  // Nachtlichter (Städte leuchten auf der Schattenseite) — additive Overlay-Kugel
+  const nightMat = new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0.0,
+    blending:THREE.AdditiveBlending, depthWrite:false});
+  const night = new THREE.Mesh(new THREE.SphereGeometry(R*1.002, 96, 96), nightMat); group.add(night);
+  loader.load(_TEX+'earth_lights_2048.png', t=>{ nightMat.map=t; nightMat.opacity=0.9; nightMat.needsUpdate=true; });
 
   // Wolken
   const cloudMat = new THREE.MeshPhongMaterial({transparent:true, opacity:0.0, depthWrite:false});
-  const clouds = new THREE.Mesh(new THREE.SphereGeometry(R*1.012, 48, 48), cloudMat); group.add(clouds);
-  loader.load(_TEX+'earth_clouds_1024.png', t=>{ cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.45; cloudMat.needsUpdate=true; });
+  const clouds = new THREE.Mesh(new THREE.SphereGeometry(R*1.014, 64, 64), cloudMat); group.add(clouds);
+  loader.load(_TEX+'earth_clouds_1024.png', t=>{ cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.5; cloudMat.needsUpdate=true; });
 
-  // Atmosphäre (Rim-Glow)
-  group.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.16, 48, 48),
-    new THREE.MeshBasicMaterial({color:0x4aa8ff, transparent:true, opacity:0.12, side:THREE.BackSide})));
+  // Atmosphäre — zwei Schichten für ein kräftigeres Fresnel-Glühen
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.10, 64, 64),
+    new THREE.MeshBasicMaterial({color:0x3aa0ff, transparent:true, opacity:0.16, side:THREE.BackSide})));
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.26, 64, 64),
+    new THREE.MeshBasicMaterial({color:0x1e6cff, transparent:true, opacity:0.07, side:THREE.BackSide, blending:THREE.AdditiveBlending})));
 
   // Deutschland nach vorne
   group.quaternion.setFromUnitVectors(_llv(_DE[0], _DE[1], 1).normalize(), new THREE.Vector3(0,0,1));
 
-  _gb = {scene, cam, renderer, pivot, group, clouds, R, markers:[], wrap, cv,
+  _gb = {scene, cam, renderer, pivot, group, clouds, night, R, markers:[], beams:[], wrap, cv,
          userY:0, userX:0.14, dragging:false, lastX:0, lastY:0, introT:0, t:0,
          ray:new THREE.Raycaster(), mouse:new THREE.Vector2(-9,-9)};
   try{ window._gb = _gb; }catch(e){}
@@ -137,21 +146,35 @@ async function _loadGlobeLocations(){
   try{ const d = await(await fetch('/api/graph/locations')).json(); locs = d.locations||[]; }catch{ locs=[]; }
   if(!_gb) return;
   _gb.markers.forEach(m=>_gb.group.remove(m.sprite)); _gb.markers=[];
+  _gb.beams.forEach(b=>_gb.group.remove(b)); _gb.beams=[];
   const total = locs.length, leads = locs.reduce((a,b)=>a+(b.n||0),0);
   const top = locs.slice(0, 160);
   let maxN=1; top.forEach(l=> maxN=Math.max(maxN,l.n||1));
+  const up = new THREE.Vector3(0,1,0);
   top.forEach((l,i)=>{
     const [lat,lng] = _coordsFor(l.stadt, l.bundesland);
     const dom = (l.hot>=l.warm && l.hot>=l.cold) ? 'hot' : (l.warm>=l.cold ? 'warm' : 'cold');
     const col = _TYP_COL[dom];
+    const dir = _llv(lat, lng, 1).normalize();
     const mat = new THREE.SpriteMaterial({map:_glowTex(col), transparent:true,
       blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
     const sp = new THREE.Sprite(mat);
-    sp.position.copy(_llv(lat, lng, _gb.R*1.015));
+    sp.position.copy(dir.clone().multiplyScalar(_gb.R*1.015));
     const base = 0.02 + Math.log2(1+(l.n||1))/Math.log2(1+maxN) * 0.035;
     sp.userData = {base, phase:(i%20)/20*6.283, info:l, dom};
     sp.scale.set(base, base, 1);
     _gb.group.add(sp); _gb.markers.push({sprite:sp});
+    // Lichtsäule für die größten Lead-Städte
+    if(i < 45){
+      const h = 0.04 + (l.n/maxN)*0.22;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.017, h, 6, 1, true),
+        new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:0.5,
+          blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide}));
+      beam.position.copy(dir.clone().multiplyScalar(_gb.R + h/2));
+      beam.quaternion.setFromUnitVectors(up, dir);
+      beam.userData = {phase:(i%15)/15*6.283};
+      _gb.group.add(beam); _gb.beams.push(beam);
+    }
   });
   const cnt = document.getElementById('globe-count');
   if(cnt) cnt.textContent = `${total} Standorte · ${leads} Leads`;
@@ -205,6 +228,7 @@ function _globeLoop(){
   g.pivot.rotation.y=g.userY+g.introY+sway; g.pivot.rotation.x=g.userX;
   if(g.clouds) g.clouds.rotation.y += 0.0006;            // Wolken driften
   for(const m of g.markers){ const s=m.sprite.userData.base*(1+0.2*Math.sin(g.t*2+m.sprite.userData.phase)); m.sprite.scale.set(s,s,1); }
+  for(const b of g.beams){ b.material.opacity = 0.35 + 0.25*Math.abs(Math.sin(g.t*1.6 + b.userData.phase)); }
   _globeTip();
   g.renderer.render(g.scene, g.cam);
 }

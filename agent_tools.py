@@ -198,6 +198,18 @@ TOOLS = [
                     "gebauten Webseiten zu GitHub und Railway'. Gibt die Job-IDs zurück.",
      "input_schema": {"type": "object", "properties": {
          "alle": {"type": "boolean", "description": "true = auch schon deployte erneut pushen"}}}},
+    {"name": "auto_builder",
+     "description": "Steuert den Auto-Website-Builder: 'start' baut vollautomatisch Seiten für "
+                    "die besten Leads OHNE Website (bauen→deployen→verbessern→E-Mail an Bastian, "
+                    "Lead für Lead), 'stop' hält an, 'status' zeigt Fortschritt. Nutze dies für "
+                    "'starte den Auto-Builder' / 'wie viele Seiten hat der Auto-Builder gebaut'.",
+     "input_schema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["start", "stop", "status"]}}, "required": ["action"]}},
+    {"name": "improve_built_website",
+     "description": "Lässt die 5 Profi-Agenten über eine BEREITS gebaute Seite gehen (Design, "
+                    "Texte, Bilder verbessern) und deployt neu. Seite per Name/Ordner angeben.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"}, "folder": {"type": "string"}}}},
 ]
 
 
@@ -399,6 +411,36 @@ def _dispatch(name: str, a: dict) -> str:
         return (f"Deploy gestartet für '{nm or folder}' (job_id {jid}). "
                 f"Status mit build_website_status(job_id='{jid}', wait=true). "
                 "Erscheint auch im Webseiten-Reiter.")
+
+    if name == "auto_builder":
+        import auto_builder
+        import json as _j
+        act = (a.get("action") or "status").lower()
+        if act == "start":
+            r = auto_builder.start()
+        elif act == "stop":
+            r = auto_builder.stop()
+        else:
+            r = auto_builder.status()
+        return _j.dumps(r, ensure_ascii=False)
+
+    if name == "improve_built_website":
+        import website_builder
+        folder = (a.get("folder") or "").strip()
+        nm = (a.get("name") or "").strip()
+        if not folder:
+            sites = website_builder.find_built_sites()
+            ql = nm.lower()
+            m = next((s for s in sites if ql and (ql in s["name"].lower() or ql in s["slug"].lower())), None)
+            if not m:
+                return f"Keine gebaute Seite zu '{nm}' gefunden (list_built_websites zeigt alle)."
+            folder, nm = m["folder"], m["name"]
+        import os as _os
+        if not _os.path.isdir(folder):
+            return f"Ordner nicht gefunden: {folder}"
+        jid = website_builder.improve_existing(folder, nm or None)
+        return (f"Verbesserung gestartet für '{nm or folder}' (job_id {jid}). "
+                f"Status mit build_website_status(job_id='{jid}', wait=true).")
 
     if name == "deploy_built_websites":
         import website_builder
