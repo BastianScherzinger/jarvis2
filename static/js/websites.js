@@ -154,7 +154,9 @@ function _wsCard(w){
       <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte & Bilder">✦ Top verbessern</button>
       <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
       <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail (350 €) zum Test an dich senden">✉ Test an mich</button>
-      <button class="ws-act mail" onclick='wsSendOffer(${w.id}, "real")' title="${w.kontakt_email ? 'An '+_wse(w.kontakt_email)+' senden' : 'Keine Kontakt-E-Mail gefunden'}"${w.kontakt_email ? '' : ' disabled'}>✉ An Kunde senden</button>
+      ${w.kontakt_email
+        ? `<button class="ws-act mail" onclick='wsSendOffer(${w.id}, "real")' title="An ${_wse(w.kontakt_email)} senden">✉ An Kunde senden</button>`
+        : `<button class="ws-act" onclick='wsFindContact(${w.id}, this)' title="Kontaktadresse des Betriebs aktiv suchen (Impressum / Google)">🔎 Kontakt finden</button>`}
       <button class="ws-act danger" onclick='wsDelete(${w.id}, ${JSON.stringify(w.name||"")})' title="Webseite komplett löschen">🗑 Löschen</button>
     </div>
     <div class="ws-foot">${_wse(_wsAgo(w.updated || w.created))}</div>
@@ -186,6 +188,23 @@ async function wsImprove(wid){
     if(r && r.ok){ loadWebsites(true); }
     else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
   }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
+}
+
+async function wsFindContact(wid, btn){
+  const o = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '🔎 sucht…'; }
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/find-contact`, {method:'POST'})).json();
+    if(r && r.ok){
+      alert('✓ Kontakt gefunden: ' + r.email + (r.ansprechpartner ? '\n\nAnsprechpartner: ' + r.ansprechpartner : ''));
+      loadWebsites(true);                 // Button wird zu „An Kunde senden"
+    }else{
+      alert('Keine öffentliche Kontaktadresse gefunden.'
+        + ((r && r.website) ? '\n\nGefundene Website: ' + r.website : '')
+        + '\n\nTipp: über „Mit Claude" oder manuell ergänzen.');
+    }
+  }catch(e){ alert('Kontakt-Suche fehlgeschlagen: ' + e); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = o; } }
 }
 
 async function wsSendOffer(wid, mode){

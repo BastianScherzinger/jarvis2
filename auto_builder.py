@@ -96,11 +96,11 @@ def _wait_job(job_id: str, timeout: int = 900):
     return website_builder.get(job_id)
 
 
-def _email(name: str, link: str, branche: str, stadt: str) -> None:
+def _email(name: str, link: str, branche: str, stadt: str, ansprechpartner: str = "") -> None:
     try:
         import mailer
         import offer_mail
-        betreff, text, html = offer_mail.build(name, link, branche, stadt)
+        betreff, text, html = offer_mail.build(name, link, branche, stadt, ansprechpartner)
         mailer.send_email(_BASTIAN, betreff, text, html=html, bypass_redirect=True)
     except Exception as e:
         logger.warn("AutoBuilder", f"E-Mail fehlgeschlagen: {type(e).__name__}")
@@ -132,9 +132,17 @@ def _loop() -> None:
                 job = _wait_job(ij) or job
             if not is_running():
                 return
-            link = (job or {}).get("live_url") or (job or {}).get("repo_url") or ""
+            # Nur der echte Live-Link taugt als Webseiten-CTA (kein Repo-Link).
+            link = (job or {}).get("live_url") or ""
+            ap = ""
+            try:
+                import db_websites
+                wrow = db_websites.get_by_job(jid) or {}
+                ap = wrow.get("ansprechpartner") or ""
+            except Exception:
+                pass
             _set(phase="E-Mail an Bastian…")
-            _email(name, link, branche, stadt)
+            _email(name, link, branche, stadt, ap)
             with _lock:
                 _state["done"] += 1
                 _state["last"] = name

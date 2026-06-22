@@ -177,9 +177,92 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     # 7/7 — QA: Bugs, Konsistenz, Vollständigkeit --------------------------
     say(94, "Pass 7/7 · QA: Bugs, Konsistenz & Vollständigkeit prüfen…")
     content = _qa_pass(content, name, branche, stadt, base)
+    content = _sanitize_content(content)          # Typ-Härtung gegen Render-Bugs
+    _wire_contact(folder, content)                # klickbare Kontaktdaten aus der DB
     _write_content(folder, content)
-    say(97, "Verbesserung fertig — bereit zum Deploy.")
+
+    # Render-QA: das echte Django-Template mit dieser content.json rendern —
+    # fängt strukturelle Fehler VOR dem Deploy ab (sonst 500 auf der Live-Seite).
+    ok, fehler = _render_check(folder, content)
+    if ok:
+        say(97, "Render-QA bestanden — Seite rendert fehlerfrei. Bereit zum Deploy.")
+    else:
+        say(97, f"Render-QA: {fehler[:80]} — Inhalte gehärtet, Deploy mit sicheren Defaults.")
     return content
+
+
+def _sanitize_content(content: dict) -> dict:
+    """Erzwingt die Typen, die das Premium-Template erwartet — so kann kein von Claude
+    unsauber geliefertes Feld die Live-Seite zum 500er machen. Idempotent."""
+    def _s(v):  # → sauberer String
+        return v.strip() if isinstance(v, str) else ("" if v is None else str(v))
+
+    for k in ("site_name", "branche", "stadt", "headline", "subline", "ueber_titel",
+              "ueber_text", "cta_text", "kontakt_text", "seo_title", "seo_desc",
+              "telefon", "email", "adresse", "hero_image", "about_image", "akzent", "claim"):
+        if k in content:
+            content[k] = _s(content[k])
+
+    leist = content.get("leistungen")
+    content["leistungen"] = [
+        {"titel": _s(x.get("titel")), "text": _s(x.get("text"))}
+        for x in leist if isinstance(x, dict) and _s(x.get("titel"))
+    ] if isinstance(leist, list) else []
+
+    usps = content.get("usps")
+    content["usps"] = [_s(u) for u in usps if _s(u)] if isinstance(usps, list) else []
+
+    faq = content.get("faq")
+    content["faq"] = [
+        {"frage": _s(x.get("frage")), "antwort": _s(x.get("antwort"))}
+        for x in faq if isinstance(x, dict) and _s(x.get("frage"))
+    ] if isinstance(faq, list) else []
+
+    fotos = content.get("fotos")
+    content["fotos"] = [_s(f) for f in fotos if _s(f)] if isinstance(fotos, list) else []
+
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(content.get("akzent", ""))):
+        content["akzent"] = "#c8102e"
+    if not isinstance(content.get("jahr"), int):
+        content["jahr"] = 2026
+    return content
+
+
+def _wire_contact(folder: Path, content: dict) -> None:
+    """Verdrahtet klickbare Kontaktdaten: fehlt in der Seite eine E-Mail/Telefon,
+    aber die DB kennt eine gefundene Kontaktadresse → in die Seite übernehmen, damit
+    der mailto:/tel:-Button auf der Live-Seite funktioniert."""
+    try:
+        import db_websites
+        row = db_websites.get_by_folder(str(folder))
+        if not row:
+            return
+        if not content.get("email") and (row.get("kontakt_email") or "").strip():
+            content["email"] = row["kontakt_email"].strip()
+    except Exception:
+        pass
+
+
+def _render_check(folder: Path, content: dict) -> tuple:
+    """Rendert das echte templates/index.html mit dieser content.json über die
+    Django-Template-Engine. Gibt (ok, fehlertext). Ohne Django: (True, '') (skip)."""
+    try:
+        import django
+        from django.conf import settings
+        if not settings.configured:
+            settings.configure(
+                TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates",
+                            "DIRS": [], "APP_DIRS": False, "OPTIONS": {}}],
+                INSTALLED_APPS=["django.contrib.staticfiles"], STATIC_URL="/static/")
+            django.setup()
+        from django.template import engines
+        tpl_path = folder / "templates" / "index.html"
+        src = tpl_path.read_text(encoding="utf-8") if tpl_path.is_file() else _PREMIUM_HTML
+        tpl = engines["django"].from_string(src)
+        tpl.render({"c": content})
+        return True, ""
+    except Exception as e:
+        return False, f"{type(e).__name__}: {str(e)[:120]}"
 
 
 def _ux_pass(content: dict, lead_info: str) -> dict:

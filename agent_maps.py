@@ -101,6 +101,30 @@ def search_places(query: str, limit: int = 6) -> str:
     return "\n".join(_fmt_place(p, i) for i, p in enumerate(places, 1))
 
 
+def place_contact(name: str, stadt: str = "") -> dict:
+    """Strukturierte Kontaktdaten (Website/Telefon/Adresse) eines Betriebs über
+    die Places-Textsuche. Für den contact_finder-Fallback. Gibt {} ohne Key/Treffer."""
+    if not _key() or not (name or "").strip():
+        return {}
+    query = f"{name} {stadt}".strip()
+    mask = ("places.displayName,places.websiteUri,places.nationalPhoneNumber,"
+            "places.formattedAddress,places.id")
+    data, err = _post("https://places.googleapis.com/v1/places:searchText",
+                      {"textQuery": query, "languageCode": "de", "maxResultCount": 1}, mask)
+    if err:
+        return {}
+    places = data.get("places", [])
+    if not places:
+        return {}
+    p = places[0]
+    return {
+        "website": (p.get("websiteUri") or "").strip(),
+        "telefon": (p.get("nationalPhoneNumber") or "").strip(),
+        "adresse": (p.get("formattedAddress") or "").strip(),
+        "place_id": (p.get("id") or "").strip(),
+    }
+
+
 # ── Geocoding (über Text-Suche) ───────────────────────────────────────────────
 
 def geocode(address: str) -> str:

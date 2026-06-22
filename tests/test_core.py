@@ -429,6 +429,97 @@ def test_offer_mail_build():
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
 
 
+def test_offer_mail_normalisiert_schema():
+    # Nackte Railway-Domain ohne Schema → href bekommt https:// (sonst kaputter Link).
+    import offer_mail
+    assert offer_mail._norm_url("web-x.up.railway.app") == "https://web-x.up.railway.app"
+    assert offer_mail._norm_url("https://x.de") == "https://x.de"
+    assert offer_mail._norm_url("(Link folgt)") == ""
+    assert offer_mail._norm_url("") == ""
+    _b, _t, html = offer_mail.build("Foo", "web-foo.up.railway.app", "Maler", "Bonn")
+    assert "https://web-foo.up.railway.app" in html
+    assert 'href="("' not in html and "(Link folgt)" not in html
+
+
+def test_offer_mail_ohne_link_kein_kaputter_button():
+    # Ohne gültigen Live-Link wird KEIN kaputter „Webseite ansehen"-Button gerendert.
+    import offer_mail
+    _b, text, html = offer_mail.build("Ohne Link", "", "Maler", "Bonn")
+    assert "(Link folgt)" not in html and 'href=""' not in html
+    assert "🌐 Webseite ansehen" not in html
+    assert "Live-Link" in text
+
+
+def test_offer_mail_persoenliche_anrede():
+    import offer_mail
+    _b, text, _h = offer_mail.build("Foo", "https://x.de", "Maler", "Bonn", "Max Mustermann")
+    assert "Guten Tag Max Mustermann" in text
+    _b2, text2, _h2 = offer_mail.build("Foo", "https://x.de", "Maler", "Bonn")
+    assert "Guten Tag," in text2
+
+
+def test_website_improve_sanitize_haertet_typen():
+    # Falsch typisierte Felder dürfen das Django-Template nicht crashen lassen.
+    import website_improve as wi
+    clean = wi._sanitize_content({
+        "site_name": "Demo", "leistungen": "kein-array", "usps": [None, "Schnell", ""],
+        "faq": [{"frage": "F?", "antwort": "A"}, "kaputt"], "fotos": "nope",
+        "akzent": "rot", "jahr": "2026"})
+    assert clean["leistungen"] == [] and clean["fotos"] == []
+    assert clean["usps"] == ["Schnell"]
+    assert clean["faq"] == [{"frage": "F?", "antwort": "A"}]
+    assert clean["akzent"] == "#c8102e" and clean["jahr"] == 2026
+
+
+def test_website_improve_render_check(tmp_path):
+    # Render-QA muss eine gehärtete content.json fehlerfrei durch das Template rendern.
+    import website_improve as wi
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "index.html").write_text(wi._PREMIUM_HTML, encoding="utf-8")
+    content = wi._sanitize_content({"site_name": "Demo", "branche": "Elektro",
+                                    "stadt": "Ulm", "headline": "H", "cta_text": "CTA"})
+    ok, err = wi._render_check(tmp_path, content)
+    assert ok, err
+
+
+def test_db_websites_set_contact(tmp_path, monkeypatch):
+    dbw = _tmp_websites_db(tmp_path, monkeypatch)
+    wid = dbw.create("job-c", name="Foo", stadt="Ulm")
+    dbw.set_contact(wid, "info@foo.de", "Max Muster")
+    row = dbw.get(wid)
+    assert row["kontakt_email"] == "info@foo.de" and row["ansprechpartner"] == "Max Muster"
+    # leere Werte überschreiben Vorhandenes NICHT
+    dbw.set_contact(wid, "", "")
+    row2 = dbw.get(wid)
+    assert row2["kontakt_email"] == "info@foo.de" and row2["ansprechpartner"] == "Max Muster"
+
+
+def test_contact_finder_graceful_ohne_treffer(monkeypatch):
+    # Findet web_analyst nichts, liefert contact_finder ein sauberes leeres Ergebnis
+    # (Places-Fallback gemockt → kein Netzwerk-Call im Test).
+    import contact_finder
+    import agents.evaluator.web_analyst as wa
+    import agent_maps
+    monkeypatch.setattr(wa, "analyze", lambda lead: {
+        "email_adresse": "", "email_alle": [], "ansprechpartner": "", "discovered_website": ""})
+    monkeypatch.setattr(agent_maps, "place_contact", lambda name, stadt="": {})
+    res = contact_finder.find("Irgendein Betrieb", "Ulm", "Maler")
+    assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
+
+
+def test_contact_finder_extrahiert_email(monkeypatch):
+    # web_analyst liefert E-Mail + Ansprechpartner → contact_finder reicht sie sauber durch.
+    import contact_finder
+    import agents.evaluator.web_analyst as wa
+    monkeypatch.setattr(wa, "analyze", lambda lead: {
+        "email_adresse": "info@betrieb.de", "email_alle": ["info@betrieb.de", "chef@betrieb.de"],
+        "ansprechpartner": "Anna Beispiel", "discovered_website": "https://betrieb.de"})
+    res = contact_finder.find("Betrieb", "Ulm", "Maler")
+    assert res["ok"] and res["email"] == "info@betrieb.de"
+    assert "chef@betrieb.de" in res["email_alle"]
+    assert res["ansprechpartner"] == "Anna Beispiel" and res["website"] == "https://betrieb.de"
+
+
 def test_auto_builder_pick_next_lead(monkeypatch):
     import db_evaluated, db_websites, auto_builder
     from leadkey import lead_key

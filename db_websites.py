@@ -21,7 +21,7 @@ _lock   = threading.Lock()
 # 'live' = 1 NUR wenn die Seite verifiziert erreichbar ist (echter Deploy-Status).
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
-    "kontakt_email", "site_key",
+    "kontakt_email", "site_key", "ansprechpartner",
 }
 
 
@@ -84,6 +84,7 @@ def init_db() -> None:
             log           TEXT,
             live          INTEGER DEFAULT 0,
             kontakt_email TEXT,
+            ansprechpartner TEXT,
             site_key      TEXT,
             created       REAL,
             updated       REAL
@@ -98,6 +99,8 @@ def init_db() -> None:
             c.execute("UPDATE websites SET live=1 WHERE live_url IS NOT NULL AND live_url != ''")
         if "kontakt_email" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN kontakt_email TEXT")
+        if "ansprechpartner" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN ansprechpartner TEXT")
         if "site_key" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN site_key TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_sitekey ON websites(site_key)")
@@ -194,7 +197,8 @@ def upsert_remote(fields: dict) -> None:
     sk = (fields.get("site_key") or "").strip()
     if not sk:
         return
-    cols = ["name", "stadt", "branche", "repo_url", "live_url", "status", "step", "kontakt_email"]
+    cols = ["name", "stadt", "branche", "repo_url", "live_url", "status", "step",
+            "kontakt_email", "ansprechpartner"]
     images = json.dumps(fields.get("images") or [], ensure_ascii=False)
     live = int(fields.get("live") or 0)
     now = time.time()
@@ -216,6 +220,24 @@ def upsert_remote(fields: dict) -> None:
                  fields.get("repo_url") or "", fields.get("live_url") or "", live,
                  images, fields.get("kontakt_email") or "", now, now))
         c.commit()
+
+
+def set_contact(wid: int, email: str = "", ansprechpartner: str = "") -> "dict | None":
+    """Setzt die gefundene Kontakt-E-Mail (und optional den Ansprechpartner) einer
+    Webseiten-Zeile. Leere Werte überschreiben Vorhandenes NICHT. Gibt die Zeile zurück."""
+    sets, params = [], []
+    if (email or "").strip():
+        sets.append("kontakt_email=?"); params.append(email.strip())
+    if (ansprechpartner or "").strip():
+        sets.append("ansprechpartner=?"); params.append(ansprechpartner.strip())
+    if not sets:
+        return get(wid)
+    sets.append("updated=?"); params.append(time.time())
+    params.append(wid)
+    with _lock, _conn() as c:
+        c.execute(f"UPDATE websites SET {', '.join(sets)} WHERE id=?", params)
+        c.commit()
+    return get(wid)
 
 
 def get_by_site_key(sk: str) -> "dict | None":

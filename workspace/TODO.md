@@ -31,7 +31,16 @@
 - [ ] **Lead-Findung/Bewertung:** Final-Check grün (alle Module/Tests/Audit). Tiefere
       Scoring-/Scraper-Optimierung bei Bedarf separat (kein Blind-Rewrite gemacht).
 
+## Erledigt 22.06. (Kontakt-Finder / E-Mail-Links / Render-QA)
+- [x] **Kontakt-Finder** (`contact_finder.py`): findet E-Mail+Ansprechpartner aktiv
+      (DDG→Impressum / Google Places). Verdrahtet: Build-Zeit-Enrichment, Button
+      „🔎 Kontakt finden", `offer-email` sucht bei Bedarf selbst. → löst die alte Idee
+      „Webseiten rückwirkend mit kontakt_email füllen" on-demand.
+- [x] **E-Mail-Links repariert:** `offer_mail._norm_url()` erzwingt https, kein kaputter
+      Button ohne Live-Link, nur Live-URL (kein Repo-Link) als CTA, persönliche Anrede.
+- [x] **Verbesserungs-Pipeline gehärtet:** `_sanitize_content` + `_render_check` (echtes
+      Django-Render vor Deploy) + `_wire_contact`.
+
 ## Ideen (nicht beauftragt)
-- [ ] Bestehende Webseiten beim ersten Sync rückwirkend mit `kontakt_email` füllen
-      (aktuell nur bei Neubau gesetzt).
+- [ ] Kontakt-Finder auch im Lead-Reiter anbieten (E-Mail-Anreicherung für Leads ohne Bau).
 - [ ] Globus: Klick auf Marker → Stadt-Detail/Filter; Heatmap-Modus.

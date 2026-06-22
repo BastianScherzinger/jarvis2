@@ -94,6 +94,27 @@ def _persist(job_id: str) -> None:
         pass
 
 
+def _enrich_contact(job_id: str, lead: dict) -> None:
+    """Sucht nach dem Bau aktiv die Kontakt-E-Mail (DDG→Impressum / Google Places),
+    falls für die Zeile noch keine gespeichert ist. Best-effort — nie blockierend
+    für den Bau-Erfolg. Persistiert kontakt_email + ansprechpartner."""
+    try:
+        import db_websites
+        row = db_websites.get_by_job(job_id)
+        if not row or (row.get("kontakt_email") or "").strip():
+            return                       # schon vorhanden → nichts tun
+        import contact_finder
+        res = contact_finder.find(
+            row.get("name") or lead.get("name", ""),
+            row.get("stadt") or lead.get("stadt", ""),
+            row.get("branche") or lead.get("branche", ""),
+            known_url=(lead.get("website_url") or lead.get("discovered_website") or ""))
+        if res.get("ok") and res.get("email"):
+            db_websites.set_contact(int(row["id"]), res["email"], res.get("ansprechpartner", ""))
+    except Exception:
+        pass
+
+
 def _sync_push(job_id: str) -> None:
     """Pusht die fertige Webseiten-Zeile nach Supabase (Cross-PC). Best-effort."""
     try:
@@ -631,6 +652,7 @@ def _run(job_id: str) -> None:
             final_step = f"Lokal gebaut: {target}"
         _set(job_id, status="done", content_preview=content.get("headline", ""))
         _step(job_id, 100, final_step)
+        _enrich_contact(job_id, lead)        # Kontaktadresse aktiv suchen (best-effort)
         _sync_push(job_id)
     except Exception as e:
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")

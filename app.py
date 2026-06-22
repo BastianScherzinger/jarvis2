@@ -451,6 +451,24 @@ def api_website_integrate(wid):
                     "images_used": len(image_paths)})
 
 
+@app.route("/api/websites/<int:wid>/find-contact", methods=["POST"])
+def api_website_find_contact(wid):
+    """Sucht aktiv die Kontakt-E-Mail des Betriebs (DDG→Impressum / Google Places)
+    und speichert sie an der Webseiten-Zeile. Für den 'Kontakt finden'-Button."""
+    import contact_finder
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    res = contact_finder.find(row.get("name", ""), row.get("stadt", ""), row.get("branche", ""))
+    if res.get("ok") and res.get("email"):
+        db_websites.set_contact(wid, res["email"], res.get("ansprechpartner", ""))
+        return jsonify({"ok": True, "email": res["email"],
+                        "ansprechpartner": res.get("ansprechpartner", ""),
+                        "website": res.get("website", "")})
+    return jsonify({"ok": False, "reason": "Keine öffentliche Kontaktadresse gefunden.",
+                    "website": res.get("website", "")})
+
+
 @app.route("/api/websites/<int:wid>/offer-email", methods=["POST"])
 def api_website_offer_email(wid):
     """Sendet die designte Angebots-Mail (350 €). Body {mode}:
@@ -461,16 +479,32 @@ def api_website_offer_email(wid):
         return jsonify({"ok": False, "reason": "not_found"}), 404
     mode = ((request.get_json(silent=True) or {}).get("mode") or "test").strip().lower()
     name = row.get("name") or "Ihr Betrieb"
-    link = (row.get("live_url") or row.get("repo_url") or "").strip()
+    # NUR der echte Live-Link taugt als Webseiten-CTA — ein GitHub-Repo-Link ist
+    # keine ansehbare Seite. offer_mail rendert bei leerem Link sauber ohne Button.
+    link = (row.get("live_url") or "").strip()
+    ansprechpartner = (row.get("ansprechpartner") or "").strip()
 
     if mode == "real":
         to = (row.get("kontakt_email") or "").strip()
         if "@" not in to:
-            return jsonify({"ok": False, "reason": "Keine Kontakt-E-Mail zu diesem Lead gefunden."}), 400
+            # Letzte Chance: jetzt aktiv suchen, statt nur abzulehnen.
+            try:
+                import contact_finder
+                res = contact_finder.find(name, row.get("stadt", ""), row.get("branche", ""))
+                if res.get("ok") and res.get("email"):
+                    to = res["email"]
+                    ansprechpartner = ansprechpartner or res.get("ansprechpartner", "")
+                    db_websites.set_contact(wid, to, ansprechpartner)
+            except Exception:
+                pass
+        if "@" not in to:
+            return jsonify({"ok": False, "reason": "Keine Kontakt-E-Mail gefunden — "
+                            "über 'Kontakt finden' suchen oder manuell ergänzen."}), 400
     else:
         to = "bastian.scherzinger05@gmail.com"        # Testempfänger
 
-    betreff, text, html = _build_offer_email(name, link, row.get("branche", ""), row.get("stadt", ""))
+    betreff, text, html = _build_offer_email(name, link, row.get("branche", ""),
+                                             row.get("stadt", ""), ansprechpartner)
     # Bewusste, vom Nutzer ausgelöste Sendung → Redirect umgehen (echter Empfänger).
     res = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
     out = {"ok": bool(res.get("ok")), "status": res.get("status", ""),
@@ -483,10 +517,11 @@ def api_website_offer_email(wid):
     return jsonify(out)
 
 
-def _build_offer_email(name: str, link: str, branche: str = "", stadt: str = "") -> tuple:
+def _build_offer_email(name: str, link: str, branche: str = "", stadt: str = "",
+                       ansprechpartner: str = "") -> tuple:
     """Designte Angebots-Mail (350 €) — Logik in offer_mail.py (geteilt mit auto_builder)."""
     import offer_mail
-    return offer_mail.build(name, link, branche, stadt)
+    return offer_mail.build(name, link, branche, stadt, ansprechpartner)
 
 
 @app.route("/api/lead/<int:lead_id>/competition")
