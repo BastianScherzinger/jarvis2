@@ -507,6 +507,46 @@ def test_contact_finder_graceful_ohne_treffer(monkeypatch):
     assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
 
 
+def test_ad_prompts_video_prompt():
+    import ad_prompts
+    vp = ad_prompts.build_video_prompt({"branche": "Dachdecker", "stil": "cinematisch",
+                                        "betrieb": "Müller GmbH"})
+    assert "prompt" in vp and "summary" in vp and len(vp["prompt"]) > 30
+    assert "Werbevideo" in vp["summary"] and "Müller GmbH" in vp["summary"]
+    assert "no text" in vp["prompt"].lower()
+
+
+def test_media_image_higgsfield_backend(monkeypatch):
+    # backend=higgsfield -> Queue-Job 'higgsfield_image' (kein lokaler Diffusers-Lauf).
+    import app, media_queue
+    cap = {}
+    monkeypatch.setattr(media_queue, "submit",
+                        lambda kind, params: (cap.update(kind=kind, params=params), "jid")[1])
+    c = app.app.test_client()
+    r = c.post("/api/media/generate/image", json={"prompt": "ein haus", "backend": "higgsfield"})
+    assert r.get_json().get("ok") and cap["kind"] == "higgsfield_image"
+    # backend=local -> normaler image-Job
+    c.post("/api/media/generate/image", json={"prompt": "ein haus", "backend": "local"})
+    assert cap["kind"] == "image"
+
+
+def test_media_ad_video_route(monkeypatch):
+    import app, media_queue
+    cap = {}
+    monkeypatch.setattr(media_queue, "submit",
+                        lambda kind, params: (cap.update(kind=kind, params=params), "jid")[1])
+    c = app.app.test_client()
+    r = c.post("/api/media/generate/ad-video", json={"branche": "Dachdecker", "backend": "local"})
+    d = r.get_json()
+    assert d.get("ok") and d.get("prompt") and cap["kind"] == "video"
+    # higgsfield-Backend -> higgsfield-Video-Job
+    c.post("/api/media/generate/ad-video", json={"betrieb": "Foo", "backend": "higgsfield"})
+    assert cap["kind"] == "higgsfield"
+    # ohne jeden Brief -> 400
+    r2 = c.post("/api/media/generate/ad-video", json={})
+    assert r2.status_code == 400
+
+
 def test_contact_finder_extrahiert_email(monkeypatch):
     # web_analyst liefert E-Mail + Ansprechpartner → contact_finder reicht sie sauber durch.
     import contact_finder

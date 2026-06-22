@@ -827,20 +827,25 @@ def api_media_models():
 
 @app.route("/api/media/generate/image", methods=["POST"])
 def api_media_generate_image():
-    body   = request.get_json(silent=True) or {}
-    prompt = (body.get("prompt") or "").strip()
+    body    = request.get_json(silent=True) or {}
+    prompt  = (body.get("prompt") or "").strip()
+    backend = (body.get("backend") or "local").strip()
     if not prompt:
         return jsonify({"ok": False, "reason": "no_prompt"}), 400
     if len(prompt) > 1000:
         return jsonify({"ok": False, "reason": "prompt_too_long"}), 400
-    params = {
-        "prompt":    prompt,
-        "model_key": (body.get("model_key") or "").strip(),
-        "steps":     body.get("steps", 25),
-        "width":     body.get("width"),
-        "height":    body.get("height"),
-    }
-    job_id = media_queue.submit("image", params)
+    if backend == "higgsfield":
+        params = {"prompt": prompt, "width": body.get("width"), "height": body.get("height")}
+        job_id = media_queue.submit("higgsfield_image", params)
+    else:
+        params = {
+            "prompt":    prompt,
+            "model_key": (body.get("model_key") or "").strip(),
+            "steps":     body.get("steps", 25),
+            "width":     body.get("width"),
+            "height":    body.get("height"),
+        }
+        job_id = media_queue.submit("image", params)
     return jsonify({"ok": True, "job_id": job_id})
 
 
@@ -864,6 +869,7 @@ def api_media_generate_set():
     params  = {
         "assets":    assets,
         "model_key": (body.get("model_key") or "").strip(),
+        "backend":   (body.get("backend") or "local").strip(),   # local | higgsfield
         "steps":     int(body.get("steps", 0)),   # 0 = Modell entscheidet (FLUX 4, SDXL 25)
         "summary":   summary,
         "lead_id":   body.get("lead_id"),
@@ -896,6 +902,34 @@ def api_media_generate_video():
         }
         job_id = media_queue.submit("video", params)
     return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/media/generate/ad-video", methods=["POST"])
+def api_media_generate_ad_video():
+    """Werbevideo aus einem Brief (Betrieb/Branche/Motiv/Stil) — für Leads, fertige
+    Webseiten oder frei. backend: 'local' (Wan) | 'higgsfield' (Cloud)."""
+    import ad_prompts
+    body    = request.get_json(silent=True) or {}
+    brief = {
+        "betrieb":  (body.get("betrieb") or "").strip(),
+        "branche":  (body.get("branche") or "").strip(),
+        "motiv":    (body.get("motiv") or "").strip(),
+        "stil":     body.get("stil", "cinematisch"),
+        "stimmung": body.get("stimmung", "professionell"),
+    }
+    if not (brief["betrieb"] or brief["branche"] or brief["motiv"]):
+        return jsonify({"ok": False, "reason": "Bitte Betrieb, Branche oder Motiv angeben."}), 400
+    vp = ad_prompts.build_video_prompt(brief)
+    backend = (body.get("backend") or "local").strip()
+    if backend == "higgsfield":
+        params = {"prompt": vp["prompt"], "hf_model": (body.get("hf_model") or "dop-lite").strip(),
+                  "summary": vp["summary"]}
+        job_id = media_queue.submit("higgsfield", params)
+    else:
+        params = {"prompt": vp["prompt"], "model_key": (body.get("model_key") or "").strip(),
+                  "num_frames": int(body.get("num_frames", 25)), "summary": vp["summary"]}
+        job_id = media_queue.submit("video", params)
+    return jsonify({"ok": True, "job_id": job_id, "prompt": vp["prompt"], "summary": vp["summary"]})
 
 
 @app.route("/api/media/job/<job_id>")

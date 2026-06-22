@@ -166,10 +166,26 @@
 <!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
 <main class="media-page page" data-page="images">
   <div class="media-head">
-    <div class="media-title">Werbe-Asset-Set generieren</div>
-    <div class="media-sub">5 Assets pro Erstellung: Logo · Website-Hero-Banner · Flyer · Werbeanzeige · Social-Media-Post</div>
+    <div class="media-title">Bilder generieren</div>
+    <div class="media-sub">Einzelbild aus Prompt · oder ein 5er-Werbe-Set — jeweils <b>lokal</b> oder <b>Higgsfield Cloud</b></div>
   </div>
 
+  <!-- Einzelbild aus freiem Prompt (Lokal / Higgsfield) -->
+  <div class="composer">
+    <textarea id="img-prompt" placeholder="Beschreibe das Bild… (z.B. 'moderne Dachsanierung, Handwerker bei der Arbeit, sonniges Licht, fotorealistisch, 4K')"></textarea>
+    <div class="composer-row">
+      <select id="img-backend" class="flt" onchange="onImgBackend()">
+        <option value="local">Lokal (Diffusers)</option>
+        <option value="higgsfield">Higgsfield Cloud (Soul)</option>
+      </select>
+      <select id="img-model" class="flt"></select>
+      <span id="img-hf-note" class="flt-note" style="display:none">Higgsfield Soul · 1080p</span>
+      <button class="start-btn" id="img-free-btn" onclick="generateImage()">⚡ Bild generieren</button>
+    </div>
+  </div>
+  <div id="img-job-status" class="job-card" style="display:none"></div>
+
+  <div class="media-gallery-head">Werbe-Asset-Set · 5 Assets (Logo · Hero · Flyer · Anzeige · Social)</div>
   <div class="adform">
     <!-- Lead-Auswahl -->
     <div class="af-field">
@@ -217,8 +233,11 @@
         </select>
       </div>
       <div class="af-field">
-        <label class="af-lbl">KI-Modell</label>
-        <select id="img-model" class="flt"></select>
+        <label class="af-lbl">Modus</label>
+        <select id="set-backend" class="flt">
+          <option value="local">Lokal (Diffusers)</option>
+          <option value="higgsfield">Higgsfield Cloud</option>
+        </select>
       </div>
     </div>
 
@@ -258,6 +277,15 @@
       <select id="vid-model" class="flt"></select>
       <select id="vid-hf-model" class="flt" style="display:none"></select>
       <button class="start-btn" id="vid-gen-btn" onclick="generateVideo()">⚡ Generieren</button>
+    </div>
+    <!-- Werbevideo aus einem Betrieb (Lead) — fertiger Werbe-Clip -->
+    <div class="composer-row composer-row-sub">
+      <select id="vid-lead" class="flt" onchange="vidLeadPick()">
+        <option value="">— Lead für Werbevideo —</option>
+      </select>
+      <input id="vid-betrieb" class="af-in" type="text" placeholder="Betrieb">
+      <input id="vid-branche" class="af-in" type="text" placeholder="Branche">
+      <button class="start-btn ghost" id="vid-ad-btn" onclick="generateAdVideo()">🎬 Werbevideo</button>
     </div>
   </div>
   <div id="vid-job-status" class="job-card" style="display:none"></div>

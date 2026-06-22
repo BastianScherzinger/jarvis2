@@ -1,6 +1,9 @@
 # JARVIS — TODO / Offene Punkte (Stand 22.06.2026)
 
 ## Für Sir (manuell, nicht im Code lösbar)
+- [ ] **Higgsfield-Key eintragen:** `.env` → `HIGGSFIELD_API_KEY=<key vom enigmabible1-Account>`
+      (https://cloud.higgsfield.ai/api-keys). Erst dann nutzen Bild-/Video-Cloud diesen
+      Account. Details: `workspace/MEDIEN_ARCHITEKTUR.md`.
 - [ ] **Kunden-PC aktualisieren:** dort `python update.py` → `python start.py`.
       DB migriert automatisch; Cross-PC-Sync + Globus laufen sofort.
 - [ ] **E-Mail am Kunden-PC:** dessen `.env` braucht dieselben `SMTP_USER`/`SMTP_PASS`

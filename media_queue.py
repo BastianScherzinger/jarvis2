@@ -118,22 +118,28 @@ def _worker() -> None:
                 # Set-Verzeichnis: workspace/media/images/set_<job_id>/
                 set_dir = _IMAGES_DIR / f"set_{job_id}"
                 set_dir.mkdir(parents=True, exist_ok=True)
-                _lg.info("Bilder", f"Generiere Werbe-Set '{summary}' ({tot} Assets) → {set_dir.name}/")
+                backend = (params.get("backend") or "local").strip()
+                _lg.info("Bilder", f"Generiere Werbe-Set '{summary}' ({tot} Assets, {backend}) → {set_dir.name}/")
                 urls, items = [], []
                 for i, a in enumerate(assets):
                     ta       = time.time()
                     asset_fn = f"{a.get('asset','img')}.png"
                     _lg.info("Bilder", f"→ {a.get('label','')} ({i+1}/{tot})…")
-                    res = media_engine.generate_image(
-                        a.get("prompt", ""),
-                        params.get("model_key") or None,
-                        negative_prompt=a.get("negative_prompt") or "",
-                        steps=int(params.get("steps", 0)),
-                        width=a.get("width"),
-                        height=a.get("height"),
-                        output_dir=set_dir,
-                        filename=asset_fn,
-                    )
+                    if backend == "higgsfield":
+                        res = media_engine.generate_image_higgsfield(
+                            a.get("prompt", ""), output_dir=set_dir, filename=asset_fn,
+                            width=a.get("width") or 1280, height=a.get("height") or 720)
+                    else:
+                        res = media_engine.generate_image(
+                            a.get("prompt", ""),
+                            params.get("model_key") or None,
+                            negative_prompt=a.get("negative_prompt") or "",
+                            steps=int(params.get("steps", 0)),
+                            width=a.get("width"),
+                            height=a.get("height"),
+                            output_dir=set_dir,
+                            filename=asset_fn,
+                        )
                     u = res.get("web_url", "")
                     if u:
                         urls.append(u)
@@ -229,6 +235,12 @@ def _worker() -> None:
                 result = media_engine.generate_video_higgsfield(
                     params.get("prompt", ""),
                     params.get("hf_model") or params.get("model") or "dop-lite",
+                )
+            elif kind == "higgsfield_image":
+                result = media_engine.generate_image_higgsfield(
+                    params.get("prompt", ""),
+                    width=int(params.get("width") or 1280),
+                    height=int(params.get("height") or 720),
                 )
             else:
                 raise ValueError(f"Unbekannter Job-Typ: '{kind}'")

@@ -182,6 +182,30 @@ def build_asset_set(brief: dict) -> list[dict]:
     return out
 
 
+def build_video_prompt(brief: dict) -> dict:
+    """Baut einen kinoreifen englischen Werbevideo-Prompt (für lokales Wan oder
+    Higgsfield) aus einem Brief: betrieb, branche, motiv, stil, stimmung.
+    Gibt {prompt, summary}."""
+    subject = _branche_kontext(brief.get("branche", ""), brief.get("motiv", ""))
+    stil = (brief.get("stil") or "").strip().lower()
+    bewegung = {
+        "cinematisch":     "slow cinematic dolly shot, smooth camera movement, shallow depth of field",
+        "modern_clean":    "smooth gimbal motion, bright clean look, steady professional pan",
+        "fotorealistisch": "realistic handheld camera, natural motion, documentary feel",
+        "minimalistisch":  "slow elegant push-in, minimalist framing, calm pacing",
+        "illustrativ":     "smooth animated motion graphics style, clean transitions",
+    }.get(stil, "smooth cinematic camera movement, professional motion")
+    stimmung = _STIMMUNG.get(brief.get("stimmung", ""), _STIMMUNG["professionell"])
+    betrieb = (brief.get("betrieb") or "").strip()
+    prompt = (
+        f"Professional advertising video clip: {subject}. "
+        f"{bewegung}. {stimmung}. Cinematic commercial quality, high dynamic range, "
+        f"sharp focus, beautiful natural lighting, 4K, no text, no watermark."
+    )
+    summary = " · ".join(filter(None, [betrieb or None, brief.get("branche") or None, "Werbevideo"]))
+    return {"prompt": prompt[:900], "summary": summary}
+
+
 def build_ad_prompt(brief: dict) -> dict:
     """
     Brief-Felder: betrieb, branche, motiv, stil, stimmung, verwendung, format,

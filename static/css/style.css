@@ -650,6 +650,11 @@ body::after{
 .composer-row{ display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
 .composer-row .flt{ width:auto; min-width:160px; flex:1; }
 .composer-row .start-btn{ flex-shrink:0; }
+.composer-row .af-in{ flex:1; min-width:120px; }
+.composer-row-sub{ margin-top:8px; padding-top:8px; border-top:1px dashed rgba(255,255,255,.08); }
+.flt-note{ font-size:11px; color:var(--muted,#8a93a6); align-self:center; padding:0 6px; }
+.start-btn.ghost{ background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.16); color:#cdd5e3; }
+.start-btn.ghost:hover{ background:rgba(255,255,255,.09); box-shadow:none; }
 
 /* Job-Status-Karte */
 .job-card{

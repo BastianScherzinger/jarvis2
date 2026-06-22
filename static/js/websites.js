@@ -152,6 +152,8 @@ function _wsCard(w){
     ${media}
     <div class="ws-actions">
       <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte & Bilder">✦ Top verbessern</button>
+      <button class="ws-act" onclick='wsAdImages(${w.id})' title="5 Werbe-Bilder für diesen Betrieb generieren (erscheint im Bilder-Tab)">🖼 Werbebilder</button>
+      <button class="ws-act" onclick='wsAdVideo(${w.id})' title="Werbevideo für diesen Betrieb generieren (erscheint im Video-Tab)">🎬 Werbevideo</button>
       <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
       <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail (350 €) zum Test an dich senden">✉ Test an mich</button>
       ${w.kontakt_email
@@ -188,6 +190,33 @@ async function wsImprove(wid){
     if(r && r.ok){ loadWebsites(true); }
     else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
   }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
+}
+
+async function wsAdImages(wid){
+  const w = _wsData.find(x => String(x.id) === String(wid)); if(!w) return;
+  if(!confirm(`5 Werbe-Bilder für „${w.name||'?'}" generieren?\n\nLäuft im Hintergrund — die Bilder erscheinen im „Bilder"-Tab.`)) return;
+  try{
+    const r = await(await fetch('/api/media/generate/set', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({betrieb:w.name||'', branche:w.branche||'', stil:'fotorealistisch',
+                           stimmung:'professionell', text_platz:true})})).json();
+    if(r && r.ok) alert('✓ Werbe-Set wird generiert — im „Bilder"-Tab sichtbar.');
+    else alert('Fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
+  }catch(e){ alert('Fehlgeschlagen: ' + e); }
+}
+
+async function wsAdVideo(wid){
+  const w = _wsData.find(x => String(x.id) === String(wid)); if(!w) return;
+  const hf = confirm(`Werbevideo für „${w.name||'?'}" generieren?\n\n`
+    + 'OK = Higgsfield Cloud (Qualität, braucht Credits)\nAbbrechen = lokal (Wan 2.1).');
+  try{
+    const r = await(await fetch('/api/media/generate/ad-video', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({betrieb:w.name||'', branche:w.branche||'', stil:'cinematisch',
+                           stimmung:'professionell', backend: hf ? 'higgsfield':'local'})})).json();
+    if(r && r.ok) alert('✓ Werbevideo wird erstellt — im „Video"-Tab sichtbar.');
+    else alert('Fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
+  }catch(e){ alert('Fehlgeschlagen: ' + e); }
 }
 
 async function wsFindContact(wid, btn){

@@ -788,8 +788,9 @@ function showPage(name){
   document.querySelectorAll('.topnav-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.page === name));
   location.hash = name;
-  if(name === 'images' || name === 'videos') loadGallery();
-  if(name === 'images'){ loadImageLeads(); _restoreActiveJob(); }
+  if(name === 'images' || name === 'videos'){ loadGallery(); loadImageLeads(); }
+  if(name === 'images'){ _restoreActiveJob(); if(typeof onImgBackend==='function') onImgBackend(); }
+  if(name === 'videos' && typeof onVidBackend==='function') onVidBackend();
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'graph' && typeof initGlobe === 'function') initGlobe();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
@@ -859,16 +860,29 @@ function onVidBackend(){
   }
 }
 
+function onImgBackend(){
+  const backend = document.getElementById('img-backend').value;
+  const model   = document.getElementById('img-model');
+  const note    = document.getElementById('img-hf-note');
+  const hf = backend === 'higgsfield';
+  if(model) model.style.display = hf ? 'none' : '';
+  if(note)  note.style.display  = hf ? '' : 'none';
+  if(hf && !_hfConfigured){
+    note.textContent = 'Higgsfield-API-Key fehlt in der .env';
+  }else if(note){ note.textContent = 'Higgsfield Soul · 1080p'; }
+}
+
 async function generateImage(){
-  const prompt = (document.getElementById('img-prompt').value || '').trim();
+  const prompt  = (document.getElementById('img-prompt').value || '').trim();
   if(!prompt){ return; }
-  const model = document.getElementById('img-model').value || '';
-  const btn   = document.getElementById('img-gen-btn');
+  const backend = document.getElementById('img-backend').value || 'local';
+  const model   = document.getElementById('img-model').value || '';
+  const btn     = document.getElementById('img-free-btn');
   btn.disabled = true;
   try{
     const res = await fetch('/api/media/generate/image', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({prompt, model_key: model}),
+      body: JSON.stringify({prompt, backend, model_key: model}),
     });
     const d = await res.json();
     if(d.ok && d.job_id) pollJob(d.job_id, 'img');
@@ -888,6 +902,46 @@ async function loadImageLeads(){
   }catch{ return; }
   sel.innerHTML = '<option value="">— Lead wählen —</option>' +
     _imgLeads.map(l => `<option value="${l.id}">${_e(l.name)} · ${_e(l.branche||'')} (${_e(l.stadt||'')})</option>`).join('');
+  // Gleiche Liste auch im Video-Tab (Werbevideo für einen Lead).
+  const vsel = document.getElementById('vid-lead');
+  if(vsel){
+    vsel.innerHTML = '<option value="">— Lead für Werbevideo —</option>' +
+      _imgLeads.map(l => `<option value="${l.id}">${_e(l.name)} · ${_e(l.branche||'')} (${_e(l.stadt||'')})</option>`).join('');
+  }
+}
+
+function vidLeadPick(){
+  const id = (document.getElementById('vid-lead')||{}).value;
+  const l  = _imgLeads.find(x => String(x.id) === String(id));
+  if(!l) return;
+  const b = document.getElementById('vid-betrieb'); if(b) b.value = l.name || '';
+  const br = document.getElementById('vid-branche'); if(br) br.value = l.branche || '';
+}
+
+async function generateAdVideo(){
+  const betrieb = (document.getElementById('vid-betrieb')||{}).value || '';
+  const branche = (document.getElementById('vid-branche')||{}).value || '';
+  const motiv   = (document.getElementById('vid-prompt')||{}).value || '';
+  if(!betrieb.trim() && !branche.trim() && !motiv.trim()){
+    _showJob('vid', {status:'error', error:'Bitte Betrieb, Branche oder eine Beschreibung angeben.'});
+    return;
+  }
+  const backend = document.getElementById('vid-backend').value;
+  const payload = {betrieb, branche, motiv: motiv.trim(), backend, stil:'cinematisch'};
+  if(backend === 'higgsfield') payload.hf_model = document.getElementById('vid-hf-model').value || 'dop-lite';
+  else                         payload.model_key = document.getElementById('vid-model').value || '';
+  const btn = document.getElementById('vid-ad-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const res = await fetch('/api/media/generate/ad-video', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await res.json();
+    if(d.ok && d.job_id) pollJob(d.job_id, 'vid');
+    else _showJob('vid', {status:'error', error: d.reason || 'Fehler'});
+  }catch(e){ _showJob('vid', {status:'error', error:String(e)}); }
+  finally{ if(btn) btn.disabled = false; }
 }
 
 function afLeadPick(){
@@ -907,6 +961,7 @@ async function generateImageSet(){
     stil:       document.getElementById('af-stil').value,
     stimmung:   document.getElementById('af-stimmung').value,
     text_platz: document.getElementById('af-textplatz').checked,
+    backend:    (document.getElementById('set-backend')||{}).value || 'local',
     model_key:  document.getElementById('img-model').value || '',
   };
   if(!brief.betrieb && !brief.branche && !brief.motiv){
