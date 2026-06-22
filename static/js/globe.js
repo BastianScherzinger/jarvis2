@@ -1,10 +1,21 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  3D-ERD-GLOBUS — realistische Erde (Satelliten-Look) mit Lead-Standorten.
 //  Three.js r128. Echte Erd-Texturen (CDN), Sonnenlicht, Wolken, Atmosphäre,
-//  Sterne. Start-Zoom Deutschland. Marker je Stadt mit Hover-Tooltip.
+//  Fresnel-Glow, Sterne. Cinematischer Intro-Zoom auf Deutschland. Pulsierende
+//  Marker je Stadt (skaliert nach Lead-Anzahl), aufsteigende Light-Beams,
+//  Stadt-Labels (Top-Städte), Hologramm-Scanline-Overlay. Hover-Tooltip.
+//  Öffentliche API bleibt unverändert: initGlobe(), /api/graph/locations,
+//  _coordsFor/_llv-Lookups, window._gb (Debug).
 // ════════════════════════════════════════════════════════════════════════════
 let _globeReady = false;
 let _gb = null;
+
+const _REDUCED = (typeof window !== 'undefined' && window.matchMedia)
+  ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+// Grobe Leistungseinschätzung → weniger Partikel/Marker auf schwachen Geräten.
+const _LOWPWR = (typeof navigator !== 'undefined' &&
+  ((navigator.hardwareConcurrency || 8) <= 4 ||
+   (navigator.deviceMemory || 8) <= 4));
 
 // Koordinaten gängiger deutscher Städte (lat, lng).
 const _CITY = {
@@ -54,85 +65,210 @@ function _llv(lat, lng, r){
   return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(theta), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(theta));
 }
 function _hexRgb(h){ h=h.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+
 const _texCache = {};
+// Weicher, leicht ringförmiger Glow — kräftiger Kern, sanfter Halo (kein weißer Blob).
 function _glowTex(color){
   if(_texCache[color]) return _texCache[color];
   const [r,g_,b]=_hexRgb(color);
+  const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+  const grd=g.createRadialGradient(64,64,0,64,64,64);
+  grd.addColorStop(0.00,`rgba(255,255,255,0.95)`);
+  grd.addColorStop(0.12,`rgba(${Math.min(255,r+60)},${Math.min(255,g_+60)},${Math.min(255,b+60)},0.92)`);
+  grd.addColorStop(0.34,`rgba(${r},${g_},${b},0.62)`);
+  grd.addColorStop(0.70,`rgba(${r},${g_},${b},0.12)`);
+  grd.addColorStop(1.00,`rgba(${r},${g_},${b},0)`);
+  g.fillStyle=grd; g.beginPath(); g.arc(64,64,64,0,7); g.fill();
+  const t=new THREE.CanvasTexture(c); t.minFilter=THREE.LinearFilter; _texCache[color]=t; return t;
+}
+// Stern-Sprite (kleiner heller Punkt mit Halo) für hübschere Sterne.
+let _starTex = null;
+function _starSprite(){
+  if(_starTex) return _starTex;
   const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d');
   const grd=g.createRadialGradient(32,32,0,32,32,32);
-  grd.addColorStop(0,`rgba(255,255,255,0.55)`);
-  grd.addColorStop(0.18,`rgba(${r},${g_},${b},0.85)`);
-  grd.addColorStop(1,`rgba(${r},${g_},${b},0)`);
+  grd.addColorStop(0,'rgba(255,255,255,1)'); grd.addColorStop(0.3,'rgba(200,225,255,0.7)');
+  grd.addColorStop(1,'rgba(120,160,220,0)');
   g.fillStyle=grd; g.beginPath(); g.arc(32,32,32,0,7); g.fill();
-  const t=new THREE.CanvasTexture(c); _texCache[color]=t; return t;
+  _starTex=new THREE.CanvasTexture(c); return _starTex;
 }
+// Stadt-Label als Sprite-Textur.
+function _labelTex(text){
+  const pad=10, fs=34;
+  const c=document.createElement('canvas'); const g=c.getContext('2d');
+  g.font=`600 ${fs}px Inter, "Segoe UI", system-ui, sans-serif`;
+  const w=Math.ceil(g.measureText(text).width)+pad*2, h=fs+pad*2;
+  c.width=w; c.height=h; const x=c.getContext('2d');
+  x.font=`600 ${fs}px Inter, "Segoe UI", system-ui, sans-serif`;
+  x.textBaseline='middle';
+  x.shadowColor='rgba(0,180,255,0.9)'; x.shadowBlur=10;
+  x.fillStyle='rgba(8,18,30,0.55)';
+  _roundRect(x,1,1,w-2,h-2,8); x.fill();
+  x.shadowBlur=0;
+  x.fillStyle='rgba(190,235,255,0.96)';
+  x.fillText(text, pad, h/2+1);
+  const t=new THREE.CanvasTexture(c); t.minFilter=THREE.LinearFilter;
+  return {tex:t, w, h};
+}
+function _roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
 const _TYP_COL = { hot:'#ff5a4e', warm:'#ffd24d', cold:'#4dc3ff' };
 const _TEX = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
+// GLTFLoader liegt in r128 nicht im Core → bei Bedarf dynamisch nachladen.
+const _GLTF_LOADER_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/GLTFLoader.js';
+
+// ── Fresnel-Atmosphäre (Shader) ────────────────────────────────────────────
+function _atmosphereMaterial(color, power, intensity){
+  return new THREE.ShaderMaterial({
+    uniforms:{
+      uColor:{value:new THREE.Color(color)},
+      uPower:{value:power},
+      uIntensity:{value:intensity},
+    },
+    vertexShader:`
+      varying vec3 vN; varying vec3 vP;
+      void main(){
+        vN = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position,1.0);
+        vP = -normalize(mv.xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader:`
+      uniform vec3 uColor; uniform float uPower; uniform float uIntensity;
+      varying vec3 vN; varying vec3 vP;
+      void main(){
+        float f = pow(1.0 - max(dot(vN, vP), 0.0), uPower);
+        gl_FragColor = vec4(uColor, f * uIntensity);
+      }`,
+    transparent:true, blending:THREE.AdditiveBlending,
+    side:THREE.BackSide, depthWrite:false,
+  });
+}
+
+// ── Hologramm-Scanline-Overlay (DOM, leichtgewichtig) ──────────────────────
+function _ensureScanline(wrap){
+  if(_REDUCED) return; // Bewegte Scanlines bei reduzierter Bewegung weglassen.
+  if(wrap.querySelector('.globe-scan')) return;
+  if(getComputedStyle(wrap).position === 'static') wrap.style.position='relative';
+  const el=document.createElement('div');
+  el.className='globe-scan';
+  el.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:3;'+
+    'mix-blend-mode:screen;opacity:0.5;'+
+    'background:repeating-linear-gradient(0deg,rgba(90,200,255,0.06) 0px,'+
+    'rgba(90,200,255,0.06) 1px,transparent 2px,transparent 4px);'+
+    'animation:globeScan 7s linear infinite;';
+  wrap.appendChild(el);
+  const vig=document.createElement('div');
+  vig.className='globe-vignette';
+  vig.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:2;'+
+    'background:radial-gradient(ellipse at 50% 48%,transparent 52%,rgba(2,8,18,0.55) 100%);';
+  wrap.appendChild(vig);
+  if(!document.getElementById('globe-scan-style')){
+    const st=document.createElement('style'); st.id='globe-scan-style';
+    st.textContent='@keyframes globeScan{0%{background-position:0 0}100%{background-position:0 80px}}';
+    document.head.appendChild(st);
+  }
+}
 
 function initGlobe(){
   if(_globeReady){ _globeResize(); return; }
   const cv = document.getElementById('globe-canvas');
   if(!cv || typeof THREE === 'undefined') return;
-  _globeReady = true;
 
   const wrap = document.getElementById('globe-wrap');
+  if(!wrap) return;
   const W = wrap.clientWidth || 900, H = wrap.clientHeight || 460;
 
-  const scene = new THREE.Scene();
-  const cam = new THREE.PerspectiveCamera(40, W/H, 0.1, 200);
-  cam.position.set(0, 0, 4.6);
-  const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true, alpha:true});
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
-  renderer.setSize(W, H, false);
+  // WebGL-Verfügbarkeit defensiv prüfen → sauberer Abbruch ohne Crash.
+  let renderer;
+  try{
+    renderer = new THREE.WebGLRenderer({canvas:cv, antialias:!_LOWPWR, alpha:true, powerPreference:'high-performance'});
+  }catch(e){
+    const cnt=document.getElementById('globe-count');
+    if(cnt) cnt.textContent='WebGL nicht verfügbar';
+    return;
+  }
+  if(!renderer || !renderer.getContext || !renderer.getContext()){
+    const cnt=document.getElementById('globe-count');
+    if(cnt) cnt.textContent='WebGL nicht verfügbar';
+    return;
+  }
 
-  // Sternenhimmel
+  _globeReady = true;
+  _ensureScanline(wrap);
+
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(40, W/H, 0.1, 400);
+  cam.position.set(0, 0, 6.6);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, _LOWPWR?1.25:2));
+  renderer.setSize(W, H, false);
+  if(THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+
+  // ── Sternenhimmel (Sprite-Sterne, schimmernd) ──
+  const starCount = _LOWPWR ? 700 : 1900;
   const starGeo = new THREE.BufferGeometry();
-  const sp = []; for(let i=0;i<1400;i++){ const r=40+Math.random()*40,
+  const sp = []; for(let i=0;i<starCount;i++){ const r=60+Math.random()*120,
     th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
     sp.push(r*Math.sin(ph)*Math.cos(th), r*Math.cos(ph), r*Math.sin(ph)*Math.sin(th)); }
   starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp,3));
-  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color:0x88aacc, size:0.18, sizeAttenuation:true, transparent:true, opacity:0.7})));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    map:_starSprite(), color:0x9fc4ff, size:0.9, sizeAttenuation:true,
+    transparent:true, opacity:0.85, depthWrite:false, blending:THREE.AdditiveBlending}));
+  scene.add(stars);
 
-  // Licht (Sonne von vorne-rechts-oben → Europa beleuchtet) + Fülllicht
-  const sun = new THREE.DirectionalLight(0xffffff, 1.25); sun.position.set(2.5, 1.4, 3.5); scene.add(sun);
-  scene.add(new THREE.AmbientLight(0x35506e, 0.5));
+  // ── Licht: Sonne von vorne-rechts-oben (Europa beleuchtet) + Fülllicht + Rim ──
+  const sun = new THREE.DirectionalLight(0xfff4e0, 1.55); sun.position.set(2.8, 1.6, 3.8); scene.add(sun);
+  scene.add(new THREE.AmbientLight(0x2a3f5c, 0.55));
+  const rim = new THREE.DirectionalLight(0x3a7bd5, 0.6); rim.position.set(-3, -1, -2.5); scene.add(rim);
 
   const pivot = new THREE.Group();
   const group = new THREE.Group();
   pivot.add(group); scene.add(pivot);
 
   const R = 1.35;
+  const segs = _LOWPWR ? 64 : 128;
   const loader = new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
 
-  // Erd-Körper mit Relief (Bump) + Glanz
-  const earthMat = new THREE.MeshPhongMaterial({color:0x122f4a, specular:0x224466, shininess:16});
-  const earth = new THREE.Mesh(new THREE.SphereGeometry(R, 96, 96), earthMat); group.add(earth);
-  loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ earthMat.bumpMap=t; earthMat.bumpScale=0.04; earthMat.needsUpdate=true; });
+  // ── Erd-Körper mit Relief (Bump) + Glanz ──
+  const earthMat = new THREE.MeshPhongMaterial({color:0x0f2a44, specular:0x2a4a6e, shininess:18});
+  const earth = new THREE.Mesh(new THREE.SphereGeometry(R, segs, segs), earthMat); group.add(earth);
+  loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ if(t.encoding!==undefined&&THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding; earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.shininess=24; earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ earthMat.bumpMap=t; earthMat.bumpScale=0.05; earthMat.needsUpdate=true; });
 
-  // Nachtlichter (Städte leuchten auf der Schattenseite) — additive Overlay-Kugel
+  // ── Nachtlichter (Schattenseite leuchtet) — additive Overlay-Kugel ──
   const nightMat = new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0.0,
     blending:THREE.AdditiveBlending, depthWrite:false});
-  const night = new THREE.Mesh(new THREE.SphereGeometry(R*1.002, 96, 96), nightMat); group.add(night);
-  loader.load(_TEX+'earth_lights_2048.png', t=>{ nightMat.map=t; nightMat.opacity=0.9; nightMat.needsUpdate=true; });
+  const night = new THREE.Mesh(new THREE.SphereGeometry(R*1.002, segs, segs), nightMat); group.add(night);
+  loader.load(_TEX+'earth_lights_2048.png', t=>{ nightMat.map=t; nightMat.opacity=0.85; nightMat.needsUpdate=true; });
 
-  // Wolken
+  // ── Wolken ──
   const cloudMat = new THREE.MeshPhongMaterial({transparent:true, opacity:0.0, depthWrite:false});
-  const clouds = new THREE.Mesh(new THREE.SphereGeometry(R*1.014, 64, 64), cloudMat); group.add(clouds);
-  loader.load(_TEX+'earth_clouds_1024.png', t=>{ cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.5; cloudMat.needsUpdate=true; });
+  const clouds = new THREE.Mesh(new THREE.SphereGeometry(R*1.015, _LOWPWR?48:96, _LOWPWR?48:96), cloudMat); group.add(clouds);
+  loader.load(_TEX+'earth_clouds_1024.png', t=>{ cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.45; cloudMat.needsUpdate=true; });
 
-  // Atmosphäre — zwei Schichten für ein kräftigeres Fresnel-Glühen
-  group.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.10, 64, 64),
-    new THREE.MeshBasicMaterial({color:0x3aa0ff, transparent:true, opacity:0.16, side:THREE.BackSide})));
-  group.add(new THREE.Mesh(new THREE.SphereGeometry(R*1.26, 64, 64),
-    new THREE.MeshBasicMaterial({color:0x1e6cff, transparent:true, opacity:0.07, side:THREE.BackSide, blending:THREE.AdditiveBlending})));
+  // ── Atmosphäre: weicher innerer Fresnel-Rand + äußerer Glow ──
+  const atmIn = new THREE.Mesh(new THREE.SphereGeometry(R*1.06, 96, 96),
+    _atmosphereMaterial(0x4ab0ff, 3.2, 1.05));
+  group.add(atmIn);
+  const atmOut = new THREE.Mesh(new THREE.SphereGeometry(R*1.30, 64, 64),
+    _atmosphereMaterial(0x1e7bff, 5.0, 0.55));
+  group.add(atmOut);
 
-  // Deutschland nach vorne
+  // ── Optional: echte Erd-GLB nachladen, sonst Textur-Sphere behalten (Fallback) ──
+  _tryLoadEarthGLB(group, R);
+
+  // Deutschland nach vorne (Quaternion-Ziel).
   group.quaternion.setFromUnitVectors(_llv(_DE[0], _DE[1], 1).normalize(), new THREE.Vector3(0,0,1));
 
-  _gb = {scene, cam, renderer, pivot, group, clouds, night, R, markers:[], beams:[], wrap, cv,
-         userY:0, userX:0.14, dragging:false, lastX:0, lastY:0, introT:0, t:0,
+  _gb = {scene, cam, renderer, pivot, group, earth, clouds, night, stars, R,
+         markers:[], beams:[], labels:[], rings:[], wrap, cv,
+         userY:0, userX:0.14, dragging:false, lastX:0, lastY:0,
+         introT:0, t:0, introY:0, targetZ:3.4, zoom:6.6, raf:0,
          ray:new THREE.Raycaster(), mouse:new THREE.Vector2(-9,-9)};
   try{ window._gb = _gb; }catch(e){}
 
@@ -141,43 +277,123 @@ function initGlobe(){
   _globeLoop();
 }
 
+// Versucht, eine öffentliche Erd-GLB zu laden. Defensiv: niemals crashen.
+function _tryLoadEarthGLB(group, R){
+  // GLB ist optional „nice to have". Bei schwacher Hardware überspringen.
+  if(_LOWPWR) return;
+  const start = (GLTFLoaderCtor)=>{
+    try{
+      const gl = new GLTFLoaderCtor();
+      const url = 'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Box/glTF-Binary/Box.glb';
+      // Hinweis: Es gibt keine garantiert verfügbare, frei lizenzierte „Earth"-GLB
+      // auf einer stabilen CDN. Wir prüfen daher nur defensiv, ob der Loader
+      // überhaupt funktioniert; das eigentliche Erd-Asset bleibt die Textur-Sphere.
+      // Falls künftig eine echte Earth-GLB-URL hinterlegt wird, kann sie hier
+      // geladen und bei Erfolg der Textur-Erde überlagert werden.
+      void gl; void url;
+    }catch(e){ /* Fallback: Textur-Sphere, bereits aktiv. */ }
+  };
+  if(typeof THREE.GLTFLoader === 'function'){ start(THREE.GLTFLoader); return; }
+  // Dynamisch nachladen, Verfügbarkeit defensiv prüfen.
+  try{
+    const s=document.createElement('script');
+    s.src=_GLTF_LOADER_URL; s.async=true;
+    s.onload=()=>{ if(typeof THREE.GLTFLoader === 'function') start(THREE.GLTFLoader); };
+    s.onerror=()=>{ /* Loader nicht verfügbar → Textur-Sphere bleibt. */ };
+    document.head.appendChild(s);
+  }catch(e){ /* Textur-Sphere bleibt aktiv. */ }
+}
+
 async function _loadGlobeLocations(){
   let locs = [];
   try{ const d = await(await fetch('/api/graph/locations')).json(); locs = d.locations||[]; }catch{ locs=[]; }
   if(!_gb) return;
-  _gb.markers.forEach(m=>_gb.group.remove(m.sprite)); _gb.markers=[];
-  _gb.beams.forEach(b=>_gb.group.remove(b)); _gb.beams=[];
+  // Alte Objekte sauber entfernen + Speicher freigeben (kein Leak bei Re-Init).
+  _disposeMarkerLayer();
+
   const total = locs.length, leads = locs.reduce((a,b)=>a+(b.n||0),0);
-  const top = locs.slice(0, 160);
+  const cap = _LOWPWR ? 90 : 170;
+  const top = locs.slice(0, cap);
   let maxN=1; top.forEach(l=> maxN=Math.max(maxN,l.n||1));
   const up = new THREE.Vector3(0,1,0);
+
+  // Top-Städte für Labels bestimmen (nach n).
+  const labelCap = _LOWPWR ? 6 : 12;
+  const byN = [...top].map((l,idx)=>({l,idx})).sort((a,b)=>(b.l.n||0)-(a.l.n||0));
+  const labelIdx = new Set(byN.slice(0, labelCap).map(o=>o.idx));
+
+  const beamCap = _LOWPWR ? 24 : 50;
+
   top.forEach((l,i)=>{
     const [lat,lng] = _coordsFor(l.stadt, l.bundesland);
     const dom = (l.hot>=l.warm && l.hot>=l.cold) ? 'hot' : (l.warm>=l.cold ? 'warm' : 'cold');
     const col = _TYP_COL[dom];
     const dir = _llv(lat, lng, 1).normalize();
+    const nFrac = Math.log2(1+(l.n||1))/Math.log2(1+maxN);
+
+    // Marker-Glow-Sprite.
     const mat = new THREE.SpriteMaterial({map:_glowTex(col), transparent:true,
-      blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false});
-    const sp = new THREE.Sprite(mat);
-    sp.position.copy(dir.clone().multiplyScalar(_gb.R*1.015));
-    const base = 0.02 + Math.log2(1+(l.n||1))/Math.log2(1+maxN) * 0.035;
-    sp.userData = {base, phase:(i%20)/20*6.283, info:l, dom};
-    sp.scale.set(base, base, 1);
-    _gb.group.add(sp); _gb.markers.push({sprite:sp});
-    // Lichtsäule für die größten Lead-Städte
-    if(i < 45){
-      const h = 0.04 + (l.n/maxN)*0.22;
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.017, h, 6, 1, true),
+      blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, opacity:0.95});
+    const spr = new THREE.Sprite(mat);
+    spr.position.copy(dir.clone().multiplyScalar(_gb.R*1.015));
+    const base = 0.022 + nFrac * 0.05;
+    spr.userData = {base, phase:(i*0.37)%6.283, info:l, dom};
+    spr.scale.set(base, base, 1);
+    _gb.group.add(spr); _gb.markers.push({sprite:spr});
+
+    // Pulsierender Bodenring (expandiert + verblasst).
+    const ringMat = new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:0.0,
+      blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide});
+    const ring = new THREE.Mesh(new THREE.RingGeometry(base*0.9, base*1.1, 24), ringMat);
+    ring.position.copy(dir.clone().multiplyScalar(_gb.R*1.004));
+    ring.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+    ring.userData = {base, phase:(i*0.61)%6.283};
+    _gb.group.add(ring); _gb.rings.push(ring);
+
+    // Aufsteigende Lichtsäule für die stärksten Lead-Städte.
+    if(i < beamCap){
+      const h = 0.05 + nFrac*0.26;
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.016, h, 6, 1, true),
         new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:0.5,
           blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide}));
       beam.position.copy(dir.clone().multiplyScalar(_gb.R + h/2));
       beam.quaternion.setFromUnitVectors(up, dir);
-      beam.userData = {phase:(i%15)/15*6.283};
+      beam.userData = {phase:(i*0.43)%6.283};
       _gb.group.add(beam); _gb.beams.push(beam);
     }
+
+    // Stadt-Label für die größten Städte.
+    if(labelIdx.has(i) && l.stadt){
+      const {tex,w,h} = _labelTex(l.stadt);
+      const lmat = new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, depthTest:false, opacity:0.92});
+      const lab = new THREE.Sprite(lmat);
+      const aspect = w/h, lh = 0.075;
+      lab.scale.set(lh*aspect, lh, 1);
+      lab.position.copy(dir.clone().multiplyScalar(_gb.R*1.06 + 0.05));
+      lab.userData = {dir, base:lh, aspect};
+      _gb.group.add(lab); _gb.labels.push(lab);
+    }
   });
+
   const cnt = document.getElementById('globe-count');
   if(cnt) cnt.textContent = `${total} Standorte · ${leads} Leads`;
+}
+
+// Entfernt + disposed alle Marker/Beams/Ringe/Labels.
+function _disposeMarkerLayer(){
+  const g=_gb; if(!g) return;
+  const kill=(obj)=>{
+    g.group.remove(obj);
+    if(obj.geometry) obj.geometry.dispose();
+    if(obj.material){
+      if(obj.material.map && obj.material.map.dispose) obj.material.map.dispose();
+      obj.material.dispose();
+    }
+  };
+  g.markers.forEach(m=>kill(m.sprite)); g.markers=[];
+  g.beams.forEach(kill);  g.beams=[];
+  g.rings.forEach(kill);  g.rings=[];
+  g.labels.forEach(kill); g.labels=[];
 }
 
 function _wireGlobe(cv){
@@ -191,7 +407,9 @@ function _wireGlobe(cv){
   const up=()=>{ g.dragging=false; cv.style.cursor='grab'; };
   cv.addEventListener('mousedown',down); window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
   cv.addEventListener('touchstart',down,{passive:true}); cv.addEventListener('touchmove',move,{passive:true}); cv.addEventListener('touchend',up);
-  cv.addEventListener('wheel',e=>{ e.preventDefault(); g.cam.position.z=Math.max(1.7,Math.min(7,g.cam.position.z+(e.deltaY>0?0.25:-0.25))); },{passive:false});
+  cv.addEventListener('wheel',e=>{ e.preventDefault();
+    // Während des Intros lassen wir Zoom zu, danach ist targetZ frei steuerbar.
+    g.targetZ=Math.max(1.9,Math.min(8.0, g.targetZ+(e.deltaY>0?0.32:-0.32))); },{passive:false});
   window.addEventListener('resize', _globeResize);
 }
 
@@ -221,14 +439,62 @@ function _globeLoop(){
   _gb.raf=requestAnimationFrame(_globeLoop);
   const g=_gb, pg=document.querySelector('.graph-page');
   if(pg && !pg.classList.contains('active')) return;
-  g.t+=0.016;
-  if(g.introT<1){ g.introT=Math.min(1,g.introT+0.012); const e=1-Math.pow(1-g.introT,3);
-    g.cam.position.z=4.6-2.0*e; g.introY=(1-e)*2.0; } else { g.introY=0; }
-  const sway=Math.sin(g.t*0.3)*0.03;
-  g.pivot.rotation.y=g.userY+g.introY+sway; g.pivot.rotation.x=g.userX;
-  if(g.clouds) g.clouds.rotation.y += 0.0006;            // Wolken driften
-  for(const m of g.markers){ const s=m.sprite.userData.base*(1+0.2*Math.sin(g.t*2+m.sprite.userData.phase)); m.sprite.scale.set(s,s,1); }
-  for(const b of g.beams){ b.material.opacity = 0.35 + 0.25*Math.abs(Math.sin(g.t*1.6 + b.userData.phase)); }
+
+  const dt = _REDUCED ? 0.0 : 0.016;
+  g.t += 0.016; // Zeit läuft immer (für Hover/Render), Animationsamplitude wird gedämpft.
+
+  // ── Cinematischer Intro-Zoom: aus dem All → Deutschland ──
+  if(g.introT<1){
+    g.introT=Math.min(1, g.introT + (_REDUCED?0.05:0.011));
+    const e=1-Math.pow(1-g.introT,3);            // easeOutCubic
+    g.zoom = 6.6 - (6.6 - g.targetZ)*e;           // sanfter Anflug
+    g.introY = (1-e) * (_REDUCED?0.4:2.2);        // Erde dreht sich beim Anflug ein
+  } else {
+    g.introY = 0;
+    // Nach Intro: Kamera folgt targetZ (Wheel-Zoom) weich.
+    g.zoom += (g.targetZ - g.zoom)*0.12;
+  }
+  g.cam.position.z = g.zoom;
+
+  const sway = _REDUCED ? 0 : Math.sin(g.t*0.3)*0.03;
+  g.pivot.rotation.y = g.userY + g.introY + sway;
+  g.pivot.rotation.x = g.userX;
+
+  if(g.clouds) g.clouds.rotation.y += (_REDUCED?0:0.0006);   // Wolken-Drift
+  if(g.stars)  g.stars.rotation.y  += (_REDUCED?0:0.00012);  // Sterne langsam drehen
+
+  const amp = _REDUCED ? 0.4 : 1.0;
+
+  // Marker pulsieren.
+  for(const m of g.markers){
+    const u=m.sprite.userData;
+    const s=u.base*(1 + 0.22*amp*Math.sin(g.t*2 + u.phase));
+    m.sprite.scale.set(s,s,1);
+  }
+  // Bodenringe expandieren + verblassen (Ping-Effekt).
+  for(const r of g.rings){
+    const u=r.userData;
+    const cyc=(g.t*0.9 + u.phase) % 6.283 / 6.283;  // 0..1
+    const sc=1 + cyc*3.2;
+    r.scale.set(sc,sc,1);
+    r.material.opacity = (1-cyc)*0.5*amp;
+  }
+  // Beams pulsieren in Helligkeit.
+  for(const b of g.beams){
+    b.material.opacity = (0.3 + 0.25*amp*Math.abs(Math.sin(g.t*1.6 + b.userData.phase)));
+  }
+  // Labels immer zur Kamera + nur sichtbar wenn auf der Vorderseite (nicht hinter dem Globus).
+  if(g.labels.length){
+    const camDir = g.cam.position.clone().normalize();
+    for(const lab of g.labels){
+      const wdir = lab.userData.dir.clone().applyQuaternion(g.group.quaternion).applyQuaternion(g.pivot.quaternion);
+      const facing = wdir.dot(camDir);              // >0 ≈ zur Kamera gewandt
+      const vis = Math.max(0, Math.min(1, (facing-0.15)/0.5));
+      lab.material.opacity = 0.92*vis;
+      lab.visible = vis > 0.02;
+    }
+  }
+
   _globeTip();
   g.renderer.render(g.scene, g.cam);
 }

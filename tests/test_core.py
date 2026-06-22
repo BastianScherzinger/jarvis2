@@ -507,6 +507,58 @@ def test_contact_finder_graceful_ohne_treffer(monkeypatch):
     assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
 
 
+def test_hardware_profile():
+    import hardware_profile as hp
+    p = hp.profile()
+    assert p["tier"] in ("server", "workstation", "desktop", "laptop", "low")
+    for k in ("image_steps", "improve_images", "media_parallel", "nightly_improve_per_cycle"):
+        assert isinstance(p[k], int) and p[k] >= 1
+    assert isinstance(hp.summary(), str) and hp.summary().isascii()   # cp1252-sicher
+    assert hp.get("improve_images") == p["improve_images"]
+
+
+def test_hardware_profile_tier_override(monkeypatch):
+    import hardware_profile as hp
+    monkeypatch.setenv("JARVIS_PERF_TIER", "server")
+    assert hp.tier() == "server"
+    assert hp.profile()["improve_images"] == 6 and hp.profile()["media_parallel"] == 4
+
+
+def test_qa_security_clean():
+    import qa_security
+    r = qa_security.run_all()
+    assert r["summary"]["compile_ok"] is True
+    # Die Security-Hinweise INNERHALB der Agenten-Prompts (team.py) dürfen NICHT
+    # als echte Findings durchschlagen (kein False-Positive).
+    assert r["summary"]["high"] == 0
+    assert isinstance(qa_security.report_text(), str)
+
+
+def test_tts_local_only(monkeypatch):
+    import tts
+    monkeypatch.setenv("JARVIS_TTS_LOCAL", "1")
+    assert tts._local_only() is True
+    assert "lokal" in tts.backend_name().lower()
+    monkeypatch.delenv("JARVIS_TTS_LOCAL", raising=False)
+    assert tts._local_only() is False
+
+
+def test_media_queue_cloud_routing():
+    import media_queue
+    assert "higgsfield" in media_queue._CLOUD_KINDS
+    assert "higgsfield_image" in media_queue._CLOUD_KINDS
+    assert "image" not in media_queue._CLOUD_KINDS and "video" not in media_queue._CLOUD_KINDS
+
+
+def test_perf_and_qa_routes():
+    import app
+    c = app.app.test_client()
+    rp = c.get("/api/perf").get_json()
+    assert rp["ok"] and rp["profile"]["tier"]
+    rq = c.get("/api/qa").get_json()
+    assert rq["ok"] and rq["summary"]["compile_ok"] is True
+
+
 def test_feature_backlog():
     import feature_backlog as fb
     feats = fb.features_for("Dachdecker Müller")

@@ -13,8 +13,13 @@ from pathlib import Path
 
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
-_q: queue.Queue = queue.Queue()
+_q: queue.Queue = queue.Queue()              # lokale Jobs (GPU/CPU — seriell)
+_cloud_q: queue.Queue = queue.Queue()        # Cloud-Jobs (Higgsfield — parallelisierbar)
 _worker_started = False
+_cloud_started = False
+
+# Cloud-Job-Typen brauchen KEINE lokale GPU → dürfen auf starkem Server parallel laufen.
+_CLOUD_KINDS = {"higgsfield", "higgsfield_image"}
 
 _BASE = Path(__file__).parent
 _IMAGES_DIR = _BASE / "workspace" / "media" / "images"
@@ -22,14 +27,32 @@ _VIDEOS_DIR = _BASE / "workspace" / "media" / "videos"
 
 
 def _ensure_worker() -> None:
-    """Startet den Worker-Thread lazy beim ersten submit (daemon)."""
+    """Startet den lokalen (seriellen) Worker-Thread lazy beim ersten submit."""
     global _worker_started
     with _lock:
         if _worker_started:
             return
-        t = threading.Thread(target=_worker, name="media-worker", daemon=True)
-        t.start()
+        threading.Thread(target=_worker, args=(_q,), name="media-worker", daemon=True).start()
         _worker_started = True
+
+
+def _ensure_cloud_workers() -> None:
+    """Startet einen Pool von Cloud-Workern, dimensioniert nach Leistungsstufe
+    (media_parallel) — so laufen auf einem starken Server viele Higgsfield-Jobs
+    gleichzeitig, während die lokale GPU seriell bleibt."""
+    global _cloud_started
+    with _lock:
+        if _cloud_started:
+            return
+        try:
+            import hardware_profile
+            n = max(1, int(hardware_profile.get("media_parallel", 2)))
+        except Exception:
+            n = 2
+        for i in range(n):
+            threading.Thread(target=_worker, args=(_cloud_q,),
+                             name=f"media-cloud-{i}", daemon=True).start()
+        _cloud_started = True
 
 
 def submit(kind: str, params: dict) -> str:
@@ -60,8 +83,13 @@ def submit(kind: str, params: dict) -> str:
     }
     with _lock:
         _jobs[job_id] = job
-    _ensure_worker()
-    _q.put(job_id)
+    # Cloud-Jobs (Higgsfield) in den parallelen Pool, lokale Jobs in die serielle Queue.
+    if kind in _CLOUD_KINDS:
+        _ensure_cloud_workers()
+        _cloud_q.put(job_id)
+    else:
+        _ensure_worker()
+        _q.put(job_id)
     return job_id
 
 
@@ -87,14 +115,15 @@ def _set(job_id: str, **fields) -> None:
             job.update(fields)
 
 
-def _worker() -> None:
+def _worker(q: "queue.Queue") -> None:
     """
-    Endlos-Loop: nimmt Jobs aus der Queue und arbeitet sie seriell ab.
-    media_engine wird ERST hier importiert (lazy — torch-Import dauert lange,
-    soll Flask-Start nicht blockieren).
+    Endlos-Loop: nimmt Jobs aus der übergebenen Queue und arbeitet sie ab.
+    Lokale Queue = seriell (1 Worker, GPU/VRAM-Constraint); Cloud-Queue = mehrere
+    Worker parallel (Higgsfield braucht keine lokale GPU). media_engine wird ERST
+    hier importiert (lazy — torch-Import dauert lange, soll Flask-Start nicht blockieren).
     """
     while True:
-        job_id = _q.get()
+        job_id = q.get()
         with _lock:
             job = _jobs.get(job_id)
         if job is None:

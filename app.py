@@ -814,6 +814,52 @@ def api_autobuild_daily():
     return jsonify(auto_builder.daily_log())
 
 
+@app.route("/api/perf")
+def api_perf():
+    """Aktuelles Leistungsprofil (Auto-Adapt CPU/GPU)."""
+    try:
+        import hardware_profile
+        return jsonify({"ok": True, "profile": hardware_profile.profile(),
+                        "summary": hardware_profile.summary()})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": str(e)})
+
+
+@app.route("/api/qa")
+def api_qa():
+    """Separates QA-/Security-/Upgrade-Verfahren (Bug-Check + Security-Scan + Deps)."""
+    try:
+        import qa_security
+        return jsonify({"ok": True, **qa_security.run_all()})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": str(e)})
+
+
+@app.route("/api/media/generate/background", methods=["POST"])
+def api_media_generate_background():
+    """Generiert ein stimmiges Hintergrund-Bild (Iron-Man-HUD-Szene) lokal oder über
+    Higgsfield und legt es als static/img/bg_custom.png ab (Frontend nutzt es dann)."""
+    body    = request.get_json(silent=True) or {}
+    backend = (body.get("backend") or "local").strip()
+    prompt  = (body.get("prompt") or
+               "cinematic futuristic high-tech command center, dark control room, holographic "
+               "blue data displays, Iron Man JARVIS lab atmosphere, glowing arc-reactor light, "
+               "depth of field, ultra detailed, 8k, no text, no people").strip()
+    out_dir = Path(__file__).parent / "static" / "img"
+    try:
+        import media_engine
+        if backend == "higgsfield":
+            res = media_engine.generate_image_higgsfield(prompt, output_dir=out_dir,
+                                                         filename="bg_custom.png", width=1920, height=1080)
+        else:
+            hp = media_engine.hero_image_params()
+            res = media_engine.generate_image(prompt, output_dir=out_dir,
+                                              filename="bg_custom.png", **{k: hp[k] for k in ("model_key", "steps") if k in hp})
+        return jsonify({"ok": True, "url": "/static/img/bg_custom.png", "model": res.get("model", "")})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {str(e)[:160]}"})
+
+
 @app.route("/api/logs")
 def api_logs():
     limit   = int(request.args.get("limit", 150))

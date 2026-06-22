@@ -14,6 +14,11 @@ ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "JBFqnCBsd6RMkjVDRZzb")
 EDGE_VOICE       = os.getenv("JARVIS_VOICE",     "de-DE-ConradNeural")
 EDGE_RATE        = os.getenv("JARVIS_RATE",      "+15%")
 
+# 100% lokale Sprache (offline-fähig): erzwingt pyttsx3 (Windows-SAPI/espeak),
+# umgeht edge-tts/ElevenLabs (Cloud). Für Server/Offline-Betrieb.
+def _local_only() -> bool:
+    return os.getenv("JARVIS_TTS_LOCAL", "").strip().lower() in ("1", "true", "yes", "on")
+
 # ── Prebuild-Cache ─────────────────────────────────────────────────
 _cache: dict[str, tuple[bytes, str]] = {}
 
@@ -37,6 +42,8 @@ def speak(text: str) -> tuple[bytes, str]:
     text = text.strip()
     if not text:
         raise ValueError("Kein Text")
+    if _local_only():                       # 100% lokal/offline erzwungen
+        return _pyttsx3_speak(text)
     if ELEVENLABS_KEY:
         return _elevenlabs(text)
     try:
@@ -157,6 +164,8 @@ def _elevenlabs(text: str) -> tuple[bytes, str]:
 
 
 def backend_name() -> str:
+    if _local_only():
+        return "pyttsx3 (lokal/offline)"
     if ELEVENLABS_KEY:
         return f"ElevenLabs ({ELEVENLABS_VOICE[:12]}...)"
     return f"edge-tts ({EDGE_VOICE})  +  pyttsx3 Fallback"

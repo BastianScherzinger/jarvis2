@@ -854,7 +854,25 @@ def get_status() -> dict:
         "empfehlung":         hinweis,
         "auto_image_model":   IMAGE_MODELS.get(auto_key, {}).get("name", auto_key),
         "auto_image_model_key": auto_key,
+        "perf_tier":          _perf_tier(),
+        "perf_summary":       _perf_summary(),
     }
+
+
+def _perf_tier() -> str:
+    try:
+        import hardware_profile
+        return hardware_profile.tier()
+    except Exception:
+        return ""
+
+
+def _perf_summary() -> str:
+    try:
+        import hardware_profile
+        return hardware_profile.summary()
+    except Exception:
+        return ""
 
 
 def _check_diffusers() -> bool:

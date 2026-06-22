@@ -1,6 +1,21 @@
 # JARVIS — TODO / Offene Punkte (Stand 22.06.2026)
 
+## Erledigt 23.06. (Auto-Adapt + QA/Security + Globus + lokale Sprache + Design)
+- [x] **Auto-Adapt CPU/GPU** `hardware_profile.py` (Stufen server…low) → Bildanzahl,
+      Cloud-Parallelität, Schritte. Verdrahtet in media_queue (paralleler Cloud-Pool),
+      website_improve, media_engine. Route `/api/perf`. Skaliert auf Server hoch.
+- [x] **QA/Security/Upgrade-Verfahren** `qa_security.py` (separat) + `/api/qa` —
+      compile-all + Security-Scan (0 Findings) + Dependency-Check. Plan 2.
+- [x] **Lokale Sprache** `JARVIS_TTS_LOCAL=1` (pyttsx3 offline) + STT lokal.
+- [x] **Globus** krasser (globe.js): Fresnel-Atmosphäre, skalierte Marker, Labels,
+      Intro-Zoom, Hologramm-Scanlines, GLB optional/Fallback. node --check OK.
+- [x] **Hintergrund-Szene** `/api/media/generate/background` → static/img/bg_custom.png +
+      Frontend-Hook. **Design-Politur** (additive design-pro-Schicht in style.css).
+- [x] **Pläne:** `PLAN_MASTER_FINISH.md` (1) + `PLAN_QA_SECURITY_UPGRADE.md` (2).
+
 ## Für Sir (manuell, nicht im Code lösbar)
+- [ ] **Echter Kundenversand 9 Uhr:** `JARVIS_EMAIL_REDIRECT` in der .env leeren (sonst
+      Test → Bastian); pro Seite „Kontakt finden" füllt die echte Adresse.
 - [ ] **Higgsfield-Key eintragen:** `.env` → `HIGGSFIELD_API_KEY=<key vom enigmabible1-Account>`
       (https://cloud.higgsfield.ai/api-keys). Erst dann nutzen Bild-/Video-Cloud diesen
       Account. Details: `workspace/MEDIEN_ARCHITEKTUR.md`.

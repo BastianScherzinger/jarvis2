@@ -1644,6 +1644,28 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 .ws-mail-link.bad{ color:var(--r); border-color:rgba(255,59,78,.5); background:rgba(255,59,78,.08); }
 .ws-mail-frame{ flex:1; width:100%; border:none; background:#fff; border-radius:0 0 12px 12px; }
 
+/* ═══ design-pro Politur (additive Schicht — bricht nichts, hebt nur an) ═══ */
+*{ scrollbar-width: thin; scrollbar-color: rgba(80,200,255,.35) transparent; }
+*::-webkit-scrollbar{ width:9px; height:9px; }
+*::-webkit-scrollbar-thumb{ background:rgba(80,200,255,.28); border-radius:8px; }
+*::-webkit-scrollbar-thumb:hover{ background:rgba(80,200,255,.5); }
+/* Konsistente, weiche Fokus-Ringe für Tastatur-Bedienung (a11y) */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2px; border-radius:6px; }
+/* Buttons: sanftes Anheben + ruhiger Übergang */
+.start-btn, .topnav-btn, .ws-act, .af-gen{ transition:transform .14s ease-out, box-shadow .18s ease-out, background .18s, border-color .18s; }
+.ws-act:hover{ transform:translateY(-1px); }
+/* Karten: mehrschichtiger, weicher Schatten statt harter Glow */
+.ws-card, .job-card, .rt-card{ transition:transform .18s ease-out, box-shadow .22s ease-out; }
+.ws-card:hover{ transform:translateY(-2px); box-shadow:0 16px 40px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.18); }
+/* Sanfter Seiten-Einblendeffekt beim Tab-Wechsel */
+.page.active{ animation: pgFade .32s ease-out both; }
+@keyframes pgFade{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce){
+  .page.active{ animation:none; }
+  .start-btn, .topnav-btn, .ws-act, .ws-card, .job-card, .rt-card{ transition:none; }
+}
+
 /* Bilder */
 .ws-media{ display:flex; flex-direction:column; gap:7px; }
 .ws-media-lbl{

@@ -772,10 +772,24 @@ async function _autoPoll(){
   loadTop();
   loadVerifierModel();
   loadMediaModels();
+  _applyCustomBg();
   setInterval(loadTop, 30000);
   _initPageFromHash();
   _autoPoll();
 })();
+
+// Generiertes Hintergrundbild (static/img/bg_custom.png) anwenden, falls vorhanden.
+function _applyCustomBg(){
+  const img = new Image();
+  img.onload = () => {
+    document.body.style.backgroundImage =
+      `linear-gradient(rgba(2,6,14,.72),rgba(2,6,14,.82)), url('/static/img/bg_custom.png?v=${Date.now()}')`;
+    document.body.style.backgroundSize = 'cover';
+    document.body.style.backgroundPosition = 'center';
+    document.body.style.backgroundAttachment = 'fixed';
+  };
+  img.src = '/static/img/bg_custom.png?probe=' + Date.now();
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION

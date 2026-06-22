@@ -361,11 +361,17 @@ def _generate_images(folder: Path, branche: str, content: dict, say) -> None:
         img_dir.mkdir(parents=True, exist_ok=True)
         timeout = getattr(website_builder, "_HERO_TIMEOUT", 180)
         hp = media_engine.hero_image_params()
+        # Anzahl der Bilder hardware-adaptiv (starker Server = mehr, Laptop = weniger).
+        try:
+            import hardware_profile
+            n_imgs = max(2, int(hardware_profile.get("improve_images", 5)))
+        except Exception:
+            n_imgs = 5
         # Hero ZULETZT (generate_hero_local_timed schreibt immer hero.png).
-        specs = [
-            ("ueber.png", "about",
-             f"authentic editorial photo of a friendly German {branche} team at work, warm "
-             "natural light, professional, trustworthy, ultra detailed, high quality, no text, no logo"),
+        about = ("ueber.png", "about",
+                 f"authentic editorial photo of a friendly German {branche} team at work, warm "
+                 "natural light, professional, trustworthy, ultra detailed, high quality, no text, no logo")
+        galerie = [
             ("ref1.png", "gal",
              f"close-up detail photograph of high-quality {branche} craftsmanship, sharp focus, "
              "premium, natural light, high quality, no text, no logo"),
@@ -375,13 +381,19 @@ def _generate_images(folder: Path, branche: str, content: dict, say) -> None:
             ("ref3.png", "gal",
              f"happy satisfied German customer after {branche} service, candid, warm light, "
              "high quality, no text, no logo"),
-            ("hero.png", "hero",
-             f"cinematic wide hero banner photograph of a premium German {branche} business, modern, "
-             "dramatic natural light, ultra detailed, high quality, no text, no logo, no watermark"),
+            ("ref4.png", "gal",
+             f"professional wide-angle photo of {branche} work in progress, dynamic, natural light, "
+             "high quality, no text, no logo"),
         ]
+        hero = ("hero.png", "hero",
+                f"cinematic wide hero banner photograph of a premium German {branche} business, modern, "
+                "dramatic natural light, ultra detailed, high quality, no text, no logo, no watermark")
+        # about + (n-2) Galerie + hero
+        specs = [about] + galerie[:max(0, n_imgs - 2)] + [hero]
         fotos = []
+        anz = len(specs)
         for i, (fn, role, prompt) in enumerate(specs, 1):
-            say(42 + int(i / len(specs) * 34), f"Bild {i}/5 wird generiert ({role})…")
+            say(42 + int(i / anz * 34), f"Bild {i}/{anz} wird generiert ({role})…")
             ok = website_builder._generate_hero_local_timed(media_engine, prompt, img_dir, {**hp}, timeout)
             src = img_dir / "hero.png"
             if ok and fn != "hero.png" and src.exists():
