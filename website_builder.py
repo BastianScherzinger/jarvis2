@@ -193,15 +193,24 @@ def _slug(text: str) -> str:
     return (text or "kunde")[:40]
 
 
+def _day_dir() -> Path:
+    """Tagesordner: <base>/jarvis_websites/<JJJJ-MM-TT>/ — Seiten werden pro Tag
+    sortiert abgelegt."""
+    d = _SHOP_BASE / "jarvis_websites" / time.strftime("%Y-%m-%d")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _unique_dir(slug: str) -> Path:
-    base = _SHOP_BASE / f"web_{slug}"
+    day = _day_dir()
+    base = day / f"web_{slug}"
     if not base.exists():
         return base
     for i in range(2, 50):
-        cand = _SHOP_BASE / f"web_{slug}-{i}"
+        cand = day / f"web_{slug}-{i}"
         if not cand.exists():
             return cand
-    return _SHOP_BASE / f"web_{slug}-{uuid.uuid4().hex[:4]}"
+    return day / f"web_{slug}-{uuid.uuid4().hex[:4]}"
 
 
 def _download_photos(urls: list, target: Path, on_progress=None) -> list:
@@ -677,7 +686,12 @@ def find_built_sites() -> list[dict]:
                 bekannt[w["folder"]] = w.get("live_url") or bekannt.get(w["folder"], "")
     except Exception:
         pass
-    for d in sorted(base.glob("web_*")):
+    # Alte flache Ablage (base/web_*) + neue Tagesordner (base/jarvis_websites/<tag>/web_*)
+    kandidaten = list(base.glob("web_*"))
+    nested = base / "jarvis_websites"
+    if nested.exists():
+        kandidaten += list(nested.glob("*/web_*"))
+    for d in sorted(set(kandidaten)):
         if not d.is_dir():
             continue
         if not (d / "content.json").exists() and not (d / "manage.py").exists():

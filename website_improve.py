@@ -16,10 +16,27 @@ Beide arbeiten auf dem Projektordner; das Re-Deploy macht website_builder.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
 MODEL = "claude-opus-4-8"
+
+
+def _improve_local() -> bool:
+    """True = Verbesserungs-Pässe laufen über das lokale Ollama-Modell (GPU, kein
+    API-Verbrauch). Schalter: JARVIS_IMPROVE_LOCAL=1. Für den Nightly-Improver."""
+    return os.environ.get("JARVIS_IMPROVE_LOCAL", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _local_json(system: str, prompt: str) -> "dict | None":
+    """JSON-Pass über das lokale Ollama-Modell (localhost:11434). Best-effort."""
+    try:
+        from scrapers._http import ask_ollama
+        raw = ask_ollama(prompt, system, model=os.environ.get("JARVIS_TOOL_MODEL", ""))
+        return _extract_json(raw or "")
+    except Exception:
+        return None
 
 
 def _client():
@@ -71,6 +88,12 @@ def _extract_json(text: str) -> "dict | None":
 
 
 def _claude_json(system: str, prompt: str, max_tokens: int = 2200) -> "dict | None":
+    # Lokaler Modus (Nightly-Improver auf der GPU): erst Ollama, Claude nur als
+    # Fallback, falls lokal kein valides JSON kam UND ein API-Key vorhanden ist.
+    if _improve_local():
+        d = _local_json(system, prompt)
+        if d is not None:
+            return d
     client = _client()
     if client is None:
         return None

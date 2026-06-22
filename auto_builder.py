@@ -1,28 +1,51 @@
 """
-auto_builder.py — Auto-Website-Builder.
+auto_builder.py — Täglicher Auto-Website-Builder + Nightly-Improver.
 
-Hintergrund-Schleife: sucht den besten Lead OHNE Webseite (höchster Erwartungswert,
-noch nicht gebaut), baut + deployt eine Seite, verbessert sie (Top-verbessern) und
-schickt jedes Mal eine E-Mail an Bastian. Läuft, bis er gestoppt wird oder keine
-offenen Leads mehr da sind.
+Tagesrhythmus (läuft ab Start und ab 0 Uhr jeden Tag neu):
+  Phase 1  Bauen   — bis zu JARVIS_DAILY_SITES (Default 10) neue Seiten für die
+                     besten Leads OHNE Website: bauen → deployen → verbessern →
+                     E-Mail an Bastian. Jede gebaute Seite wird in der Tages-
+                     Historie (data/daily_builds.json) gespeichert.
+  Phase 2  Verbessern — sind die 10 gebaut (oder keine Leads mehr offen), werden bis
+                     zur Cutoff-Stunde (JARVIS_IMPROVE_UNTIL_HOUR, Default 10 = 10:00)
+                     bestehende Seiten rundlaufend weiter verbessert (lokal auf der GPU).
+  Phase 3  Pause   — danach Leerlauf bis Mitternacht; um 0 Uhr beginnt Phase 1 neu.
+
+Stoppt nur auf manuellen Stop — NICHT mehr, wenn keine Leads übrig sind.
 """
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
+from datetime import date, datetime
+from pathlib import Path
 
 import logger
 
 _BASTIAN = "bastian.scherzinger05@gmail.com"
+_BASE     = Path(__file__).parent
+_LOG_PATH = _BASE / "data" / "daily_builds.json"
 
-_state = {"running": False, "current": "", "phase": "", "done": 0, "failed": 0,
-          "last": "", "started": 0.0}
+_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+_IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
+
+_state = {
+    "running": False, "current": "", "phase": "", "done": 0, "failed": 0,
+    "last": "", "started": 0.0, "day": "", "today_count": 0,
+    "daily_limit": _DAILY_LIMIT, "improve_until_hour": _IMPROVE_UNTIL, "mode": "",
+}
 _lock = threading.Lock()
 
 
+# ── Status / Steuerung ────────────────────────────────────────────────────────
+
 def status() -> dict:
     with _lock:
-        return dict(_state)
+        s = dict(_state)
+    s["today_count"] = _count_today()
+    return s
 
 
 def is_running() -> bool:
@@ -40,17 +63,60 @@ def start() -> dict:
         if _state["running"]:
             return {"ok": True, "already": True}
         _state.update({"running": True, "started": time.time(), "current": "",
-                       "phase": "Suche besten Lead…"})
+                       "day": _today(), "phase": "Starte Tagesplan…", "mode": "build"})
     threading.Thread(target=_loop, name="AutoBuilder", daemon=True).start()
-    logger.info("AutoBuilder", "gestartet")
+    logger.info("AutoBuilder", f"gestartet — {_DAILY_LIMIT} Seiten/Tag, Verbesserung bis {_IMPROVE_UNTIL}:00")
     return {"ok": True}
 
 
 def stop() -> dict:
-    _set(running=False, phase="gestoppt", current="")
+    _set(running=False, phase="gestoppt", current="", mode="")
     logger.info("AutoBuilder", "gestoppt")
     return {"ok": True}
 
+
+# ── Tages-Historie (persistente Speicherung welche Seiten wann gebaut wurden) ──
+
+def _today() -> str:
+    return date.today().isoformat()
+
+
+def _load_log() -> dict:
+    try:
+        return json.loads(_LOG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_log(log: dict) -> None:
+    try:
+        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LOG_PATH.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _count_today() -> int:
+    return len(_load_log().get(_today(), []))
+
+
+def _record(entry: dict) -> None:
+    """Speichert eine gebaute Seite in der Tages-Historie (data/daily_builds.json)."""
+    log = _load_log()
+    log.setdefault(_today(), []).append(entry)
+    _save_log(log)
+    _set(today_count=len(log[_today()]))
+
+
+def daily_log(days: int = 14) -> dict:
+    """Tages-Historie (neueste Tage zuerst, begrenzt) für die UI."""
+    log = _load_log()
+    tage = sorted(log.keys(), reverse=True)[:max(1, days)]
+    return {"today": _today(), "daily_limit": _DAILY_LIMIT,
+            "days": [{"date": t, "sites": log[t]} for t in tage]}
+
+
+# ── Lead-Auswahl ──────────────────────────────────────────────────────────────
 
 def _built_keys() -> set:
     try:
@@ -81,7 +147,24 @@ def _pick_next_lead():
     return None
 
 
-def _wait_job(job_id: str, timeout: int = 900):
+def _pick_improve_target():
+    """Bestehende, fertige Seite mit dem ältesten 'updated' (rundlaufend verbessern)."""
+    try:
+        import db_websites
+        sites = [w for w in db_websites.get_all()
+                 if (w.get("folder") and os.path.isdir(w["folder"])
+                     and (w.get("status") == "done"))]
+        if not sites:
+            return None
+        sites.sort(key=lambda w: w.get("updated") or 0)
+        return sites[0]
+    except Exception:
+        return None
+
+
+# ── Job-Warten + E-Mail ───────────────────────────────────────────────────────
+
+def _wait_job(job_id: str, timeout: int = 1800):
     import website_builder
     end = time.time() + timeout
     while time.time() < end:
@@ -93,7 +176,8 @@ def _wait_job(job_id: str, timeout: int = 900):
         if job.get("status") in ("done", "error"):
             return job
         time.sleep(3)
-    return website_builder.get(job_id)
+    import website_builder as wb
+    return wb.get(job_id)
 
 
 def _email(name: str, link: str, branche: str, stadt: str, ansprechpartner: str = "") -> None:
@@ -106,49 +190,102 @@ def _email(name: str, link: str, branche: str, stadt: str, ansprechpartner: str 
         logger.warn("AutoBuilder", f"E-Mail fehlgeschlagen: {type(e).__name__}")
 
 
-def _loop() -> None:
-    import website_builder
-    while is_running():
-        lead = _pick_next_lead()
-        if not lead:
-            _set(phase="Keine offenen Leads mehr — fertig.", current="", running=False)
-            logger.success("AutoBuilder", "Alle offenen Leads abgearbeitet")
-            return
-        name = (lead.get("name") or "").strip()
-        stadt = lead.get("stadt", "")
-        branche = lead.get("branche", "")
-        _set(current=name, phase="Baue Webseite…")
-        logger.info("AutoBuilder", f"Baue Webseite für {name}")
-        try:
-            jid = website_builder.build(dict(lead))
-            job = _wait_job(jid)
-            if not is_running():
-                return
-            folder = (job or {}).get("folder", "")
-            # Jedes Mal verbessern (Top-verbessern)
-            if folder:
-                _set(phase="Top-verbessern…")
-                ij = website_builder.improve_existing(folder, name)
-                job = _wait_job(ij) or job
-            if not is_running():
-                return
-            # Nur der echte Live-Link taugt als Webseiten-CTA (kein Repo-Link).
-            link = (job or {}).get("live_url") or ""
-            ap = ""
-            try:
-                import db_websites
-                wrow = db_websites.get_by_job(jid) or {}
-                ap = wrow.get("ansprechpartner") or ""
-            except Exception:
-                pass
-            _set(phase="E-Mail an Bastian…")
-            _email(name, link, branche, stadt, ap)
-            with _lock:
-                _state["done"] += 1
-                _state["last"] = name
-            logger.success("AutoBuilder", f"Fertig: {name} ({link or 'lokal'})")
-        except Exception as e:
-            with _lock:
-                _state["failed"] += 1
-            logger.error("AutoBuilder", f"Fehler bei {name}: {type(e).__name__}")
+def _before_cutoff() -> bool:
+    """True solange vor der Cutoff-Stunde (Verbesserungs-Fenster offen)."""
+    return datetime.now().hour < _IMPROVE_UNTIL
+
+
+def _idle_sleep(seconds: int = 60) -> None:
+    """Schläft in kleinen Schritten, damit Stop sofort greift."""
+    end = time.time() + seconds
+    while time.time() < end and is_running():
         time.sleep(2)
+
+
+# ── Hauptschleife ─────────────────────────────────────────────────────────────
+
+def _build_and_email(lead: dict) -> None:
+    import website_builder
+    import db_websites
+    name    = (lead.get("name") or "").strip()
+    stadt   = lead.get("stadt", "")
+    branche = lead.get("branche", "")
+    _set(mode="build", current=name, phase=f"Baue Webseite ({_count_today()+1}/{_DAILY_LIMIT})…")
+    logger.info("AutoBuilder", f"Baue Webseite für {name}")
+    jid = website_builder.build(dict(lead))
+    job = _wait_job(jid)
+    if not is_running():
+        return
+    folder = (job or {}).get("folder", "")
+    if folder:
+        _set(phase="Top-verbessern…")
+        ij  = website_builder.improve_existing(folder, name)
+        job = _wait_job(ij) or job
+    if not is_running():
+        return
+    link = (job or {}).get("live_url") or ""
+    wrow = {}
+    try:
+        wrow = db_websites.get_by_job(jid) or {}
+    except Exception:
+        pass
+    _set(phase="E-Mail an Bastian…")
+    _email(name, link, branche, stadt, wrow.get("ansprechpartner", ""))
+    _record({"name": name, "stadt": stadt, "branche": branche, "link": link,
+             "email": wrow.get("kontakt_email", ""), "folder": folder,
+             "ts": time.time()})
+    with _lock:
+        _state["done"] += 1
+        _state["last"] = name
+    logger.success("AutoBuilder", f"Fertig: {name} ({link or 'lokal'})")
+
+
+def _improve_existing_once() -> bool:
+    """Verbessert EINE bestehende Seite (Nightly-Improver). True wenn etwas getan."""
+    import website_builder
+    tgt = _pick_improve_target()
+    if not tgt:
+        return False
+    name = tgt.get("name") or "Seite"
+    _set(mode="improve", current=name, phase="Verbessere bestehende Seite (lokal)…")
+    logger.info("AutoBuilder", f"Nightly-Improve: {name}")
+    try:
+        ij = website_builder.improve_existing(tgt["folder"], name)
+        _wait_job(ij)
+    except Exception as e:
+        logger.warn("AutoBuilder", f"Improve fehlgeschlagen: {type(e).__name__}")
+    return True
+
+
+def _loop() -> None:
+    while is_running():
+        today = _today()
+        with _lock:
+            if _state["day"] != today:               # neuer Tag → Zähler/Phase zurück
+                _state["day"] = today
+                logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
+
+        # ── Phase 1: bis Tageslimit neue Seiten bauen ────────────────────────
+        if _count_today() < _DAILY_LIMIT:
+            lead = _pick_next_lead()
+            if lead:
+                try:
+                    _build_and_email(lead)
+                except Exception as e:
+                    with _lock:
+                        _state["failed"] += 1
+                    logger.error("AutoBuilder", f"Bau-Fehler: {type(e).__name__}")
+                    _idle_sleep(5)
+                continue
+            # keine offenen Leads → in die Verbesserungs-Phase fallen
+
+        # ── Phase 2: bestehende Seiten verbessern bis Cutoff-Stunde ──────────
+        if _before_cutoff():
+            if _improve_existing_once():
+                continue
+
+        # ── Phase 3: Pause bis zum nächsten Tag/Fenster ──────────────────────
+        _set(mode="idle",
+             phase=f"Pause — heute {_count_today()}/{_DAILY_LIMIT} gebaut. Warte auf 0 Uhr…",
+             current="")
+        _idle_sleep(120)

@@ -111,6 +111,14 @@ function _wsCard(w){
          <code>${_wse(w.folder)}</code>
          <button class="ws-copy" onclick="wsCopy('${_wse(w.folder).replace(/'/g,"\\'")}', this)">Kopieren</button></div>`
     : '';
+  // Kontakt-E-Mail sichtbar + Mail-Vorschau (zeigt den klickbaren Live-Link)
+  const emailRow = `<div class="ws-email">
+      <span class="ws-email-ico">✉</span>
+      ${w.kontakt_email
+        ? `<code>${_wse(w.kontakt_email)}</code>`
+        : `<span class="ws-email-none">keine Kontakt-E-Mail (über „Kontakt finden")</span>`}
+      ${w.live_url ? `<button class="ws-copy" onclick='wsPreviewEmail(${w.id})' title="Angebots-Mail mit Live-Link ansehen">E-Mail ansehen</button>` : ''}
+    </div>`;
 
   // Bilder (für später) + Hinzufügen
   const ready = !!w.folder;
@@ -149,6 +157,7 @@ function _wsCard(w){
     ${prog}
     ${linkRow}
     ${folder}
+    ${emailRow}
     ${media}
     <div class="ws-actions">
       <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte & Bilder">✦ Top verbessern</button>
@@ -190,6 +199,42 @@ async function wsImprove(wid){
     if(r && r.ok){ loadWebsites(true); }
     else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
   }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
+}
+
+async function wsPreviewEmail(wid){
+  let bg = document.getElementById('ws-mail-bg');
+  if(!bg){
+    bg = document.createElement('div');
+    bg.id = 'ws-mail-bg'; bg.className = 'ws-chat-bg';
+    bg.innerHTML = `<div class="ws-chat ws-mail" onclick="event.stopPropagation()">
+      <div class="ws-chat-head"><span>Angebots-Mail · Vorschau</span>
+        <button class="ws-chat-x" onclick="document.getElementById('ws-mail-bg').classList.remove('open')">✕</button></div>
+      <div class="ws-mail-meta" id="ws-mail-meta"></div>
+      <iframe id="ws-mail-frame" class="ws-mail-frame" sandbox=""></iframe>
+    </div>`;
+    bg.onclick = () => bg.classList.remove('open');
+    document.body.appendChild(bg);
+  }
+  const meta  = bg.querySelector('#ws-mail-meta');
+  const frame = bg.querySelector('#ws-mail-frame');
+  meta.innerHTML = '<span class="jc-spin"></span> lädt…';
+  frame.srcdoc = '';
+  bg.classList.add('open');
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/offer-email/preview`)).json();
+    if(r && r.ok){
+      const linkBadge = r.link
+        ? `<a href="${_wse(r.link)}" target="_blank" rel="noopener" class="ws-mail-link ${r.link_ok?'ok':'bad'}">
+             ${r.link_ok ? '✓ Link funktioniert' : '⚠ Link nicht erreichbar'} · ${_wse(r.link)} ↗</a>`
+        : '<span class="ws-mail-link bad">Kein Live-Link vorhanden</span>';
+      meta.innerHTML = `<div><b>An:</b> ${_wse(r.to||'—')}</div>
+        <div><b>Betreff:</b> ${_wse(r.betreff||'')}</div>
+        <div class="ws-mail-linkrow">${linkBadge}</div>`;
+      frame.srcdoc = r.html || '';
+    }else{
+      meta.textContent = 'Vorschau fehlgeschlagen.';
+    }
+  }catch(e){ meta.textContent = 'Fehler: ' + e; }
 }
 
 async function wsAdImages(wid){

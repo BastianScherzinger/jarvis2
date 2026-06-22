@@ -733,9 +733,9 @@ let _autoOn = false, _autoTimer = null;
 async function toggleAutoBuild(){
   if(!_autoOn){
     const ok = confirm('Auto-Website-Builder starten?\n\n'
-      + 'Er sucht automatisch die besten Leads OHNE Website, baut + deployt eine Seite, '
-      + 'verbessert sie und schickt jedes Mal eine E-Mail an Bastian. '
-      + 'Läuft im Hintergrund, bis du stoppst.');
+      + 'Baut pro Tag 10 Seiten für die besten Leads OHNE Website (bauen → deployen → '
+      + 'verbessern → E-Mail an Bastian). Danach verbessert er bestehende Seiten weiter '
+      + 'bis 10 Uhr. Setzt jeden Tag um 0 Uhr zurück. Läuft, bis du stoppst.');
     if(!ok) return;
     try{ await fetch('/api/auto-build/start', {method:'POST'}); }catch{}
   }else{
@@ -751,8 +751,9 @@ async function _autoPoll(){
   if(btn){
     btn.classList.toggle('on', _autoOn);
     if(_autoOn){
-      const txt = s.current ? `${s.current} — ${s.phase||''}` : (s.phase||'läuft…');
-      lbl.textContent = txt.length > 38 ? txt.slice(0,37)+'…' : txt;
+      const day = (s.today_count!=null && s.daily_limit) ? `[${s.today_count}/${s.daily_limit}] ` : '';
+      const txt = s.current ? `${day}${s.current} — ${s.phase||''}` : `${day}${s.phase||'läuft…'}`;
+      lbl.textContent = txt.length > 42 ? txt.slice(0,41)+'…' : txt;
     }else{
       lbl.textContent = s.done ? `Auto-Builder · ${s.done} gebaut` : 'Auto-Builder';
     }

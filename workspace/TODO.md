@@ -15,6 +15,19 @@
 - [ ] **Railway-GitHub-App** einmalig verbinden (railway.app → GitHub), falls ein Deploy
       trotz gültiger Tokens nicht baut. Diagnose: im Claude-Reiter „der Deploy klappt nicht".
 
+## Erledigt 22.06. (täglicher 10-Seiten-Builder + Nightly-Improve)
+- [x] **10 Seiten/Tag** ab 0 Uhr/Start (`JARVIS_DAILY_SITES`), Reset um Mitternacht,
+      kein Stopp bei keine-Leads. Danach **Nightly-Improve** bestehender Seiten bis
+      `JARVIS_IMPROVE_UNTIL_HOUR` (10:00).
+- [x] **Tages-Historie** `data/daily_builds.json` + `/api/auto-build/daily`.
+- [x] **Tagesordner** `…/jarvis_websites/<datum>/web_<slug>/`.
+- [x] **E-Mail sichtbar** auf der Webseiten-Karte + „E-Mail ansehen" (Vorschau mit
+      klickbarem Live-Link + Erreichbarkeits-Check).
+- [x] **Lokaler Improve-Modus** `JARVIS_IMPROVE_LOCAL=1` (Ollama auf GPU statt API).
+- [ ] **Claude-Code-Tiefenmodus** (echte Code-Features nachts): Plan steht in
+      `workspace/PLAN_LOCAL_AI_NIGHTLY.md` (Variante A `claude -p` / B lokaler Coder,
+      hinter `JARVIS_NIGHTLY_DEEP`). Noch nicht implementiert.
+
 ## Erledigt 22.06. (32GB-Optimierung + server-fertig)
 - [x] **Medien lokal-first + 32GB/CPU:** Auto-Modellwahl (CPU→SD-Turbo schnell),
       CPU-Thread-Tuning, attention-slicing/vae-tiling; `get_status` zeigt RAM+Empfehlung.

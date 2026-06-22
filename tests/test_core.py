@@ -507,6 +507,56 @@ def test_contact_finder_graceful_ohne_treffer(monkeypatch):
     assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
 
 
+def test_auto_builder_daily_log(tmp_path, monkeypatch):
+    import auto_builder
+    monkeypatch.setattr(auto_builder, "_LOG_PATH", tmp_path / "daily_builds.json")
+    assert auto_builder._count_today() == 0
+    auto_builder._record({"name": "Foo GmbH", "stadt": "Ulm", "link": "https://x.de",
+                          "email": "info@foo.de"})
+    auto_builder._record({"name": "Bar AG", "stadt": "Köln", "link": "", "email": ""})
+    assert auto_builder._count_today() == 2
+    dl = auto_builder.daily_log()
+    assert dl["daily_limit"] == auto_builder._DAILY_LIMIT
+    today = auto_builder._today()
+    sites = next(d["sites"] for d in dl["days"] if d["date"] == today)
+    assert [s["name"] for s in sites] == ["Foo GmbH", "Bar AG"]
+    assert sites[0]["email"] == "info@foo.de"
+
+
+def test_auto_builder_cutoff_and_status(monkeypatch):
+    import auto_builder
+    # _before_cutoff vergleicht mit der Cutoff-Stunde
+    monkeypatch.setattr(auto_builder, "_IMPROVE_UNTIL", 24)
+    assert auto_builder._before_cutoff() is True
+    monkeypatch.setattr(auto_builder, "_IMPROVE_UNTIL", 0)
+    assert auto_builder._before_cutoff() is False
+    s = auto_builder.status()
+    for k in ("running", "today_count", "daily_limit", "phase"):
+        assert k in s
+
+
+def test_website_builder_tagesordner():
+    import website_builder, time
+    d = website_builder._unique_dir("test-betrieb")
+    # …/jarvis_websites/<JJJJ-MM-TT>/web_test-betrieb
+    assert d.name.startswith("web_test-betrieb")
+    assert d.parent.name == time.strftime("%Y-%m-%d")
+    assert d.parent.parent.name == "jarvis_websites"
+
+
+def test_offer_email_preview_route(monkeypatch):
+    import app, db_websites
+    monkeypatch.setattr(db_websites, "get", lambda wid: {
+        "id": wid, "name": "Müller GmbH", "branche": "Dachdecker", "stadt": "Köln",
+        "live_url": "", "kontakt_email": "info@m.de", "ansprechpartner": ""})
+    c = app.app.test_client()
+    r = c.get("/api/websites/1/offer-email/preview")
+    d = r.get_json()
+    # leerer Live-Link → kein Netzwerk-Call, link="", link_ok False, aber Vorschau ok
+    assert d["ok"] and d["to"] == "info@m.de" and d["link"] == "" and d["link_ok"] is False
+    assert "350" in d["html"]
+
+
 def test_media_hardware_info_hat_ram():
     import media_engine
     hw = media_engine.hardware_info()

@@ -469,6 +469,34 @@ def api_website_find_contact(wid):
                     "website": res.get("website", "")})
 
 
+@app.route("/api/websites/<int:wid>/offer-email/preview")
+def api_website_offer_email_preview(wid):
+    """Vorschau der Angebots-Mail: gerenderte Mail + Empfänger + Live-Link inkl.
+    Erreichbarkeits-Check (damit man sieht, dass der Link wirklich funktioniert)."""
+    import offer_mail
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    name    = row.get("name") or "Ihr Betrieb"
+    link    = (row.get("live_url") or "").strip()
+    betreff, _text, html = offer_mail.build(name, link, row.get("branche", ""),
+                                            row.get("stadt", ""), row.get("ansprechpartner", ""))
+    norm_link = offer_mail._norm_url(link)
+    # Schneller Erreichbarkeits-Check (kurzer Timeout — blockiert die UI nicht lange).
+    link_ok = False
+    if norm_link:
+        try:
+            import urllib.request
+            req = urllib.request.Request(norm_link, method="GET",
+                                         headers={"User-Agent": "JARVIS-LinkCheck"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                link_ok = resp.status < 500
+        except Exception as e:
+            link_ok = getattr(e, "code", 500) < 500   # 200/301/404 = erreichbar
+    return jsonify({"ok": True, "to": row.get("kontakt_email", ""), "betreff": betreff,
+                    "html": html, "link": norm_link, "link_ok": bool(link_ok)})
+
+
 @app.route("/api/websites/<int:wid>/offer-email", methods=["POST"])
 def api_website_offer_email(wid):
     """Sendet die designte Angebots-Mail (350 €). Body {mode}:
@@ -777,6 +805,13 @@ def api_autobuild_stop():
 def api_autobuild_status():
     import auto_builder
     return jsonify(auto_builder.status())
+
+
+@app.route("/api/auto-build/daily")
+def api_autobuild_daily():
+    """Tages-Historie: welche Seiten an welchem Tag gebaut wurden."""
+    import auto_builder
+    return jsonify(auto_builder.daily_log())
 
 
 @app.route("/api/logs")
