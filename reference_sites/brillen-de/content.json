@@ -1,0 +1,40 @@
+{
+  "site_name": "brillen.de",
+  "branche": "Optiker",
+  "stadt": "Recklinghausen",
+  "telefon": "",
+  "email": "kontakt@finanzen.de",
+  "adresse": "Ehlingstr. 64 A 45665 Recklinghausen (Suderwich)",
+  "akzent": "#0F6FB5",
+  "fotos": [
+    "/static/img/lead/1.jpg",
+    "/static/img/lead/2.jpg"
+  ],
+  "hero_image": "/static/img/hero.png",
+  "headline": "Klare Sicht beginnt bei uns",
+  "subline": "Persönliche Beratung und moderne Brillen für scharfes Sehen in Recklinghausen.",
+  "ueber_titel": "Ihr Optiker in Recklinghausen",
+  "ueber_text": "Bei brillen.de verbinden wir kompetente Beratung mit präziser Augenglasbestimmung. Unser Team nimmt sich Zeit für Ihre individuellen Bedürfnisse und findet die passende Brille für jeden Anlass. Qualität und ein faires Preis-Leistungs-Verhältnis stehen bei uns im Mittelpunkt.",
+  "leistungen": [
+    {
+      "titel": "Sehtest & Augenglasbestimmung",
+      "text": "Präzise Messung Ihrer Sehstärke mit modernen Geräten – schnell, gründlich und kostenlos."
+    },
+    {
+      "titel": "Brillenberatung",
+      "text": "Wir finden gemeinsam die Fassung, die zu Ihrem Gesicht, Stil und Alltag passt."
+    },
+    {
+      "titel": "Kontaktlinsen",
+      "text": "Individuelle Anpassung und Beratung zu Tages-, Monats- und Spezial­linsen."
+    },
+    {
+      "titel": "Gleitsichtgläser",
+      "text": "Maßgefertigte Gleitsicht­lösungen für müheloses Sehen in allen Entfernungen."
+    }
+  ],
+  "cta_text": "Jetzt Termin vereinbaren",
+  "seo_title": "brillen.de – Ihr Optiker in Recklinghausen",
+  "seo_desc": "Brillen, Kontaktlinsen & kostenloser Sehtest in Recklinghausen. Persönliche Beratung bei brillen.de. Jetzt Termin vereinbaren!",
+  "jahr": 2026
+}

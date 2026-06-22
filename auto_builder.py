@@ -30,11 +30,15 @@ _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
 _DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
+# Tiefen-Modus für den Nightly-Improver: off | local (Claude plant, Ollama baut) |
+# claude (Claude Code headless baut echte Code-Features).
+_NIGHTLY_DEEP  = os.environ.get("JARVIS_NIGHTLY_DEEP", "off").strip().lower()
 
 _state = {
     "running": False, "current": "", "phase": "", "done": 0, "failed": 0,
     "last": "", "started": 0.0, "day": "", "today_count": 0,
     "daily_limit": _DAILY_LIMIT, "improve_until_hour": _IMPROVE_UNTIL, "mode": "",
+    "nightly_deep": _NIGHTLY_DEEP, "last_feature": "",
 }
 _lock = threading.Lock()
 
@@ -240,17 +244,81 @@ def _build_and_email(lead: dict) -> None:
     logger.success("AutoBuilder", f"Fertig: {name} ({link or 'lokal'})")
 
 
+def _deep_claude(folder: str, branche: str) -> dict:
+    """Tiefen-Feature über Claude Code (Variante A): nächstes Backlog-Feature bauen,
+    markieren, Changelog. Render-Gate/Rollback macht claude_coder selbst."""
+    import json as _json
+    import feature_backlog
+    import claude_coder
+    import local_coder
+    cj = Path(folder) / "content.json"
+    content = {}
+    try:
+        if cj.is_file():
+            content = _json.loads(cj.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    feat = feature_backlog.next_feature(branche, content)
+    if not feat:
+        return {"ok": False, "reason": "keine offenen Features"}
+    res = claude_coder.run_feature(folder, feat["spec"], branche)
+    if not res.get("ok"):
+        return {"ok": False, "feature": feat["label"], "reason": res.get("reason", "Bau fehlgeschlagen")}
+    try:
+        content = _json.loads(cj.read_text(encoding="utf-8"))
+        feature_backlog.mark_done(content, feat["key"])
+        cj.write_text(_json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    local_coder._append_changelog(Path(folder), feat["label"], res.get("summary", ""))
+    return {"ok": True, "feature": feat["label"], "summary": res.get("summary", "")}
+
+
+def _deep_step(folder: str, branche: str, name: str) -> dict:
+    """Führt EINEN Tiefen-Feature-Schritt im konfigurierten Modus aus."""
+    if _NIGHTLY_DEEP == "local":
+        import local_coder
+        return local_coder.build_feature(folder, branche, name)
+    if _NIGHTLY_DEEP == "claude":
+        return _deep_claude(folder, branche)
+    return {"ok": False, "reason": "off"}
+
+
 def _improve_existing_once() -> bool:
-    """Verbessert EINE bestehende Seite (Nightly-Improver). True wenn etwas getan."""
+    """Verbessert EINE bestehende Seite (Nightly-Improver). True wenn etwas getan.
+    Bei JARVIS_NIGHTLY_DEEP=local|claude wird ein echtes Code-Feature eingebaut
+    (mit Render-Gate + Rollback) und neu deployt; sonst der Inhalts-/Design-Pass."""
     import website_builder
     tgt = _pick_improve_target()
     if not tgt:
         return False
-    name = tgt.get("name") or "Seite"
+    name    = tgt.get("name") or "Seite"
+    folder  = tgt["folder"]
+    branche = tgt.get("branche", "")
+
+    if _NIGHTLY_DEEP in ("local", "claude"):
+        _set(mode="deep", current=name, phase=f"Tiefen-Feature ({_NIGHTLY_DEEP})…")
+        logger.info("AutoBuilder", f"Nightly-Deep ({_NIGHTLY_DEEP}): {name}")
+        try:
+            res = _deep_step(folder, branche, name)
+        except Exception as e:
+            res = {"ok": False, "reason": f"{type(e).__name__}"}
+        if res.get("ok"):
+            _set(last_feature=res.get("feature", ""))
+            try:
+                jid = website_builder.deploy_existing(folder, name)
+                _wait_job(jid)
+            except Exception:
+                pass
+            logger.success("AutoBuilder", f"Feature '{res.get('feature','')}' in {name} eingebaut")
+            return True
+        logger.info("AutoBuilder", f"Tiefen-Schritt übersprungen: {res.get('reason','')}")
+        # Fällt auf den normalen Inhalts-Pass zurück.
+
     _set(mode="improve", current=name, phase="Verbessere bestehende Seite (lokal)…")
     logger.info("AutoBuilder", f"Nightly-Improve: {name}")
     try:
-        ij = website_builder.improve_existing(tgt["folder"], name)
+        ij = website_builder.improve_existing(folder, name)
         _wait_job(ij)
     except Exception as e:
         logger.warn("AutoBuilder", f"Improve fehlgeschlagen: {type(e).__name__}")

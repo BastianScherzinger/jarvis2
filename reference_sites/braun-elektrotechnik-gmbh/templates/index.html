@@ -1,0 +1,145 @@
+{% load static %}<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ c.seo_title }}</title>
+  <meta name="description" content="{{ c.seo_desc }}">
+  <meta property="og:title" content="{{ c.seo_title }}">
+  <meta property="og:description" content="{{ c.seo_desc }}">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <style>:root{ --accent: {{ c.akzent }}; }</style>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="#top">{{ c.site_name }}</a>
+      <nav class="nav-links">
+        <a href="#leistungen">Leistungen</a>
+        <a href="#ueber">Über uns</a>
+        <a href="#kontakt">Kontakt</a>
+      </nav>
+      {% if c.telefon %}<a class="btn btn-sm" href="tel:{{ c.telefon }}">Anrufen</a>{% endif %}
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- HERO -->
+    {% comment %} Bildquelle in Priorität: hero_image (KI) > fotos.0 > kein Bild (Gradient). {% endcomment %}
+    {% if c.hero_image %}
+      {% with hero_src=c.hero_image %}
+    <section class="hero hero-banner" style="--hero-img:url('{{ hero_src }}')">
+      <div class="wrap hero-in">
+        <div class="hero-copy">
+          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
+          <h1>{{ c.headline }}</h1>
+          <p class="lead">{{ c.subline }}</p>
+          <div class="hero-cta">
+            <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
+            {% if c.telefon %}<a class="btn btn-ghost btn-on-dark" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+      {% endwith %}
+    {% elif c.fotos %}
+    <section class="hero hero-banner" style="--hero-img:url('{{ c.fotos.0 }}')">
+      <div class="wrap hero-in">
+        <div class="hero-copy">
+          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
+          <h1>{{ c.headline }}</h1>
+          <p class="lead">{{ c.subline }}</p>
+          <div class="hero-cta">
+            <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
+            {% if c.telefon %}<a class="btn btn-ghost btn-on-dark" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% else %}
+    <section class="hero hero-plain">
+      <div class="wrap hero-in">
+        <div class="hero-copy">
+          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
+          <h1>{{ c.headline }}</h1>
+          <p class="lead">{{ c.subline }}</p>
+          <div class="hero-cta">
+            <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
+            {% if c.telefon %}<a class="btn btn-ghost" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- LEISTUNGEN -->
+    {% if c.leistungen %}
+    <section id="leistungen" class="section">
+      <div class="wrap">
+        <h2 class="section-t">Was wir für Sie tun</h2>
+        <div class="grid">
+          {% for s in c.leistungen %}
+          <article class="card">
+            <div class="card-mark" aria-hidden="true"></div>
+            <h3>{{ s.titel }}</h3>
+            <p>{{ s.text }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- GALERIE -->
+    {% if c.fotos|length > 1 %}
+    <section class="section section-tint">
+      <div class="wrap">
+        <h2 class="section-t">Einblicke</h2>
+        <div class="gallery">
+          {% for f in c.fotos %}<figure class="g-item"><img src="{{ f }}" alt="{{ c.site_name }} Foto {{ forloop.counter }}" loading="lazy"></figure>{% endfor %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- ÜBER -->
+    <section id="ueber" class="section">
+      <div class="wrap about">
+        <div>
+          <h2 class="section-t">{{ c.ueber_titel }}</h2>
+          <p class="about-text">{{ c.ueber_text }}</p>
+        </div>
+        <ul class="trust">
+          <li><strong>Regional</strong><span>aus {{ c.stadt|default:"Ihrer Region" }}</span></li>
+          <li><strong>Zuverlässig</strong><span>termintreu &amp; sauber</span></li>
+          <li><strong>Persönlich</strong><span>fester Ansprechpartner</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- KONTAKT -->
+    <section id="kontakt" class="section cta">
+      <div class="wrap cta-in">
+        <h2>{{ c.cta_text }}</h2>
+        <p>Wir melden uns kurzfristig zurück — versprochen.</p>
+        <div class="cta-actions">
+          {% if c.telefon %}<a class="btn btn-light" href="tel:{{ c.telefon }}">☎ {{ c.telefon }}</a>{% endif %}
+          {% if c.email %}<a class="btn btn-light" href="mailto:{{ c.email }}">✉ {{ c.email }}</a>{% endif %}
+        </div>
+        {% if c.adresse %}<p class="cta-adr">{{ c.adresse }}</p>{% endif %}
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <span>© {{ c.jahr }} {{ c.site_name }}</span>
+      <span class="foot-sub">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
+    </div>
+  </footer>
+</body>
+</html>

@@ -507,6 +507,88 @@ def test_contact_finder_graceful_ohne_treffer(monkeypatch):
     assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
 
 
+def test_feature_backlog():
+    import feature_backlog as fb
+    feats = fb.features_for("Dachdecker Müller")
+    keys = [f["key"] for f in feats]
+    assert "notdienst" in keys and "faq" in keys          # branche + generisch
+    content = {}
+    f1 = fb.next_feature("Dachdecker", content)
+    assert f1 and f1["key"] == feats[0]["key"]
+    fb.mark_done(content, f1["key"])
+    f2 = fb.next_feature("Dachdecker", content)
+    assert f2 and f2["key"] != f1["key"]
+    # unbekannte Branche → nur generische Features
+    assert all(f["key"] in {g["key"] for g in fb._GENERIC}
+               for f in fb.features_for("Irgendwas"))
+
+
+def _mk_site(tmp_path):
+    import website_improve
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "static" / "css").mkdir(parents=True)
+    (tmp_path / "templates" / "index.html").write_text(website_improve._PREMIUM_HTML, encoding="utf-8")
+    (tmp_path / "static" / "css" / "style.css").write_text("body{}", encoding="utf-8")
+    import json as _j
+    (tmp_path / "content.json").write_text(_j.dumps({"site_name": "Demo", "branche": "Elektro",
+        "stadt": "Ulm", "headline": "H", "cta_text": "CTA", "akzent": "#123456", "jahr": 2026}),
+        encoding="utf-8")
+    return tmp_path
+
+
+def test_local_tools_sandbox_und_ops(tmp_path):
+    import local_tools
+    _mk_site(tmp_path)
+    t = local_tools.SiteTools(tmp_path)
+    assert "content.json" in t.list_dir("")
+    assert "Demo" in t.read_content()
+    # Path-Traversal wird blockiert
+    assert "[Fehler]" in t.read_file("../../etc/passwd")
+    assert "[Fehler]" in t.write_file("../escape.txt", "x")
+    # write + replace
+    assert "[OK]" in t.write_file("static/css/extra.css", ".x{}")
+    assert "[OK]" in t.replace_in_file("static/css/extra.css", ".x{}", ".x{color:red}")
+    assert "color:red" in t.read_file("static/css/extra.css")
+    # render_check rendert das Premium-Template
+    assert "[OK]" in t.render_check()
+    # dispatch + unbekanntes Tool
+    assert "[Fehler] unbekanntes Tool" in t.dispatch("nope", {})
+
+
+def test_local_tools_snapshot_restore(tmp_path):
+    import local_tools, json as _j
+    _mk_site(tmp_path)
+    t = local_tools.SiteTools(tmp_path)
+    snap = t.snapshot()
+    assert "content.json" in snap
+    t.write_content({"site_name": "Kaputt"})       # Änderung
+    assert "Kaputt" in t.read_content()
+    t.restore(snap)                                  # zurück
+    assert "Demo" in t.read_content() and "Kaputt" not in t.read_content()
+
+
+def test_local_coder_plan_fallback(monkeypatch, tmp_path):
+    import local_coder, config
+    _mk_site(tmp_path)
+    monkeypatch.setattr(config, "get_api_key", lambda: "")   # kein Key → generische Spec
+    spec = local_coder.plan_feature(str(tmp_path), {"label": "FAQ", "spec": "Baue FAQ-Sektion."}, "Elektro")
+    assert spec == "Baue FAQ-Sektion."
+    assert local_coder._extract_json('x {"a":1} y') == {"a": 1}
+
+
+def test_claude_coder_basics():
+    import claude_coder
+    assert isinstance(claude_coder.is_available(), bool)
+    p = claude_coder.build_prompt("Baue eine Öffnungszeiten-Box.", "Friseur")
+    assert "Öffnungszeiten" in p and "content.json" in p
+
+
+def test_auto_builder_deep_step_off(monkeypatch):
+    import auto_builder
+    monkeypatch.setattr(auto_builder, "_NIGHTLY_DEEP", "off")
+    assert auto_builder._deep_step("x", "y", "z") == {"ok": False, "reason": "off"}
+
+
 def test_auto_builder_daily_log(tmp_path, monkeypatch):
     import auto_builder
     monkeypatch.setattr(auto_builder, "_LOG_PATH", tmp_path / "daily_builds.json")

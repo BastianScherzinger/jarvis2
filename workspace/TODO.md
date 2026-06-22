@@ -24,9 +24,13 @@
 - [x] **E-Mail sichtbar** auf der Webseiten-Karte + „E-Mail ansehen" (Vorschau mit
       klickbarem Live-Link + Erreichbarkeits-Check).
 - [x] **Lokaler Improve-Modus** `JARVIS_IMPROVE_LOCAL=1` (Ollama auf GPU statt API).
-- [ ] **Claude-Code-Tiefenmodus** (echte Code-Features nachts): Plan steht in
-      `workspace/PLAN_LOCAL_AI_NIGHTLY.md` (Variante A `claude -p` / B lokaler Coder,
-      hinter `JARVIS_NIGHTLY_DEEP`). Noch nicht implementiert.
+- [x] **Tiefenmodus umgesetzt** (`JARVIS_NIGHTLY_DEEP=local|claude`): Variante A
+      `claude_coder.py` (claude -p, Render-Gate+Rollback), Variante B `local_coder.py`
+      (Claude plant → Ollama baut via `local_tools.py` ReAct), `feature_backlog.py`,
+      `reference_sites/` als Vorbild, per-Seite `JARVIS_CHANGELOG.md`. Plan:
+      `workspace/PLAN_NIGHTLY_DEEP.md`.
+- [ ] **MCP für lokale KIs** (nächster Ausbau): Plan steht in
+      `workspace/PLAN_MCP_LOCAL_AI.md` (mcp_bridge.py, Two-Model-Split). Noch offen.
 
 ## Erledigt 22.06. (32GB-Optimierung + server-fertig)
 - [x] **Medien lokal-first + 32GB/CPU:** Auto-Modellwahl (CPU→SD-Turbo schnell),

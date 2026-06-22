@@ -1,0 +1,37 @@
+{
+  "site_name": "Braun Elektrotechnik GmbH",
+  "branche": "Elektrotechnik / Heizungsbau",
+  "stadt": "Stuttgart",
+  "telefon": "",
+  "email": "info@braunelektrotechnik.de",
+  "adresse": "",
+  "akzent": "#E8761A",
+  "fotos": [],
+  "hero_image": "/static/img/hero.png",
+  "headline": "Strom & Wärme aus einer Hand",
+  "subline": "Ihr Meisterbetrieb für Elektrotechnik und moderne Heizungstechnik in Stuttgart – zuverlässig, sauber und termintreu.",
+  "ueber_titel": "Braun Elektrotechnik – Ihr Partner in Stuttgart",
+  "ueber_text": "Als inhabergeführter Meisterbetrieb verbinden wir Elektroinstallation und Heizungsbau unter einem Dach. Seit Jahren stehen wir für saubere Arbeit, faire Preise und persönliche Beratung. Vom Neubau bis zur Modernisierung kümmern wir uns um Ihr Projekt – fachgerecht und nach aktuellen Normen.",
+  "leistungen": [
+    {
+      "titel": "Elektroinstallation",
+      "text": "Komplette Elektroinstallationen für Neubau und Sanierung – von der Verteilung bis zur fertigen Steckdose, normgerecht und sicher."
+    },
+    {
+      "titel": "Heizungsbau & Wärmepumpen",
+      "text": "Wir planen und installieren moderne Heizsysteme und Wärmepumpen – energieeffizient, zukunftssicher und förderfähig."
+    },
+    {
+      "titel": "Smart Home & Gebäudetechnik",
+      "text": "Intelligente Steuerung für Licht, Heizung und Sicherheit – mehr Komfort und Energieeinsparung in Ihrem Zuhause."
+    },
+    {
+      "titel": "Wartung & Störungsdienst",
+      "text": "Schnelle Hilfe bei Störungen und regelmäßige Wartung – damit Strom und Wärme zuverlässig laufen."
+    }
+  ],
+  "cta_text": "Jetzt kostenloses Angebot anfordern",
+  "seo_title": "Braun Elektrotechnik GmbH | Elektriker & Heizung Stuttgart",
+  "seo_desc": "Meisterbetrieb für Elektroinstallation, Heizungsbau & Wärmepumpen in Stuttgart. Zuverlässig, termintreu & fair. Jetzt Angebot anfordern!",
+  "jahr": 2026
+}
