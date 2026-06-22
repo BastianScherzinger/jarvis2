@@ -73,14 +73,16 @@ IMAGE_MODELS: dict[str, dict] = {
 
 VIDEO_MODELS: dict[str, dict] = {
     "wan-1.3b": {
-        "hf_id":     "Wan-AI/Wan2.1-T2V-1.3B",
+        # Diffusers-Format-Repo (enthält model_index.json) — das Original
+        # 'Wan-AI/Wan2.1-T2V-1.3B' hat keins → 404 beim Laden.
+        "hf_id":     "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
         "name":      "Wan 2.1 T2V 1.3B",
         "size_gb":   2.7,
         "min_vram":  8,
         "default_frames": 25,
         "default_w": 832,
         "default_h": 480,
-        "desc":      "Text-to-Video 480p, ~2 Minuten je Frame",
+        "desc":      "Text-to-Video 480p — braucht GPU (auf CPU unbrauchbar langsam)",
     },
 }
 
@@ -221,20 +223,47 @@ def _load_video_pipe(model_key: str):
     if model_key in _cache:
         return _cache[model_key]
 
-    from diffusers import WanPipeline
     import torch
+    from diffusers import WanPipeline
 
     if model_key not in VIDEO_MODELS:
         raise ValueError(f"Unbekanntes Videomodell: '{model_key}'. Verfügbar: {list(VIDEO_MODELS)}")
 
-    m         = VIDEO_MODELS[model_key]
-    dev, dt   = _device_dtype()
-    pipe      = WanPipeline.from_pretrained(m["hf_id"], torch_dtype=dt)
-    pipe      = pipe.to(dev)
+    m       = VIDEO_MODELS[model_key]
+    dev, _  = _device_dtype()
+    # Wan-Empfehlung: VAE in float32 (sonst NaN/schwarze Frames), Pipeline bfloat16
+    # auf GPU / float32 auf CPU.
+    pipe_dt = torch.bfloat16 if dev == "cuda" else torch.float32
+    kwargs: dict = {"torch_dtype": pipe_dt}
+    tok = _hf_token()
+    if tok:
+        kwargs["token"] = tok
+    try:
+        from diffusers import AutoencoderKLWan
+        vae_kwargs = {"subfolder": "vae", "torch_dtype": torch.float32}
+        if tok:
+            vae_kwargs["token"] = tok
+        kwargs["vae"] = AutoencoderKLWan.from_pretrained(m["hf_id"], **vae_kwargs)
+    except Exception:
+        pass   # ältere diffusers ohne AutoencoderKLWan → Standard-VAE
+
+    pipe = WanPipeline.from_pretrained(m["hf_id"], **kwargs)
+
+    # 480p: flow_shift=3.0 (Wan-Doku) für saubere Bewegung.
+    try:
+        from diffusers import UniPCMultistepScheduler
+        pipe.scheduler = UniPCMultistepScheduler.from_config(
+            pipe.scheduler.config, flow_shift=3.0)
+    except Exception:
+        pass
 
     if dev == "cuda":
-        try: pipe.enable_model_cpu_offload()
-        except Exception: pass
+        try:
+            pipe.enable_model_cpu_offload()    # verwaltet Device selbst
+        except Exception:
+            pipe = pipe.to(dev)
+    else:
+        pipe = pipe.to(dev)
 
     _cache[model_key] = pipe
     return pipe
@@ -395,6 +424,15 @@ def generate_video(
     if m is None:
         raise ValueError(f"Videomodell '{key}' nicht bekannt. Verfügbar: {list(VIDEO_MODELS)}")
 
+    # Ehrlicher Guard: Wan auf CPU ist praktisch unbrauchbar (Stunden je Clip +
+    # mehrere GB Download). Klare Meldung statt stundenlangem Hänger.
+    if hardware_info()["device"] == "cpu":
+        raise RuntimeError(
+            "Lokale Videogenerierung (Wan 2.1) benötigt eine GPU — auf dieser CPU "
+            "würde ein Clip Stunden dauern. Nutze stattdessen den Modus "
+            "'Higgsfield Cloud' für Videos."
+        )
+
     t0   = time.time()
     pipe = _load_video_pipe(key)
     nf   = min(max(num_frames, 1), 81)
@@ -459,6 +497,15 @@ def _hf_key() -> str:
     return key or os.environ.get("HIGGSFIELD_API_KEY", "")
 
 
+def _hf_secret() -> str:
+    """Separater Secret-Key (Higgsfield SDK = ID:SECRET). Optional — wer den Key
+    schon als 'ID:SECRET' in HIGGSFIELD_API_KEY hat, braucht das hier nicht."""
+    content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
+    m = re.search(r"HIGGSFIELD_SECRET=(.+)", content)
+    sec = m.group(1).strip() if m else ""
+    return sec or os.environ.get("HIGGSFIELD_SECRET", "")
+
+
 def generate_video_higgsfield(
     prompt: str,
     model: str = "dop-lite",
@@ -483,11 +530,8 @@ def generate_video_higgsfield(
             "API-Key unter https://cloud.higgsfield.ai/api-keys erstellen."
         )
 
-    headers_json = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type":  "application/json",
-    }
-    headers_get = {"Authorization": f"Bearer {api_key}"}
+    headers_json = _hf_headers(api_key)                      # 'Key id:secret' oder 'Bearer key'
+    headers_get  = {"Authorization": headers_json["Authorization"]}
 
     model = model if model in HIGGSFIELD_MODELS else "dop-lite"
 
@@ -585,9 +629,16 @@ def generate_video_higgsfield(
 
 
 def _hf_headers(api_key: str) -> dict:
-    """Higgsfield-Auth. Das SDK nutzt 'Key KEY_ID:KEY_SECRET'; ältere Keys 'Bearer'.
-    Auto-Erkennung anhand des Doppelpunkts."""
-    auth = f"Key {api_key}" if ":" in api_key else f"Bearer {api_key}"
+    """Higgsfield-Auth. Das Platform-SDK nutzt 'Key KEY_ID:KEY_SECRET'. Drei Fälle:
+      - Key enthält ':'              → direkt als 'Key id:secret'
+      - getrennter HIGGSFIELD_SECRET → zu 'Key id:secret' zusammengesetzt
+      - sonst (Einzel-Token)         → 'Bearer key' (ältere Keys)."""
+    key = (api_key or "").strip()
+    if ":" in key:
+        auth = f"Key {key}"
+    else:
+        sec = _hf_secret()
+        auth = f"Key {key}:{sec}" if sec else f"Bearer {key}"
     return {"Authorization": auth, "Content-Type": "application/json"}
 
 

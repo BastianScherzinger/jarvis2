@@ -46,15 +46,27 @@ workspace/media/{images,videos}/   -> /api/media/gallery -> Galerie im Frontend
 - **Higgsfield:** Cloud, account-gebunden über `HIGGSFIELD_API_KEY` (= der gewünschte
   enigmabible1-Account). Bild = Soul (1080p), Video = Dop Lite/Preview/Turbo (3/6/9 Credits).
 
-## WICHTIG — Higgsfield-Account aktivieren
-`HIGGSFIELD_API_KEY` ist in der `.env` aktuell **leer**. Damit der enigmabible1-Account
-genutzt wird:
-1. Auf https://cloud.higgsfield.ai/api-keys mit **enigmabible1@gmail.com** einloggen,
-   API-Key erstellen.
-2. In `.env`: `HIGGSFIELD_API_KEY=<der Key>` (nicht committen — `.env` ist gitignored).
-3. Optional: `JARVIS_HF_IMAGE_SIZE`, `JARVIS_HF_IMAGE_QUALITY` überschreiben (Defaults
-   1536x864 / 1080p).
-Ohne Key fällt jede Higgsfield-Aktion mit klarer Fehlermeldung zurück; lokal läuft weiter.
+## WICHTIG — Higgsfield-Account aktivieren (ID + Secret!)
+Higgsfield (Platform-SDK) authentifiziert mit **ID UND Secret** als `Key ID:SECRET`.
+Zwei gleichwertige Wege in der `.env` (nicht committen — gitignored):
+- **Kombiniert:** `HIGGSFIELD_API_KEY=DEINE_ID:DEIN_SECRET`  (mit Doppelpunkt!)
+- **Getrennt:** `HIGGSFIELD_API_KEY=DEINE_ID` + `HIGGSFIELD_SECRET=DEIN_SECRET`
+
+> Steht nur EIN 64-Zeichen-Token ohne `:` drin (und kein HIGGSFIELD_SECRET), nutzt der
+> Code `Bearer <token>` — das schlägt beim Platform-API i.d.R. fehl (401/404). Daher
+> ID **und** Secret eintragen.
+
+Key erstellen: https://cloud.higgsfield.ai/api-keys mit **enigmabible1@gmail.com**.
+Optional: `JARVIS_HF_IMAGE_SIZE`, `JARVIS_HF_IMAGE_QUALITY` (Defaults 1536x864 / 1080p).
+Ohne gültige Auth fällt jede Higgsfield-Aktion mit klarer Meldung zurück; lokal läuft weiter.
+
+## Lokales Video (Wan 2.1) — Fix 22.06.
+- Repo korrigiert: `Wan-AI/Wan2.1-T2V-1.3B` → **`Wan-AI/Wan2.1-T2V-1.3B-Diffusers`**
+  (Original hatte kein `model_index.json` → 404). VAE wird jetzt in float32 geladen
+  (sonst schwarze/NaN-Frames), `flow_shift=3.0` für 480p.
+- **CPU-Guard:** auf einer reinen CPU bricht die lokale Videogenerierung sofort mit klarer
+  Meldung ab (Wan braucht GPU) — statt stundenlangem Hänger. Für Videos auf CPU-PCs →
+  Higgsfield Cloud nutzen.
 
 ## Verbesserungsmöglichkeiten
 - **Higgsfield-Endpunkte ungetestet** (kein Key gesetzt): `text2image/soul` und
