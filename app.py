@@ -60,6 +60,17 @@ def _warmup_voice():
         pass
 _startup_t.Thread(target=_warmup_voice, daemon=True).start()
 
+
+# Discord-Freigabe-Bot (Voting-Gate vor dem Kundenversand) — nur wenn konfiguriert.
+def _start_discord():
+    try:
+        import discord_bot
+        if discord_bot.enabled():
+            discord_bot.start()
+    except Exception:
+        pass
+_startup_t.Thread(target=_start_discord, daemon=True).start()
+
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
 
@@ -812,6 +823,28 @@ def api_autobuild_daily():
     """Tages-Historie: welche Seiten an welchem Tag gebaut wurden."""
     import auto_builder
     return jsonify(auto_builder.daily_log())
+
+
+# ── Discord-Freigabe (Voting-Gate) ───────────────────────────────────────────
+
+@app.route("/api/discord/status")
+def api_discord_status():
+    import discord_bot
+    return jsonify(discord_bot.status())
+
+
+@app.route("/api/discord/send-now", methods=["POST"])
+def api_discord_send_now():
+    """Versendet sofort alle freigegebenen Seiten (sonst automatisch um 12 Uhr)."""
+    import discord_bot
+    return jsonify(discord_bot.send_approved_now())
+
+
+@app.route("/api/reviews")
+def api_reviews():
+    """Aktuelle Freigabe-Warteschlange (für das Dashboard)."""
+    import review_queue
+    return jsonify({"reviews": review_queue.all(), "stats": review_queue.stats()})
 
 
 @app.route("/api/perf")

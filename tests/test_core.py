@@ -370,7 +370,7 @@ def test_offer_email_enthaelt_link_und_preis():
     import app
     betreff, text, html = app._build_offer_email("Müller GmbH", "https://x.up.railway.app",
                                                  "Dachdecker", "Köln")
-    assert "Müller GmbH" in betreff and "350" in betreff
+    assert "Müller GmbH" in betreff               # Name im Betreff (Preis steht im Body)
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
     assert "350" in text and "350" in html        # Angebot
     assert "Bastian Scherzinger" in text
@@ -424,7 +424,7 @@ def test_locations_aggregiert(monkeypatch, tmp_path):
 def test_offer_mail_build():
     import offer_mail
     betreff, text, html = offer_mail.build("Müller GmbH", "https://x.up.railway.app", "Dachdecker", "Köln")
-    assert "Müller GmbH" in betreff and "350" in betreff
+    assert "Müller GmbH" in betreff               # Name im Betreff (Preis im Body)
     assert "350" in text and "350" in html
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
 
@@ -804,3 +804,69 @@ def test_cloud_sync_websites_helpers():
     rr = cw._remote_row({"name": "X", "stadt": "Y", "branche": "Z", "live_url": "u",
                          "live": 1, "images": ["a"], "kontakt_email": "k@l.de"})
     assert rr["site_key"] == lead_key("X", "Y") and rr["images"] == ["a"] and rr["live"] == 1
+
+
+# ── Discord-Freigabe: Voting-Gate (Daumen hoch/runter) ────────────────────────
+def test_review_queue_voting(tmp_path, monkeypatch):
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    monkeypatch.setenv("DISCORD_APPROVALS_NEEDED", "2")
+    r = rq.add("Betrieb", "Berlin", "Dachdecker", "https://x.up.railway.app", "a@b.de")
+    assert r["status"] == rq.PENDING
+    # eine Stimme reicht noch nicht
+    assert rq.vote(r["id"], "u1", True)["status"] == rq.PENDING
+    # zweite Stimme gibt frei
+    assert rq.vote(r["id"], "u2", True)["status"] == rq.APPROVED
+    assert len(rq.approved_unsent()) == 1
+    # ein Daumen-runter ist ein Veto
+    assert rq.vote(r["id"], "u3", False)["status"] == rq.REJECTED
+    assert rq.approved_unsent() == []
+
+
+def test_review_queue_doppelstimme_zaehlt_einmal(tmp_path, monkeypatch):
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    monkeypatch.setenv("DISCORD_APPROVALS_NEEDED", "2")
+    r = rq.add("B", "S", "Br", "https://x")
+    rq.vote(r["id"], "u1", True)
+    res = rq.vote(r["id"], "u1", True)         # derselbe User nochmal
+    assert len(res["votes_up"]) == 1 and res["status"] == rq.PENDING
+
+
+def test_review_queue_owner_whitelist(tmp_path, monkeypatch):
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    r = rq.add("B", "S", "Br", "https://x")
+    assert rq.vote(r["id"], "fremd", True, owners=["1", "2"]) == {"error": "not_owner"}
+
+
+def test_discord_bot_import_safe():
+    # Ohne Token/Library muss der Bot ein No-op sein und das System nie blockieren.
+    import discord_bot
+    assert discord_bot.enabled() is False
+    st = discord_bot.status()
+    assert "enabled" in st and "send_hour" in st
+    # submit_for_review darf ohne laufenden Bot einfach None liefern (kein Crash)
+    assert discord_bot.submit_for_review("X", "Y", "Z", "https://x") is None
+
+
+def test_mcp_bridge_schema_und_safe():
+    import mcp_bridge
+    info = mcp_bridge.selftest()
+    namen = info["tools"]
+    assert "write_file" in namen and "render_check" in namen
+    # available() darf nie crashen (ollama optional)
+    assert isinstance(mcp_bridge.available(), bool)
+
+
+# ── Angebots-Mail: bessere, variierende Betreffzeilen ─────────────────────────
+def test_offer_mail_betreff_variiert_und_ohne_spam():
+    import offer_mail
+    b1, _, _ = offer_mail.build("Alpha GmbH", "https://a.up.railway.app", "Dachdecker", "Berlin")
+    b2, _, _ = offer_mail.build("Beta KG", "https://b.up.railway.app", "Friseur", "Köln")
+    assert b1 and b2 and "\n" not in b1
+    # kein Spam-Trigger im Betreff (kein €, kein !!!)
+    assert "€" not in b1 and "!!!" not in b1
+    # ohne Live-Link greift der andere Betreff-Pool
+    b3, _, _ = offer_mail.build("Gamma", "", "Elektriker", "")
+    assert b3 and "€" not in b3

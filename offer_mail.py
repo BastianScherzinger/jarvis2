@@ -4,7 +4,30 @@ Gemeinsam genutzt von app.py (Button) und auto_builder.py (Auto-Builder).
 """
 from __future__ import annotations
 
+import hashlib
 import html as _html
+
+
+def _subject(name: str, branche: str, stadt: str, has_link: bool) -> str:
+    """Conversion-starke Betreffzeile. Deterministisch rotiert (pro Betrieb stabil),
+    damit nicht alle Mails identisch wirken — ohne Spam-Trigger (kein €/!!! im Betreff)."""
+    region = f" aus {stadt}" if stadt else ""
+    fach = branche or "Ihren Betrieb"
+    online = [
+        f"{name}: Ihre neue Webseite ist fertig — schauen Sie mal rein",
+        f"Für {name}{region}: moderne Webseite, online & startklar",
+        f"{name} — so könnte {fach} online aussehen",
+        f"Webseite für {name} ist online — unverbindlich ansehen",
+        f"{name}: einen Blick wert — Ihre Webseite steht bereit",
+    ]
+    nolink = [
+        f"Eine fertige Webseite für {name} — unverbindlich",
+        f"{name}{region}: Vorschlag für Ihren neuen Webauftritt",
+        f"Für {name}: moderne Webseite zum Festpreis",
+    ]
+    pool = online if has_link else nolink
+    idx = int(hashlib.md5(name.encode("utf-8")).hexdigest(), 16) % len(pool)
+    return pool[idx]
 
 
 def _norm_url(link: str) -> str:
@@ -42,7 +65,7 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     region = f" in {stadt}" if stadt else ""
     fach = branche or "Ihr Betrieb"
     anrede = _anrede(ansprechpartner)
-    betreff = f"Webseite für {name} – fertig & online (Komplettpreis 350 €)"
+    betreff = _subject(name, branche, stadt, bool(url))
 
     # ── Plain-Text ──────────────────────────────────────────────────────────
     linkblock = (f"Sie ist bereits online:\n\n{url}\n\n" if url

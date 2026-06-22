@@ -9,3 +9,5 @@ faster-whisper>=1.0.0
 imageio-ffmpeg>=0.4.9
 pyttsx3>=2.90
 waitress>=3.0.0
+discord.py>=2.4.0
+# Optional (nur fuer die MCP-Bruecke der lokalen KIs): pip install mcp ollama

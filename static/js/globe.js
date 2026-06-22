@@ -230,15 +230,20 @@ function initGlobe(){
   pivot.add(group); scene.add(pivot);
 
   const R = 1.35;
-  const segs = _LOWPWR ? 64 : 128;
+  const segs = _LOWPWR ? 96 : 160;
   const loader = new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
+  // Anisotrope Filterung: hält Kontinente/Küsten am Globusrand gestochen scharf,
+  // sodass die Standort-Marker klar auf ihren Ländern sitzen (kein extra Asset).
+  const _ANISO = (renderer.capabilities && renderer.capabilities.getMaxAnisotropy)
+    ? renderer.capabilities.getMaxAnisotropy() : 8;
+  const _sharp = t => { t.anisotropy=_ANISO; if(THREE.LinearMipmapLinearFilter)t.minFilter=THREE.LinearMipmapLinearFilter; t.generateMipmaps=true; return t; };
 
   // ── Erd-Körper mit Relief (Bump) + Glanz ──
   const earthMat = new THREE.MeshPhongMaterial({color:0x0f2a44, specular:0x2a4a6e, shininess:18});
   const earth = new THREE.Mesh(new THREE.SphereGeometry(R, segs, segs), earthMat); group.add(earth);
-  loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ if(t.encoding!==undefined&&THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding; earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.shininess=24; earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ earthMat.bumpMap=t; earthMat.bumpScale=0.05; earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ _sharp(t); if(t.encoding!==undefined&&THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding; earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ _sharp(t); earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.shininess=26; earthMat.needsUpdate=true; });
+  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ _sharp(t); earthMat.bumpMap=t; earthMat.bumpScale=0.06; earthMat.needsUpdate=true; });
 
   // ── Nachtlichter (Schattenseite leuchtet) — additive Overlay-Kugel ──
   const nightMat = new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0.0,
@@ -277,30 +282,52 @@ function initGlobe(){
   _globeLoop();
 }
 
-// Versucht, eine öffentliche Erd-GLB zu laden. Defensiv: niemals crashen.
+// Lädt eine ECHTE Erd-GLB, wenn eine URL hinterlegt ist (window.JARVIS_EARTH_GLB
+// oder <meta name="earth-glb" content="...">), und überlagert sie der Textur-Erde.
+// Ohne URL bleibt die (jetzt anisotrop geschärfte) Textur-Erde das Primär-Asset —
+// es gibt keine garantiert frei lizenzierte, fotoreale Earth-GLB auf stabiler CDN.
+function _earthGlbUrl(){
+  try{
+    if(window.JARVIS_EARTH_GLB) return String(window.JARVIS_EARTH_GLB);
+    const m=document.querySelector('meta[name="earth-glb"]');
+    if(m && m.content) return m.content;
+  }catch(e){}
+  return '';
+}
 function _tryLoadEarthGLB(group, R){
-  // GLB ist optional „nice to have". Bei schwacher Hardware überspringen.
-  if(_LOWPWR) return;
+  if(_LOWPWR) return;                       // schwache Hardware: Textur-Erde reicht
+  const url = _earthGlbUrl();
+  if(!url) return;                          // keine GLB hinterlegt → Textur bleibt primär
   const start = (GLTFLoaderCtor)=>{
     try{
       const gl = new GLTFLoaderCtor();
-      const url = 'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Box/glTF-Binary/Box.glb';
-      // Hinweis: Es gibt keine garantiert verfügbare, frei lizenzierte „Earth"-GLB
-      // auf einer stabilen CDN. Wir prüfen daher nur defensiv, ob der Loader
-      // überhaupt funktioniert; das eigentliche Erd-Asset bleibt die Textur-Sphere.
-      // Falls künftig eine echte Earth-GLB-URL hinterlegt wird, kann sie hier
-      // geladen und bei Erfolg der Textur-Erde überlagert werden.
-      void gl; void url;
+      gl.setCrossOrigin && gl.setCrossOrigin('anonymous');
+      gl.load(url, (gltf)=>{
+        try{
+          const obj = gltf.scene || gltf.scenes && gltf.scenes[0];
+          if(!obj) return;
+          // GLB auf den Globusradius normieren.
+          const box = new THREE.Box3().setFromObject(obj);
+          const size = new THREE.Vector3(); box.getSize(size);
+          const max = Math.max(size.x, size.y, size.z) || 1;
+          const s = (R*2)/max; obj.scale.setScalar(s);
+          const c = new THREE.Vector3(); box.getCenter(c);
+          obj.position.sub(c.multiplyScalar(s));
+          group.add(obj);
+          if(_gb) _gb.earthGlb = obj;
+          // Textur-Erde leicht zurücknehmen (GLB ist jetzt primär sichtbar).
+          if(_gb && _gb.earth) _gb.earth.visible = false;
+        }catch(e){ /* Überlagerung fehlgeschlagen → Textur-Erde bleibt. */ }
+      }, undefined, ()=>{ /* Ladefehler → Textur-Erde bleibt. */ });
     }catch(e){ /* Fallback: Textur-Sphere, bereits aktiv. */ }
   };
   if(typeof THREE.GLTFLoader === 'function'){ start(THREE.GLTFLoader); return; }
-  // Dynamisch nachladen, Verfügbarkeit defensiv prüfen.
   try{
-    const s=document.createElement('script');
-    s.src=_GLTF_LOADER_URL; s.async=true;
-    s.onload=()=>{ if(typeof THREE.GLTFLoader === 'function') start(THREE.GLTFLoader); };
-    s.onerror=()=>{ /* Loader nicht verfügbar → Textur-Sphere bleibt. */ };
-    document.head.appendChild(s);
+    const sc=document.createElement('script');
+    sc.src=_GLTF_LOADER_URL; sc.async=true;
+    sc.onload=()=>{ if(typeof THREE.GLTFLoader === 'function') start(THREE.GLTFLoader); };
+    sc.onerror=()=>{ /* Loader nicht verfügbar → Textur-Sphere bleibt. */ };
+    document.head.appendChild(sc);
   }catch(e){ /* Textur-Sphere bleibt aktiv. */ }
 }
 

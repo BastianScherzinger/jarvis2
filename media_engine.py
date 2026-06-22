@@ -547,7 +547,7 @@ HIGGSFIELD_MODELS = {
 
 def _hf_key() -> str:
     content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
-    m = re.search(r"HIGGSFIELD_API_KEY=(.+)", content)
+    m = re.search(r"^HIGGSFIELD_API_KEY=(.+)", content, re.M)   # ^ = Kommentarzeilen ignorieren
     key = m.group(1).strip() if m else ""
     return key or os.environ.get("HIGGSFIELD_API_KEY", "")
 
@@ -556,7 +556,7 @@ def _hf_secret() -> str:
     """Separater Secret-Key (Higgsfield SDK = ID:SECRET). Optional — wer den Key
     schon als 'ID:SECRET' in HIGGSFIELD_API_KEY hat, braucht das hier nicht."""
     content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
-    m = re.search(r"HIGGSFIELD_SECRET=(.+)", content)
+    m = re.search(r"^HIGGSFIELD_SECRET=(.+)", content, re.M)    # ^ = Kommentarzeilen ignorieren
     sec = m.group(1).strip() if m else ""
     return sec or os.environ.get("HIGGSFIELD_SECRET", "")
 
@@ -683,17 +683,31 @@ def generate_video_higgsfield(
     }
 
 
+def _hf_id() -> str:
+    """Separater KEY_ID (Higgsfield SDK = ID:SECRET). Optional — wer den Key schon als
+    'ID:SECRET' in HIGGSFIELD_API_KEY hat, braucht das hier nicht."""
+    content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
+    m = re.search(r"^HIGGSFIELD_ID=(.+)", content, re.M)
+    hid = m.group(1).strip() if m else ""
+    return hid or os.environ.get("HIGGSFIELD_ID", "")
+
+
 def _hf_headers(api_key: str) -> dict:
-    """Higgsfield-Auth. Das Platform-SDK nutzt 'Key KEY_ID:KEY_SECRET'. Drei Fälle:
+    """Higgsfield-Auth. Das Platform-SDK nutzt 'Key KEY_ID:KEY_SECRET'. Vier Fälle:
       - Key enthält ':'              → direkt als 'Key id:secret'
       - getrennter HIGGSFIELD_SECRET → zu 'Key id:secret' zusammengesetzt
+      - getrennter HIGGSFIELD_ID     → 'Key id:key' (key ist dann das Secret)
       - sonst (Einzel-Token)         → 'Bearer key' (ältere Keys)."""
     key = (api_key or "").strip()
     if ":" in key:
         auth = f"Key {key}"
     else:
         sec = _hf_secret()
-        auth = f"Key {key}:{sec}" if sec else f"Bearer {key}"
+        if sec:
+            auth = f"Key {key}:{sec}"
+        else:
+            hid = _hf_id()
+            auth = f"Key {hid}:{key}" if hid else f"Bearer {key}"
     return {"Authorization": auth, "Content-Type": "application/json"}
 
 

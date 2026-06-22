@@ -233,11 +233,25 @@ def _build_and_email(lead: dict) -> None:
         wrow = db_websites.get_by_job(jid) or {}
     except Exception:
         pass
-    _set(phase="E-Mail an Bastian…")
-    _email(name, link, branche, stadt, wrow.get("ansprechpartner", ""))
+    email_addr = wrow.get("kontakt_email", "")
+    ap         = wrow.get("ansprechpartner", "")
+    # Discord-Freigabe-Gate: ist der Bot aktiv, geht die Seite NICHT direkt raus,
+    # sondern zur Abstimmung. Erst 2× 👍 → Versand um 12 Uhr an den echten Kunden.
+    posted = False
+    try:
+        import discord_bot
+        if discord_bot.enabled():
+            _set(phase="Zur Discord-Freigabe gepostet…")
+            posted = bool(discord_bot.submit_for_review(
+                name, stadt, branche, link, email_addr, ap, folder))
+    except Exception as e:
+        logger.warn("AutoBuilder", f"Discord-Review fehlgeschlagen: {type(e).__name__}")
+    if not posted:                                   # Fallback: Vorschau an Bastian
+        _set(phase="E-Mail an Bastian…")
+        _email(name, link, branche, stadt, ap)
     _record({"name": name, "stadt": stadt, "branche": branche, "link": link,
-             "email": wrow.get("kontakt_email", ""), "folder": folder,
-             "ts": time.time()})
+             "email": email_addr, "folder": folder,
+             "review": posted, "ts": time.time()})
     with _lock:
         _state["done"] += 1
         _state["last"] = name
@@ -278,6 +292,12 @@ def _deep_step(folder: str, branche: str, name: str) -> dict:
     """Führt EINEN Tiefen-Feature-Schritt im konfigurierten Modus aus."""
     if _NIGHTLY_DEEP == "local":
         import local_coder
+        return local_coder.build_feature(folder, branche, name)
+    if _NIGHTLY_DEEP == "mcp":
+        import mcp_bridge
+        if mcp_bridge.available():
+            return mcp_bridge.build_feature(folder, branche, name)
+        import local_coder                            # Fallback, falls ollama-Lib fehlt
         return local_coder.build_feature(folder, branche, name)
     if _NIGHTLY_DEEP == "claude":
         return _deep_claude(folder, branche)

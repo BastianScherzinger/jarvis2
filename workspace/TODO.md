@@ -1,4 +1,22 @@
-# JARVIS — TODO / Offene Punkte (Stand 22.06.2026)
+# JARVIS — TODO / Offene Punkte (Stand 23.06.2026)
+
+## Erledigt 23.06. (Discord-Freigabe-Bot + Mails + Restbrocken)
+- [x] **Discord-Freigabe-Bot** (`discord_bot.py` + `review_queue.py`): fertige Seiten
+      gehen zur Abstimmung (👍/👎), 2× 👍 ohne Veto → Versand um 12 Uhr an echte
+      Kunden. Persistente Buttons, import-sicher, Routen `/api/discord/*` + `/api/reviews`.
+      Doku: `workspace/DISCORD_FREIGABE.md`.
+- [x] **Bessere E-Mails/Betreffzeilen** (`offer_mail._subject`): variierend pro Betrieb,
+      ohne Spam-Trigger; Preis im Body.
+- [x] **Higgsfield-Key** in `.env` als kombiniertes `ID:SECRET` gesetzt + Auth robuster
+      (`HIGGSFIELD_ID`-Fallback, Kommentare ignoriert). → Cloud-Bild/Video nutzbar.
+- [x] **MCP-Brücke** `mcp_bridge.py` (Plan PLAN_MCP_LOCAL_AI.md, P0–P2): Ollama-Tool-
+      Calling über SiteTools + optional echte MCP-Server, Render-Gate/Rollback.
+      Aktivierung `JARVIS_NIGHTLY_DEEP=mcp`.
+- [x] **Erde schärfer** (`globe.js`): anisotrope Filterung (Standorte klarer) + echter
+      GLB-Hook (`window.JARVIS_EARTH_GLB`/Meta-Tag) überlagert die Textur-Erde.
+- [x] **.env aufgeräumt**: kaputte Umlaut-Kommentare ersetzt, Nightly-/Discord-Variablen
+      dokumentiert.
+
 
 ## Erledigt 23.06. (Auto-Adapt + QA/Security + Globus + lokale Sprache + Design)
 - [x] **Auto-Adapt CPU/GPU** `hardware_profile.py` (Stufen server…low) → Bildanzahl,
@@ -16,9 +34,8 @@
 ## Für Sir (manuell, nicht im Code lösbar)
 - [ ] **Echter Kundenversand 9 Uhr:** `JARVIS_EMAIL_REDIRECT` in der .env leeren (sonst
       Test → Bastian); pro Seite „Kontakt finden" füllt die echte Adresse.
-- [ ] **Higgsfield-Key eintragen:** `.env` → `HIGGSFIELD_API_KEY=<key vom enigmabible1-Account>`
-      (https://cloud.higgsfield.ai/api-keys). Erst dann nutzen Bild-/Video-Cloud diesen
-      Account. Details: `workspace/MEDIEN_ARCHITEKTUR.md`.
+- [x] **Higgsfield-Key eingetragen** (23.06.): `.env` → `HIGGSFIELD_API_KEY=ID:SECRET`
+      (enigmabible1-Account). Bild-/Video-Cloud nutzt diesen Account.
 - [ ] **Kunden-PC aktualisieren:** dort `python update.py` → `python start.py`.
       DB migriert automatisch; Cross-PC-Sync + Globus laufen sofort.
 - [ ] **E-Mail am Kunden-PC:** dessen `.env` braucht dieselben `SMTP_USER`/`SMTP_PASS`
@@ -44,8 +61,10 @@
       (Claude plant → Ollama baut via `local_tools.py` ReAct), `feature_backlog.py`,
       `reference_sites/` als Vorbild, per-Seite `JARVIS_CHANGELOG.md`. Plan:
       `workspace/PLAN_NIGHTLY_DEEP.md`.
-- [ ] **MCP für lokale KIs** (nächster Ausbau): Plan steht in
-      `workspace/PLAN_MCP_LOCAL_AI.md` (mcp_bridge.py, Two-Model-Split). Noch offen.
+- [x] **MCP für lokale KIs** (23.06.): `mcp_bridge.py` umgesetzt (P0–P2) — Ollama-Tool-
+      Calling über SiteTools + optional echte MCP-Server, Render-Gate/Rollback.
+      Aktivierung `JARVIS_NIGHTLY_DEEP=mcp`. Echte MCP-Server (Filesystem/Playwright via
+      Node) als P3+ optional. Plan: `workspace/PLAN_MCP_LOCAL_AI.md`.
 
 ## Erledigt 22.06. (32GB-Optimierung + server-fertig)
 - [x] **Medien lokal-first + 32GB/CPU:** Auto-Modellwahl (CPU→SD-Turbo schnell),
