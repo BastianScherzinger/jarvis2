@@ -202,7 +202,15 @@ def _load_image_pipe(model_key: str):
             pass
 
     if dev == "cpu":
-        try: pipe.enable_attention_slicing()
+        # CPU-Optimierung (32-GB-RAM-PC ohne GPU): alle Kerne nutzen + speicher-
+        # schonende Slices/Tiles, damit auch SDXL ohne OOM läuft und SD-Turbo zügig.
+        try: torch.set_num_threads(_cpu_threads())
+        except Exception: pass
+        try: pipe.enable_attention_slicing("max")
+        except Exception: pass
+        try: pipe.enable_vae_tiling()
+        except Exception: pass
+        try: pipe.enable_vae_slicing()
         except Exception: pass
     elif dev == "cuda":
         # GPU-Optimierung: schnellere Faltungen + speichereffiziente Attention
@@ -263,6 +271,8 @@ def _load_video_pipe(model_key: str):
         except Exception:
             pipe = pipe.to(dev)
     else:
+        try: torch.set_num_threads(_cpu_threads())
+        except Exception: pass
         pipe = pipe.to(dev)
 
     _cache[model_key] = pipe
@@ -279,24 +289,69 @@ def _open_image_model() -> str:
     return "sdxl"
 
 
+def _env(key: str, default: str = "") -> str:
+    """Liest einen Wert aus .env (oder Umgebung). Klein & defensiv."""
+    try:
+        content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
+        m = re.search(rf"^{re.escape(key)}=(.+)$", content, re.M)
+        return (m.group(1).strip() if m else "") or os.environ.get(key, default)
+    except Exception:
+        return os.environ.get(key, default)
+
+
+def _resolve_image_model(model_key: "str | None") -> str:
+    """Wählt das Bildmodell. Explizite Angabe gewinnt immer. Sonst (Default):
+    hardware-bestes Modell — CPU→SD-Turbo (schnell, lohnt sich lokal), GPU→SDXL/FLUX.
+    Nur wenn JARVIS_IMAGE_AUTO=0 gesetzt ist, gilt stattdessen JARVIS_IMAGE_MODEL (.env)."""
+    if model_key and model_key in IMAGE_MODELS:
+        return model_key
+    if _env("JARVIS_IMAGE_AUTO", "1") != "0":
+        return best_image_model()
+    return get_active_image_model()
+
+
 # ── Hardware-abhängige Modellwahl ────────────────────────────────────────────
+
+def _ram_gb() -> float:
+    """System-RAM in GB — nutzt das vorhandene hardware-Modul (ctypes, ohne psutil)."""
+    try:
+        import hardware
+        return float(hardware.ram_gb())
+    except Exception:
+        try:
+            import os as _os
+            return round(_os.sysconf("SC_PAGE_SIZE") * _os.sysconf("SC_PHYS_PAGES") / (1024 ** 3), 1)
+        except Exception:
+            return 0.0
+
+
+def _cpu_threads() -> int:
+    """Physische/logische Kerne für Torch-CPU-Inferenz (mehr Threads = schneller auf CPU)."""
+    try:
+        import os as _os
+        return max(1, (_os.cpu_count() or 4))
+    except Exception:
+        return 4
+
 
 def hardware_info() -> dict:
     """Erkennt das Rechen-Backend für die Bildgenerierung.
-    Returns {device:'cuda'|'mps'|'cpu', vram_gb:float, gpu_name:str}."""
+    Returns {device:'cuda'|'mps'|'cpu', vram_gb:float, gpu_name:str, ram_gb:float}."""
+    ram = _ram_gb()
     try:
         import torch
         if torch.cuda.is_available():
             p = torch.cuda.get_device_properties(0)
-            return {"device": "cuda", "vram_gb": round(p.total_memory / 1e9, 1), "gpu_name": p.name}
+            return {"device": "cuda", "vram_gb": round(p.total_memory / 1e9, 1),
+                    "gpu_name": p.name, "ram_gb": ram}
         try:
             if torch.backends.mps.is_available():
-                return {"device": "mps", "vram_gb": 0.0, "gpu_name": "Apple MPS"}
+                return {"device": "mps", "vram_gb": 0.0, "gpu_name": "Apple MPS", "ram_gb": ram}
         except Exception:
             pass
     except Exception:
         pass
-    return {"device": "cpu", "vram_gb": 0.0, "gpu_name": ""}
+    return {"device": "cpu", "vram_gb": 0.0, "gpu_name": "", "ram_gb": ram}
 
 
 def best_image_model() -> str:
@@ -347,7 +402,7 @@ def generate_image(
     output_dir: optionales Zielverzeichnis (z.B. für Set-Unterordner).
     filename:   optionaler Dateiname ohne Pfad (z.B. "logo.png").
     """
-    key = model_key or get_active_image_model()
+    key = _resolve_image_model(model_key)
     m   = IMAGE_MODELS.get(key)
     if m is None:
         raise ValueError(f"Bildmodell '{key}' nicht bekannt. Verfügbar: {list(IMAGE_MODELS)}")
@@ -776,6 +831,13 @@ def get_status() -> dict:
     hf_key_set = bool(_hf_key())
     hw = hardware_info()
     auto_key = best_image_model()
+    cpu = hw["device"] == "cpu"
+    # Ehrliche Empfehlung fürs Frontend: was lohnt sich lokal auf dieser Hardware?
+    if cpu:
+        hinweis = (f"CPU · {hw['ram_gb']:.0f} GB RAM — Bilder lokal mit SD-Turbo (schnell). "
+                   "Videos lokal nicht praktikabel → Higgsfield Cloud nutzen.")
+    else:
+        hinweis = f"GPU {hw['gpu_name']} ({hw['vram_gb']:.0f} GB) — Bilder & Videos lokal in hoher Qualität."
     return {
         "image_model":        IMAGE_MODELS.get(img_key, {}).get("name", img_key),
         "image_model_key":    img_key,
@@ -787,6 +849,9 @@ def get_status() -> dict:
         "device":             hw["device"],
         "gpu_name":           hw["gpu_name"],
         "vram_gb":            hw["vram_gb"],
+        "ram_gb":             hw["ram_gb"],
+        "video_local_ok":     not cpu,        # lokales Video nur mit GPU sinnvoll
+        "empfehlung":         hinweis,
         "auto_image_model":   IMAGE_MODELS.get(auto_key, {}).get("name", auto_key),
         "auto_image_model_key": auto_key,
     }

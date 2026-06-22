@@ -15,6 +15,12 @@
 - [ ] **Railway-GitHub-App** einmalig verbinden (railway.app → GitHub), falls ein Deploy
       trotz gültiger Tokens nicht baut. Diagnose: im Claude-Reiter „der Deploy klappt nicht".
 
+## Erledigt 22.06. (32GB-Optimierung + server-fertig)
+- [x] **Medien lokal-first + 32GB/CPU:** Auto-Modellwahl (CPU→SD-Turbo schnell),
+      CPU-Thread-Tuning, attention-slicing/vae-tiling; `get_status` zeigt RAM+Empfehlung.
+- [x] **Server-fertig:** `serve.py` (waitress), `app.server_config()`/`run_server()`,
+      HOST/PORT/THREADS via env, `SERVER.md`. Lokales Video braucht GPU (CPU-Guard).
+
 ## Bekannte Einschränkungen / später
 - [ ] **Higgsfield-Bildpfad** ist nach Doku gebaut, aber ungetestet (kein Key gesetzt).
 - [ ] **Globus-Koordinaten:** Stadt-Lookup deckt ~75 Städte ab; unbekannte landen am

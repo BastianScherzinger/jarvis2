@@ -507,6 +507,42 @@ def test_contact_finder_graceful_ohne_treffer(monkeypatch):
     assert res["ok"] is False and res["email"] == "" and res["email_alle"] == []
 
 
+def test_media_hardware_info_hat_ram():
+    import media_engine
+    hw = media_engine.hardware_info()
+    assert "ram_gb" in hw and isinstance(hw["ram_gb"], (int, float))
+    assert hw["device"] in ("cpu", "cuda", "mps")
+    s = media_engine.get_status()
+    assert "ram_gb" in s and "video_local_ok" in s and s.get("empfehlung")
+
+
+def test_media_resolve_image_model(monkeypatch):
+    import media_engine
+    # Explizite, bekannte Angabe gewinnt immer.
+    assert media_engine._resolve_image_model("sdxl") == "sdxl"
+    # Leere Angabe -> hardware-bestes Modell (Auto = Default), liegt in IMAGE_MODELS.
+    auto = media_engine._resolve_image_model("")
+    assert auto in media_engine.IMAGE_MODELS
+    # JARVIS_IMAGE_AUTO=0 -> statt Auto das .env-Modell (get_active_image_model).
+    monkeypatch.setattr(media_engine, "_env", lambda k, d="": "0" if k == "JARVIS_IMAGE_AUTO" else d)
+    monkeypatch.setattr(media_engine, "get_active_image_model", lambda: "sdxl")
+    assert media_engine._resolve_image_model("") == "sdxl"
+
+
+def test_server_config(monkeypatch):
+    import app
+    for k in ("JARVIS_HOST", "JARVIS_PORT", "PORT", "JARVIS_THREADS", "JARVIS_SERVER", "JARVIS_PROD"):
+        monkeypatch.delenv(k, raising=False)
+    cfg = app.server_config()
+    assert cfg["host"] == "0.0.0.0" and cfg["port"] == 5000 and cfg["prod"] is False
+    assert 8 <= cfg["threads"] <= 32
+    monkeypatch.setenv("JARVIS_PORT", "8080")
+    monkeypatch.setenv("JARVIS_THREADS", "16")
+    monkeypatch.setenv("JARVIS_SERVER", "1")
+    cfg2 = app.server_config()
+    assert cfg2["port"] == 8080 and cfg2["threads"] == 16 and cfg2["prod"] is True
+
+
 def test_ad_prompts_video_prompt():
     import ad_prompts
     vp = ad_prompts.build_video_prompt({"branche": "Dachdecker", "stil": "cinematisch",

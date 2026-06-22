@@ -845,6 +845,24 @@ async function loadMediaModels(){
       ? keys.map(k => `<option value="${_e(k)}">${_e(d.higgsfield[k].name || k)} · ${d.higgsfield[k].credits||'?'} Cr.</option>`).join('')
       : '<option value="dop-lite">Dop Lite</option>';
   }
+
+  // Hardware-Empfehlung anzeigen + bei reiner CPU den Video-Standard auf Higgsfield
+  // setzen (lokales Wan-Video braucht eine GPU).
+  try{
+    const s = await(await fetch('/api/media/status')).json();
+    _hfConfigured = !!s.higgsfield_api_key;
+    const info = document.getElementById('vid-engine-info');
+    if(info && s.empfehlung) info.textContent = s.empfehlung;
+    if(s.video_local_ok === false){
+      const vb = document.getElementById('vid-backend');
+      if(vb){
+        const hfOpt = vb.querySelector('option[value="higgsfield"]');
+        const loOpt = vb.querySelector('option[value="local"]');
+        if(loOpt) loOpt.textContent = 'Lokal (Wan 2.1) — nur mit GPU';
+        if(_hfConfigured){ vb.value = 'higgsfield'; if(typeof onVidBackend==='function') onVidBackend(); }
+      }
+    }
+  }catch(e){}
 }
 
 function onVidBackend(){

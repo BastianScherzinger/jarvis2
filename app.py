@@ -1005,5 +1005,46 @@ def api_stream():
     )
 
 
+def server_config() -> dict:
+    """Server-Konfiguration aus der Umgebung (.env via config.load_dotenv).
+      JARVIS_HOST   (Default 0.0.0.0)
+      JARVIS_PORT / PORT  (Default 5000)
+      JARVIS_THREADS  (Default = 2× CPU-Kerne, 8–32)
+      JARVIS_SERVER / JARVIS_PROD  → Produktionsmodus (waitress statt Dev-Server)."""
+    host = os.environ.get("JARVIS_HOST", "0.0.0.0")
+    try:
+        port = int(os.environ.get("JARVIS_PORT") or os.environ.get("PORT") or 5000)
+    except ValueError:
+        port = 5000
+    try:
+        threads = int(os.environ.get("JARVIS_THREADS") or 0)
+    except ValueError:
+        threads = 0
+    if threads <= 0:
+        threads = min(32, max(8, (os.cpu_count() or 4) * 2))
+    prod = (os.environ.get("JARVIS_SERVER") or os.environ.get("JARVIS_PROD") or "").strip().lower() \
+        in ("1", "true", "yes", "on", "prod", "production")
+    return {"host": host, "port": port, "threads": threads, "prod": prod}
+
+
+def run_server() -> None:
+    """Startet den Server: im Produktionsmodus (JARVIS_SERVER=1) über waitress
+    (robuster WSGI-Server, Windows-tauglich), sonst der Flask-Dev-Server.
+    Fällt ohne waitress sauber auf den Dev-Server zurück."""
+    cfg = server_config()
+    if cfg["prod"]:
+        try:
+            from waitress import serve as _serve
+            print(f"[JARVIS] Produktionsserver (waitress) auf http://{cfg['host']}:{cfg['port']} "
+                  f"· {cfg['threads']} Threads", flush=True)
+            _serve(app, host=cfg["host"], port=cfg["port"], threads=cfg["threads"],
+                   channel_timeout=300, ident="JARVIS")
+            return
+        except ImportError:
+            print("[JARVIS] waitress nicht installiert — Fallback auf Dev-Server "
+                  "(pip install waitress für Produktion).", flush=True)
+    app.run(host=cfg["host"], port=cfg["port"], debug=False, threaded=True)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    run_server()

@@ -58,7 +58,7 @@ def _set_env(key: str, value: str) -> None:
 
 def _install_deps() -> None:
     """Stellt sicher dass Flask + Playwright + beautifulsoup4 installiert sind."""
-    pkgs = ["flask", "playwright", "beautifulsoup4", "requests"]
+    pkgs = ["flask", "playwright", "beautifulsoup4", "requests", "waitress"]
     for pkg in pkgs:
         try:
             __import__(pkg.replace("-", "_"))
@@ -175,6 +175,7 @@ def _boot_screen(cfg: dict) -> str:
 def main():
     cfg     = _read_env()
     ai_mode = _boot_screen(cfg)
+    port    = (cfg.get("JARVIS_PORT") or os.environ.get("JARVIS_PORT") or "5000").strip() or "5000"
 
     print(f"  {GY}[+]{R}  Prüfe Abhängigkeiten...")
     _install_deps()
@@ -184,10 +185,10 @@ def main():
     # Browser nach kurzer Verzögerung öffnen
     def _open():
         time.sleep(2.5)
-        webbrowser.open("http://localhost:5000")
+        webbrowser.open(f"http://localhost:{port}")
     threading.Thread(target=_open, daemon=True).start()
 
-    print(f"  {C}[JARVIS]{R}  LeadHunter läuft auf {GY}http://localhost:5000{R}")
+    print(f"  {C}[JARVIS]{R}  LeadHunter läuft auf {GY}http://localhost:{port}{R}")
     print()
 
     flask = subprocess.Popen(
