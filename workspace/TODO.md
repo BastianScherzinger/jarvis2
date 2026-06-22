@@ -21,6 +21,16 @@
 - [ ] **window._gb** ist als Debug-Global in `globe.js` belassen (harmlos) — bei Bedarf
       entfernen.
 
+## Auto-Builder / neue Features (Stand 22.06.)
+- [ ] **Auto-Builder** baut ECHTE Seiten + deployt + mailt — vor Dauerbetrieb prüfen:
+      genug GitHub/Railway-Kontingent, Higgsfield/Claude-Token, rechtliches (Opt-out).
+- [ ] **E-Mail-Versand** muss am jeweiligen PC scharf sein (JARVIS_EMAIL_ENABLED=true,
+      SMTP-Konto). Auto-Builder mailt immer an Bastian.
+- [ ] **Erd-Globus-Texturen** kommen vom jsDelivr-CDN (three.js) — bei Offline-Betrieb
+      ggf. Texturen lokal in static/img bündeln.
+- [ ] **Lead-Findung/Bewertung:** Final-Check grün (alle Module/Tests/Audit). Tiefere
+      Scoring-/Scraper-Optimierung bei Bedarf separat (kein Blind-Rewrite gemacht).
+
 ## Ideen (nicht beauftragt)
 - [ ] Bestehende Webseiten beim ersten Sync rückwirkend mit `kontakt_email` füllen
       (aktuell nur bei Neubau gesetzt).

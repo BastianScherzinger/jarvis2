@@ -64,6 +64,21 @@ JARVIS_HERO_TIMEOUT=180                  # Sek., lokaler Hero-Render
 JARVIS_RAILWAY_PROJECT=Generated Websites
 ```
 
+## 7. Auto-Builder, Erd-Globus, Dauer-Chat (Nachtrag 22.06.)
+- **Auto-Website-Builder** (`auto_builder.py`, Nav-Button + `/api/auto-build/*`):
+  Schleife → bester Lead ohne Website → bauen → deployen → Top-verbessern →
+  E-Mail an Bastian → nächster. Toggle mit Live-Status. Tools: `auto_builder`,
+  `improve_built_website` (auch im Claude-Chat steuerbar).
+- **3D-Erd-Globus** (`globe.js`): echte Satelliten-Erde (Tag/Nacht-Lichter, Wolken,
+  Bump-Relief, Atmosphäre, Sterne), Start-Zoom Deutschland, Lead-Marker je Stadt +
+  Lichtsäulen + Hover-Tooltip. `/api/graph/locations`.
+- **Dauer-Chat-Dock** (`chatdock.js`): ausklappbares JARVIS-Chat-Popup auf ALLEN
+  Seiten (SSE, alle Tools). Unten rechts.
+- **Angebots-Mail aufgewertet** (`offer_mail.py`, geteilt): Preis-Anker, Trust,
+  Garantie. Zwei Versand-Wege (Test an Bastian / echt an Kontakt).
+- **install.py:** konfiguriertes Ollama-Modell wird bei Fehlen automatisch geladen.
+
 ## Tests/Audit
-39 Unit-Tests + 50 Smoke-Audit-Checks grün. Visuell mit Playwright geprüft
-(Webseiten-Reiter, Chat-Modal, E-Mail-Versand, 3D-Globus).
+41 Unit-Tests + 51 Smoke-Audit-Checks grün; 36 Module importieren fehlerfrei.
+Visuell mit Playwright geprüft (Webseiten-Reiter, Chat-Modal & -Dock, E-Mail,
+Erd-Globus, Auto-Builder-Button).
