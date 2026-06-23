@@ -264,6 +264,44 @@ def api_websites():
     return jsonify({"ok": True, "websites": db_websites.get_all()})
 
 
+@app.route("/api/websites/grouped")
+def api_websites_grouped():
+    """Websites gruppiert nach Bautag — für den Tages-Ordner-View."""
+    import time as _time
+    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+    today = _time.strftime("%Y-%m-%d")
+    all_sites = db_websites.get_all()
+
+    # build_date aus created-Timestamp ableiten
+    for s in all_sites:
+        ts = s.get("created") or 0
+        s["build_date"] = _time.strftime("%Y-%m-%d", _time.localtime(ts)) if ts else "unbekannt"
+
+    # Nach Datum gruppieren
+    days_dict: dict = {}
+    for s in all_sites:
+        days_dict.setdefault(s["build_date"], []).append(s)
+
+    days = []
+    for d in sorted(days_dict.keys(), reverse=True):
+        sites = days_dict[d]
+        # Seiten die den Auto-Limit übersteigen sind Custom/Manual-Builds
+        auto_count  = min(len(sites), daily_limit)
+        extra_count = max(0, len(sites) - daily_limit)
+        days.append({
+            "date":        d,
+            "is_today":    d == today,
+            "sites":       sites,
+            "count":       len(sites),
+            "limit":       daily_limit,
+            "auto_count":  auto_count,
+            "extra_count": extra_count,
+            "full":        len(sites) >= daily_limit,
+        })
+
+    return jsonify({"ok": True, "days": days, "total": len(all_sites)})
+
+
 def _website_added_dir(row: dict) -> "Path | None":
     """Sicherer Pfad zum 'added'-Bilderordner einer gebauten Seite (oder None)."""
     folder = (row or {}).get("folder") or ""
