@@ -143,7 +143,7 @@ def run(quiet: bool = False) -> bool:
     try:
         import site_skills
         from pathlib import Path as _Path
-        site_skills.ensure_base_skills(_Path(__file__).parent / "data" / "skills")
+        site_skills.ensure_base_skills(_Path(__file__).parent)
         if not quiet:
             print(f"  {CY}>{R}   Site-Skills bereit (5 Design-Varianten)      {G}OK{R}")
     except Exception as _e:
