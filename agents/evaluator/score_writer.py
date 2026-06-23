@@ -2,8 +2,16 @@
 Agent 3 — Score-Writer.
 
 Differenzierter deterministischer Basis-Score (0-100) aus allen verifizierten
-Signalen. KEIN flaches 40 mehr. Ollama verfeinert nur (Feinschliff + Texte);
-fällt Ollama aus, bleibt der differenzierte Basis-Score erhalten.
+Signalen. Ollama verfeinert nur (Feinschliff + Texte). Fällt Ollama aus,
+bleibt der differenzierte Basis-Score erhalten.
+
+Preissystem (reale Paketpreise — kein berechneter Erwartungswert mehr):
+  0 €   — Betrieb hat bereits eine gute, aktuelle Website → kein Bedarf
+  200 € — Mini-Betrieb (1-2 Personen, wenig Bewertungen, einfachste Lösung)
+  350 € — Standard-KMU (lokaler Handwerker/Dienstleister ohne oder mit alter Website)
+  550 € — Mittlerer Betrieb (mehr Bewertungen, High-Value-Branche, klares Potenzial)
+  850 € — Großes Potenzial (viele Bewertungen, starke Branche, echte Lösung sichtbar)
+ 1200 € — Außergewöhnliches Potenzial (KI sieht Grund für mehr als 850 €)
 """
 import json
 
@@ -11,17 +19,14 @@ from scrapers._http import ask_ollama, extract_json, best_chat_model
 from scrapers.regions import HIGH_VALUE
 import logger
 
-POTENZIAL_STUFEN = [500, 1500, 3000, 5000]
+# Feste Paketpreise — kein freier Potenzialwert mehr.
+# Ollama wählt einen dieser Tiers; bei Ablehnung greift die Heuristik.
+PREIS_TIERS = [0, 200, 350, 550, 850, 1200]
 
 _GASTRO = ["restaurant", "café", "cafe", "bäckerei", "baeckerei", "catering",
            "einzelhandel", "laden", "shop", "kiosk"]
 
-# ── Sicherheits-Gewichte (Confidence 0-100) — kalibrierbar "für uns" ─────────
-# Der Bedarfs-Score (oben) sagt, wie SEHR ein Betrieb Webdesign braucht. Die
-# Sicherheit sagt, wie BELASTBAR der Lead ist: erreichbar (E-Mail/Telefon),
-# zahlungsfähig (Privatzahler/KMU) und eindeutig verifiziert. Zusammen ergeben
-# sie den Erwartungswert (€) = "wo verdienen wir am sichersten Geld".
-# Werte hier anpassen, um die Rangliste an die eigene Verkaufsrealität zu eichen.
+# ── Sicherheits-Gewichte (Confidence 0-100) — kalibrierbar ────────────────────
 SICHERHEIT_GEWICHTE = {
     "email":             35,   # E-Mail gefunden → direkt anschreibbar (wichtigster Faktor)
     "telefon":           20,   # Telefon verifiziert → erreichbar
@@ -32,7 +37,6 @@ SICHERHEIT_GEWICHTE = {
     "kette_malus":      -45,   # Kette/Konzern → zentrale Beschaffung, kaum direkter Abschluss
 }
 
-# Mindest-Sicherheit, ab der ein bedarfsstarker Lead als "Hot" gilt (sonst "Warm").
 HOT_MIN_SICHERHEIT = 50
 
 
@@ -54,7 +58,7 @@ def _sicherheit(lead: dict, web: dict, social_media: dict, rev: int,
 
 
 def _potenzial_fuer_branche(branche: str) -> int:
-    """Basis-Schätzung ohne KI — als Plausibilitäts-Anker."""
+    """Basis-Branchenwert — als Plausibilitäts-Anker für den Score."""
     b = (branche or "").lower()
     if any(x in b for x in ["zahnarzt", "physiotherapeut", "rechtsanwalt", "steuerberater"]):
         return 3000
@@ -69,8 +73,55 @@ def _clamp(v: int) -> int:
     return max(0, min(100, int(v)))
 
 
+def _preis_tier(has_web: int, veraltet: int, firmengroesse: str,
+                branche: str, rev: int, score_100: int,
+                ollama_tier: int = None) -> int:
+    """Weist einen realistischen Paketpreis zu (PREIS_TIERS).
+
+    Ollama-Tier hat Vorrang wenn er in PREIS_TIERS liegt. Sonst greift
+    die deterministische Heuristik basierend auf Branche + Score + Größe."""
+    b = (branche or "").lower()
+
+    # Gute, aktuelle Website vorhanden → kein Bedarf für uns
+    if has_web and not veraltet:
+        return 0
+    # Kette → kein Direktabschluss möglich
+    if firmengroesse == "Kette":
+        return 0
+
+    # Ollama-Tier übernehmen wenn valide
+    if ollama_tier in PREIS_TIERS:
+        return ollama_tier
+
+    # Deterministische Heuristik
+    high_val   = any(x in b for x in ["zahnarzt", "physiotherapeut", "rechtsanwalt",
+                                       "steuerberater", "notar", "facharzt"])
+    medium_val = any(x in b for x in ["elektriker", "dachdecker", "heizung",
+                                       "klempner", "kfz", "sanitär", "bauunternehmen",
+                                       "umzug", "reinigung"])
+    big_betrieb = firmengroesse in ("3-10", "11-50")
+
+    if score_100 >= 72:
+        if high_val:
+            return 850
+        if medium_val or big_betrieb:
+            return 550
+        return 350
+    if score_100 >= 50:
+        if high_val:
+            return 550
+        if medium_val:
+            return 350
+        return 350
+    if score_100 >= 30:
+        if high_val or medium_val:
+            return 350
+        return 200
+    return 200  # Mindest-Einstiegspreis wenn Lead überhaupt in der Pipeline ist
+
+
 def evaluate(lead: dict, web: dict, social: dict) -> dict:
-    """Kombiniert alle Signale → differenzierter Score, Pitch, E-Mail."""
+    """Kombiniert alle Signale → differenzierter Score, Paketpreis, Pitch, E-Mail."""
     issues        = web.get("website_probleme") or []
     has_web       = int(web.get("has_website", 0))
     veraltet      = int(web.get("website_veraltet", 0))
@@ -86,7 +137,6 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     breakdown: dict[str, int] = {}
 
     # ── Website-Situation (größter Faktor) ──────────────────────────────────
-    # Höchster Verkaufswert: keine Website. Dann veraltet. Moderne Seite = wenig Bedarf.
     if has_web == 0 and not social_media:
         breakdown["Keine Online-Präsenz"] = 42
     elif has_web == 0 and social_media:
@@ -129,20 +179,17 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         breakdown["Bildpräsenz"] = 4
 
     # ── Firmengröße / Zahler ────────────────────────────────────────────────
+    heur_privat = 0
     if firmengroesse in ("1-2 Personen", "3-10"):
         breakdown["Privatzahler (KMU)"] = 8
         heur_privat = 1
     elif firmengroesse == "Kette":
         breakdown["Kette (kein Zahler)"] = -35
         heur_privat = 0
-    else:
-        heur_privat = 0
 
     base = _clamp(sum(breakdown.values()))
 
-    basis_potenzial = _potenzial_fuer_branche(branche)
-
-    # ── Ollama-Verfeinerung (nur Feinschliff) ───────────────────────────────
+    # ── Ollama-Verfeinerung (nur Feinschliff + Texte + Tier-Empfehlung) ─────
     context = (
         f"Betrieb: {lead.get('name')} | Branche: {branche} | Stadt: {lead.get('stadt')}\n"
         f"Website: {'Ja' if has_web else 'NEIN'}"
@@ -167,15 +214,22 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         f"{context}\n\n"
         "Regeln:\n"
         "- Hoher Verkaufswert = KEINE Website oder veraltete Website + erreichbar + aktiv.\n"
-        "- Moderne, gepflegte Website = niedriger Verkaufswert (brauchen nichts).\n"
+        "- Gute, aktuelle Website = preis_tier 0 (kein Potenzial für uns).\n"
+        "- preis_tier muss EXAKT einer dieser Werte sein: 0, 200, 350, 550, 850, 1200.\n"
+        "  0   = Betrieb hat bereits eine gute Website → kein Bedarf\n"
+        "  200 = Mini-Betrieb (1 Person, Kiosk, sehr kleiner Handwerker)\n"
+        "  350 = Standard-KMU (lokaler Handwerker/Dienstleister, keine/alte Website)\n"
+        "  550 = Mittlerer Betrieb (mehrere Mitarbeiter, gute Branche, klares Potenzial)\n"
+        "  850 = Großes Potenzial (viele Bewertungen, starke Branche, einfache Lösung sichtbar)\n"
+        " 1200 = Außergewöhnlich (E-Commerce + Buchung + SEO oder ähnliches Mega-Projekt)\n"
         "- beschreibung: 1-2 sachliche Sätze NUR aus den Fakten, keine Erfindungen.\n"
         "- pitch_hook: 1 konkreter Satz, der einen echten Mangel anspricht.\n\n"
         "Antworte EXAKT in diesem JSON-Format (kein Markdown, deutsche Texte):\n"
         '{"anpassung": Zahl -15 bis 15 (Korrektur des Basis-Scores), '
-        '"beschreibung": "1-2 sachliche Sätze, nur aus den Fakten", '
-        '"potenzial_euro": 500 oder 1500 oder 3000 oder 5000, '
+        '"preis_tier": 0 oder 200 oder 350 oder 550 oder 850 oder 1200, '
         '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU, 0=Kette/Konzern), '
-        '"potenzial_begruendung": "1 Satz warum dieser Betrag", '
+        '"beschreibung": "1-2 sachliche Sätze, nur aus den Fakten", '
+        '"potenzial_begruendung": "1 Satz warum dieser Preis und nicht mehr/weniger", '
         '"pitch_hook": "1 konkreter Gesprächseinstieg zu einem echten Mangel", '
         '"email_betreff": "kurze Betreffzeile", '
         '"email_text": "sachliche Akquise-Mail, max 80 Wörter, keine Erfindungen"}'
@@ -184,7 +238,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     raw  = ask_ollama(prompt, system=system, model=best_chat_model())
     data = extract_json(raw)
 
-    # Anpassung anwenden (begrenzt) — bei Fehlschlag 0.
+    # Anpassung anwenden (begrenzt)
     try:
         anpassung = int(data.get("anpassung", 0))
         anpassung = max(-15, min(15, anpassung))
@@ -193,28 +247,34 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
 
     score = _clamp(base + anpassung)
 
+    # Ollama-Tier auslesen (muss exakt in PREIS_TIERS sein)
     try:
-        potenzial = int(data.get("potenzial_euro"))   # Ollama liefert manchmal "1500" als String
+        ollama_tier = int(data.get("preis_tier") or -1)
     except (TypeError, ValueError):
-        potenzial = None
-    if potenzial not in POTENZIAL_STUFEN:
-        potenzial = basis_potenzial
+        ollama_tier = None
+    if ollama_tier not in PREIS_TIERS:
+        ollama_tier = None
 
+    # Privat-Zahler: Ollama oder Heuristik
     ist_privat = data.get("ist_privat_zahler")
     if ist_privat not in (0, 1):
         ist_privat = heur_privat
 
-    # ── Sicherheit + Erwartungswert ─────────────────────────────────────────
+    # ── Sicherheit ──────────────────────────────────────────────────────────
     sicherheit, sicherheit_bd = _sicherheit(
         lead, web, social_media, rev, ist_privat, firmengroesse
     )
-    # Abschlusswahrscheinlichkeit ≈ Bedarf × Sicherheit (0..1). Erwartungswert =
-    # potenzieller Auftragswert × Abschlusswahrscheinlichkeit → "sicherstes Geld".
-    abschluss      = round((score / 100.0) * (sicherheit / 100.0), 3)
-    erwartungswert = int(round(potenzial * abschluss))
 
-    # Hot nur bei hohem Bedarf UND ausreichender Sicherheit (sonst max. Warm).
-    if score >= 72 and sicherheit >= HOT_MIN_SICHERHEIT:
+    # ── Paketpreis (ersetzt den alten potenzial × abschluss Wert) ───────────
+    preis = _preis_tier(has_web, veraltet, firmengroesse, branche, rev, score, ollama_tier)
+
+    # Für Stats/CSV: potenzial_euro = Branchenbasis (intern), erwartungswert = Paketpreis
+    basis_potenzial = _potenzial_fuer_branche(branche)
+
+    # ── Lead-Typ ─────────────────────────────────────────────────────────────
+    if preis == 0:
+        lead_typ = "Archiviert"       # gute Website vorhanden oder Kette
+    elif score >= 72 and sicherheit >= HOT_MIN_SICHERHEIT:
         lead_typ = "Hot"
     elif score >= 48:
         lead_typ = "Warm"
@@ -231,18 +291,18 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     logger.eval_(
         "ScoreWriter",
         f"→ Basis {base} + Ollama {anpassung:+d} = {score} | {lead_typ} | "
-        f"Sicherheit {sicherheit} | EW {erwartungswert}€ (von {potenzial}€)",
+        f"Preis {preis}€ | Sicherheit {sicherheit}",
     )
 
     return {
         "score":                 score,
         "sicherheit":            sicherheit,
-        "erwartungswert_euro":   erwartungswert,
+        "erwartungswert_euro":   preis,
         "lead_typ":              lead_typ,
         "beschreibung":          str(data.get("beschreibung") or "")[:400],
         "ist_privat_zahler":     ist_privat,
         "firmengroesse":         firmengroesse,
-        "potenzial_euro":        potenzial,
+        "potenzial_euro":        basis_potenzial,
         "potenzial_begruendung": str(data.get("potenzial_begruendung") or "")[:300],
         "pitch_hook":            str(data.get("pitch_hook") or "")[:200],
         "email_entwurf":         email_draft,

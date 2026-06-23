@@ -377,6 +377,31 @@ def get_conversion_stats() -> dict:
     }
 
 
+def archive_lead(eval_id: int, reason: str = "bereits bearbeitet") -> None:
+    """Markiert einen Lead als 'Archiviert' mit 0 € Erwartungswert.
+
+    Archivierte Leads werden von _pick_next_lead() übersprungen und tauchen
+    nicht mehr als Bau-Kandidaten auf. Der original-Score bleibt für Stats
+    erhalten; nur lead_typ und erwartungswert_euro werden überschrieben."""
+    note = reason[:300]
+    with _lock, _conn() as c:
+        c.execute(
+            "UPDATE evaluated_leads "
+            "SET lead_typ='Archiviert', erwartungswert_euro=0, "
+            "    beschreibung=?, status='archiviert' "
+            "WHERE id=?",
+            (note, eval_id),
+        )
+        c.commit()
+        row = c.execute("SELECT * FROM evaluated_leads WHERE id=?", (eval_id,)).fetchone()
+    if row:
+        try:
+            from cloud_sync import push_lead
+            push_lead(dict(row))
+        except Exception:
+            pass
+
+
 def clear_all() -> int:
     """Leert die komplette evaluated_leads-Tabelle. Gibt Anzahl gelöschter Zeilen zurück."""
     with _lock, _conn() as c:

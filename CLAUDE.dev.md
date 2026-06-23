@@ -139,6 +139,20 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   Ollama ist nur Feinschliff. Fällt Ollama aus, bleibt die Bewertung gültig.
   Diese Garantie **nicht brechen**.
 
+- **Preissystem (Preis-Tiers):** `score_writer.PREIS_TIERS = [0, 200, 350, 550, 850, 1200]`.
+  `erwartungswert_euro` ist jetzt ein **fester Paketpreis** (kein berechneter Erwartungswert mehr).
+  `lead_typ="Archiviert"` wenn `preis=0` (gute Website vorhanden oder Kette).
+  Ollama wählt einen Tier und begründet ihn; Heuristik greift wenn Ollama ausfällt.
+
+- **Duplikat-Guard** (`duplicate_guard.py`): Vier Quellen in Reihenfolge (DB → Ordner →
+  GitHub API → Railway API). `is_already_built(lead, check_apis=False)` für schnelle
+  Vorfilterung in `_pick_next_lead()`. `check_apis=True` nur einmalig vor dem echten Bau
+  in `_build_and_email()`. `mark_archived(lead, reason)` setzt Lead in DB2 auf 'Archiviert'.
+
+- **Archiviert-Leads:** Pipeline setzt `status="archiviert"` wenn `lead_typ=="Archiviert"`.
+  `_pick_next_lead()` überspringt Leads mit `lead_typ="Archiviert"` oder `erwartungswert_euro=0`.
+  `db_evaluated.archive_lead(eval_id, reason)` setzt beides inkl. Cloud-Sync.
+
 ### Flask-API (`app.py`, Port 5000)
 
 - Steuerung: `/api/start`, `/api/stop`, `/api/status`, `/api/clear`

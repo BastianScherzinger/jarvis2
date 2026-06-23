@@ -131,21 +131,31 @@ def _built_keys() -> set:
 
 
 def _pick_next_lead():
-    """Bester Lead (Erwartungswert) OHNE Website und noch nicht gebaut."""
+    """Bester Lead (Erwartungswert) OHNE Website, noch nicht gebaut, nicht archiviert."""
     import db_evaluated
+    import duplicate_guard
     try:
         from leadkey import lead_key
     except Exception:
         lead_key = None
     built = _built_keys()
     for r in db_evaluated.get_all(limit=400, sort="erwartungswert"):
+        # Leads mit vorhandener Website oder bereits archivierten überspringen
         if int(r.get("has_website") or 0):
+            continue
+        if r.get("lead_typ") == "Archiviert":
+            continue
+        if int(r.get("erwartungswert_euro") or 0) == 0:
             continue
         name = (r.get("name") or "").strip()
         if not name:
             continue
         sk = lead_key(name, r.get("stadt", "")) if lead_key else None
         if sk and sk in built:
+            continue
+        # Schnelle lokale Duplikat-Prüfung (kein API-Call, nur DB + Ordner)
+        already, _ = duplicate_guard.is_already_built(r, check_apis=False)
+        if already:
             continue
         return r
     return None
@@ -211,9 +221,19 @@ def _idle_sleep(seconds: int = 60) -> None:
 def _build_and_email(lead: dict) -> None:
     import website_builder
     import db_websites
+    import duplicate_guard
     name    = (lead.get("name") or "").strip()
     stadt   = lead.get("stadt", "")
     branche = lead.get("branche", "")
+
+    # Vollständige Duplikat-Prüfung inkl. GitHub + Railway (einmalig vor dem Bau)
+    already, reason = duplicate_guard.is_already_built(lead, check_apis=True)
+    if already:
+        logger.warn("AutoBuilder",
+                    f"Lead '{name}' übersprungen — bereits verarbeitet: {reason}")
+        duplicate_guard.mark_archived(lead, reason)
+        return
+
     _set(mode="build", current=name, phase=f"Baue Webseite ({_count_today()+1}/{_DAILY_LIMIT})…")
     logger.info("AutoBuilder", f"Baue Webseite für {name}")
     jid = website_builder.build(dict(lead))

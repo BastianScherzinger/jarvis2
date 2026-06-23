@@ -114,6 +114,11 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 **scored,
             }
 
+            # Archivierte Leads (gute bestehende Website → kein Potenzial) bekommen
+            # sofort den Status 'archiviert', damit sie nie als Bau-Kandidaten auftauchen.
+            if row.get("lead_typ") == "Archiviert":
+                row["status"] = "archiviert"
+
             db_evaluated.insert_evaluated(row)
             db_raw.update_eval_status(raw_id, "done")
 
@@ -128,7 +133,8 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 "Evaluator",
                 f"✓ {lead.get('name')}: Score {row.get('score')} ({row.get('lead_typ')}) | "
                 f"Website: {'gefunden' if has_website else 'KEINE'} | "
-                f"Bilder: {'ja' if bilder else 'nein'} | {row.get('potenzial_euro')}€",
+                f"Bilder: {'ja' if bilder else 'nein'} | "
+                f"Paket {row.get('erwartungswert_euro')}€",
             )
             on_update({"type": "evaluated", "data": row})
 
