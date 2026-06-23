@@ -925,15 +925,20 @@ async function loadMediaModels(){
     const s = await(await fetch('/api/media/status')).json();
     _hfConfigured = !!s.higgsfield_api_key;
     const info = document.getElementById('vid-engine-info');
-    if(info && s.empfehlung) info.textContent = s.empfehlung;
     if(s.video_local_ok === false){
+      if(_hfConfigured){
+        if(info) info.textContent = 'Kein GPU erkannt — Videos werden automatisch über Higgsfield Cloud generiert';
+      } else {
+        if(info) info.textContent = '⚠ Kein GPU + kein Higgsfield-Key → HIGGSFIELD_API_KEY in .env eintragen';
+      }
       const vb = document.getElementById('vid-backend');
       if(vb){
-        const hfOpt = vb.querySelector('option[value="higgsfield"]');
         const loOpt = vb.querySelector('option[value="local"]');
         if(loOpt) loOpt.textContent = 'Lokal (Wan 2.1) — nur mit GPU';
         if(_hfConfigured){ vb.value = 'higgsfield'; if(typeof onVidBackend==='function') onVidBackend(); }
       }
+    } else {
+      if(info && s.empfehlung) info.textContent = s.empfehlung;
     }
   }catch(e){}
 }

@@ -479,21 +479,24 @@ def generate_video(
     # - auto + keine GPU  → automatisch Cloud (lokales Wan auf CPU = Stunden/Clip)
     # - local / GPU       → lokal generieren
     backend = (os.environ.get("JARVIS_VIDEO_BACKEND") or "auto").strip().lower()
-    on_cpu  = hardware_info()["device"] == "cpu"
+    hw      = hardware_info()
+    on_cpu  = hw["device"] == "cpu"
     if backend == "higgsfield" or (backend != "local" and on_cpu):
-        if higgsfield_available():
+        hf_key = _hf_key()
+        if hf_key:
             # Automatischer Cloud-Weg — kein Fehler mehr, das Video entsteht via Higgsfield.
-            return generate_video_higgsfield(
-                prompt, model=os.environ.get("JARVIS_HIGGSFIELD_VIDEO_MODEL", "dop-lite"))
+            hf_model = os.environ.get("JARVIS_HIGGSFIELD_VIDEO_MODEL", "dop-lite")
+            return generate_video_higgsfield(prompt, model=hf_model)
         if backend == "higgsfield":
             raise RuntimeError(
                 "Video-Backend 'higgsfield' gewählt, aber HIGGSFIELD_API_KEY fehlt in der "
-                ".env (Format ID:SECRET). Key unter https://cloud.higgsfield.ai/api-keys.")
-        # auto + CPU + kein Cloud-Key → ehrliche, lösbare Meldung (kein Stunden-Hänger).
+                ".env. Format: HIGGSFIELD_API_KEY=KEY_ID:KEY_SECRET  "
+                "(Key unter https://cloud.higgsfield.ai/api-keys erstellen).")
+        # auto + CPU + kein Higgsfield-Key
         raise RuntimeError(
-            "Videos brauchen entweder eine GPU oder die Higgsfield-Cloud. Trage "
-            "HIGGSFIELD_API_KEY=ID:SECRET in die .env ein — dann laufen Videos automatisch "
-            "über die Cloud.")
+            f"Kein GPU ({hw['device']}) und kein Higgsfield-Key — Video nicht möglich. "
+            "Lösung: HIGGSFIELD_API_KEY=ID:SECRET in die .env eintragen, "
+            "dann läuft Video automatisch über die Higgsfield Cloud (dop-lite, 3 Credits).")
 
     key = model_key or get_active_video_model()
     m   = VIDEO_MODELS.get(key)
@@ -558,10 +561,14 @@ HIGGSFIELD_MODELS = {
 
 
 def _hf_key() -> str:
+    # os.environ zuerst: load_dotenv() hat .env bereits geladen — zuverlässiger als Datei-Parse
+    ev = os.environ.get("HIGGSFIELD_API_KEY", "").strip()
+    if ev:
+        return ev
+    # Fallback: direkt aus .env-Datei lesen (falls os.environ noch nicht befüllt)
     content = (_BASE / ".env").read_text(encoding="utf-8", errors="replace") if (_BASE / ".env").exists() else ""
-    m = re.search(r"^HIGGSFIELD_API_KEY=(.+)", content, re.M)   # ^ = Kommentarzeilen ignorieren
-    key = m.group(1).strip() if m else ""
-    return key or os.environ.get("HIGGSFIELD_API_KEY", "")
+    m = re.search(r"^HIGGSFIELD_API_KEY=(.+)", content, re.M)
+    return m.group(1).strip() if m else ""
 
 
 def _hf_secret() -> str:

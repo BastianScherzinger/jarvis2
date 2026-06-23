@@ -144,8 +144,7 @@ def run(quiet: bool = False) -> bool:
         import site_skills
         from pathlib import Path as _Path
         site_skills.ensure_base_skills(_Path(__file__).parent)
-        if not quiet:
-            print(f"  {CY}>{R}   Site-Skills bereit (5 Design-Varianten)      {G}OK{R}")
+        _ok("Site-Skills", "5 Design-Varianten bereit")
     except Exception as _e:
         _warn("Site-Skills", str(_e)[:80])
 
@@ -396,6 +395,25 @@ def run(quiet: bool = False) -> bool:
     elif mcp_file.exists() and not npx_ok:
         _warn("MCP-Server", "npx fehlt — Node.js installieren")
 
+    # ── Discord Freigabe-Bot prüfen ──────────────────────────────────────────────
+    _env_dc = (HERE / ".env").read_text(encoding="utf-8", errors="replace") if (HERE / ".env").exists() else ""
+    import re as _re_dc
+    _dc_token   = bool(_re_dc.search(r"^DISCORD_BOT_TOKEN=\S", _env_dc, _re_dc.M))
+    _dc_channel = bool(_re_dc.search(r"^DISCORD_CHANNEL_ID=\d", _env_dc, _re_dc.M))
+    _dc_lib     = _can_import("discord")
+
+    if _dc_token and _dc_channel:
+        if _dc_lib:
+            _ok("Discord Bot", "konfiguriert + discord.py ✓ — Bot startet mit der App")
+        else:
+            _warn("Discord Bot", "Token/Kanal gesetzt — installiere discord.py ...")
+            if _pip("discord.py>=2.4.0"):
+                _ok("discord.py", "installiert")
+            else:
+                _warn("discord.py", "manuell: pip install \"discord.py>=2.4.0\"")
+    else:
+        _warn("Discord Bot", "deaktiviert — DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID in .env eintragen")
+
     # ── Relevante Keys → ~/.claude/.env synchen (für Claude Code + MCP-Server) ──
     # Damit der Claude des Kunden (MCPs/Skills/Tools) dieselben Zugänge hat wie JARVIS:
     # Maps (MCP), GitHub/Railway (Deploy), Supabase (Cloud), Higgsfield, Anthropic.
@@ -510,8 +528,8 @@ def run(quiet: bool = False) -> bool:
         _has_vid = "JARVIS_VIDEO_MODEL=" in _env_m and "JARVIS_VIDEO_MODEL=\n" not in _env_m
 
         _IMG_MODELS = {
-            "1": {"key": "sd21",         "name": "Stable Diffusion 2.1", "size": "~2.5 GB", "vram": 4,
-                  "desc": "Schnell, stabil — ab 4 GB VRAM, auch CPU (langsam)"},
+            "1": {"key": "sd-turbo",     "name": "SD-Turbo (schnell)",   "size": "~2.1 GB", "vram": 4,
+                  "desc": "Sehr schnell (1-4 Steps) — auch CPU, ideal für Hero-Banner"},
             "2": {"key": "sdxl",         "name": "Stable Diffusion XL",  "size": "~6.5 GB", "vram": 8,
                   "desc": "Höhere Qualität, 1024px — ab 8 GB VRAM"},
             "3": {"key": "flux-schnell", "name": "FLUX.1 Schnell",        "size": "~15 GB",  "vram": 8,
@@ -523,7 +541,7 @@ def run(quiet: bool = False) -> bool:
         }
 
         # Empfehlung basierend auf System-Profil
-        _img_rec = "sd21"
+        _img_rec = "sd-turbo"
         if _profile:
             _ram = _profile.get("ram_gb", 8)
             if _ram >= 16:
