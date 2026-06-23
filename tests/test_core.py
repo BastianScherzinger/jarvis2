@@ -970,3 +970,41 @@ def test_railway_find_service_nicht_gefunden(monkeypatch):
     monkeypatch.setattr(ar, "_gql", lambda *a, **k:
                         {"ok": True, "data": {"project": {"services": {"edges": []}}}})
     assert ar._find_service("tok", "proj", "web-x") == {"found": False}
+
+
+# ── Video: CPU faellt automatisch auf Higgsfield-Cloud (kein GPU-Fehler mehr) ──
+def test_video_cpu_faellt_auf_higgsfield(monkeypatch):
+    import media_engine as me
+    monkeypatch.setattr(me, "hardware_info", lambda: {"device": "cpu"})
+    monkeypatch.setattr(me, "higgsfield_available", lambda: True)
+    seen = {}
+    monkeypatch.setattr(me, "generate_video_higgsfield",
+                        lambda prompt, **k: (seen.update(p=prompt),
+                        {"path": "x", "web_url": "/w", "model": "dop-lite",
+                         "prompt": prompt, "elapsed": 1.0})[1])
+    monkeypatch.setenv("JARVIS_VIDEO_BACKEND", "auto")
+    res = me.generate_video("ein werbeclip")
+    assert seen["p"] == "ein werbeclip" and res["web_url"] == "/w"
+
+
+def test_video_cpu_ohne_key_klare_meldung(monkeypatch):
+    import media_engine as me
+    import pytest
+    monkeypatch.setattr(me, "hardware_info", lambda: {"device": "cpu"})
+    monkeypatch.setattr(me, "higgsfield_available", lambda: False)
+    monkeypatch.setenv("JARVIS_VIDEO_BACKEND", "auto")
+    with pytest.raises(RuntimeError) as e:
+        me.generate_video("x")
+    msg = str(e.value)
+    assert "HIGGSFIELD_API_KEY" in msg and "Stunden" not in msg   # neue, lösbare Meldung
+
+
+def test_video_backend_higgsfield_explizit(monkeypatch):
+    import media_engine as me
+    monkeypatch.setattr(me, "hardware_info", lambda: {"device": "cuda"})  # sogar mit GPU
+    monkeypatch.setattr(me, "higgsfield_available", lambda: True)
+    seen = {}
+    monkeypatch.setattr(me, "generate_video_higgsfield",
+                        lambda prompt, **k: (seen.update(p=prompt), {"web_url": "/c"})[1])
+    monkeypatch.setenv("JARVIS_VIDEO_BACKEND", "higgsfield")
+    assert me.generate_video("y")["web_url"] == "/c" and seen["p"] == "y"

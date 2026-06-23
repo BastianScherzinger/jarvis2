@@ -1,5 +1,12 @@
 # JARVIS — TODO / Offene Punkte (Stand 23.06.2026)
 
+## Erledigt 23.06. (Video-Cloud-Auto-Fallback)
+- [x] **Kein GPU-Video-Fehler mehr:** `generate_video` mit `JARVIS_VIDEO_BACKEND`
+      (auto|local|higgsfield). `auto` + keine GPU → automatisch Higgsfield-Cloud.
+      Fehlender Key → lösbare Meldung. `.env`: `HIGGSFIELD_API_KEY=ID:SECRET` +
+      `JARVIS_VIDEO_BACKEND=auto` + `JARVIS_HIGGSFIELD_VIDEO_MODEL=dop-lite`.
+      Details: `workspace/MEDIEN_ARCHITEKTUR.md`.
+
 ## Erledigt 23.06. (Eigene-Marke-Modus + Live-Link-Fix + Logos im Verbesserer)
 - [x] **„Eigene Marke"-Modus** (`custom_build.py` + Tab): Sir gibt Name/Logo/Hero/
       Beschreibung selbst vor → gleiche Bau-Engine + Skills → über Nacht verbessert →

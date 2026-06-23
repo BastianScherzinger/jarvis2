@@ -1,7 +1,19 @@
-# JARVIS — Medien-System (Bilder & Videos) · Stand 22.06.2026
+# JARVIS — Medien-System (Bilder & Videos) · Stand 23.06.2026
 
 Dokumentiert die Bild-/Video-Generierung: Architektur, was in diesem Durchgang
 gebaut wurde, und Verbesserungsmöglichkeiten.
+
+## Update 23.06. — Video-Backend mit Auto-Cloud-Fallback (kein GPU-Fehler mehr)
+`media_engine.generate_video` wählt das Backend über **`JARVIS_VIDEO_BACKEND`**:
+- `auto` (Standard): **keine GPU → automatisch Higgsfield-Cloud**. Der frühere Fehler
+  „Lokale Videogenerierung (Wan 2.1) benötigt eine GPU … Nutze 'Higgsfield Cloud'"
+  kommt **nicht mehr** — das Video entsteht direkt über die Cloud.
+- `higgsfield`: immer Cloud (auch mit GPU).
+- `local`: erzwingt lokales Wan (nur sinnvoll mit GPU).
+- Fehlt der Cloud-Key, kommt eine **lösbare** Meldung: „HIGGSFIELD_API_KEY=ID:SECRET in
+  die .env eintragen". Cloud-Modell via `JARVIS_HIGGSFIELD_VIDEO_MODEL` (Default `dop-lite`).
+- `.env`: `HIGGSFIELD_API_KEY` als **kombiniertes `ID:SECRET`** (von Higgsfield-Auth
+  verstanden), plus `JARVIS_VIDEO_BACKEND=auto`. Damit laufen Videos auf dem CPU-PC.
 
 ## Was in diesem Durchgang gebaut wurde
 1. **Higgsfield-Bild-Backend** — neuer Queue-Typ `higgsfield_image`; `generate/image`

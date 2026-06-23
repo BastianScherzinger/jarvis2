@@ -474,19 +474,31 @@ def generate_video(
     Generiert ein Video. Gibt dict zurück:
       {'path': str, 'web_url': str, 'model': str, 'prompt': str, 'elapsed': float}
     """
+    # Backend-Wahl: auto (Standard) | local | higgsfield.
+    # - higgsfield        → immer Cloud
+    # - auto + keine GPU  → automatisch Cloud (lokales Wan auf CPU = Stunden/Clip)
+    # - local / GPU       → lokal generieren
+    backend = (os.environ.get("JARVIS_VIDEO_BACKEND") or "auto").strip().lower()
+    on_cpu  = hardware_info()["device"] == "cpu"
+    if backend == "higgsfield" or (backend != "local" and on_cpu):
+        if higgsfield_available():
+            # Automatischer Cloud-Weg — kein Fehler mehr, das Video entsteht via Higgsfield.
+            return generate_video_higgsfield(
+                prompt, model=os.environ.get("JARVIS_HIGGSFIELD_VIDEO_MODEL", "dop-lite"))
+        if backend == "higgsfield":
+            raise RuntimeError(
+                "Video-Backend 'higgsfield' gewählt, aber HIGGSFIELD_API_KEY fehlt in der "
+                ".env (Format ID:SECRET). Key unter https://cloud.higgsfield.ai/api-keys.")
+        # auto + CPU + kein Cloud-Key → ehrliche, lösbare Meldung (kein Stunden-Hänger).
+        raise RuntimeError(
+            "Videos brauchen entweder eine GPU oder die Higgsfield-Cloud. Trage "
+            "HIGGSFIELD_API_KEY=ID:SECRET in die .env ein — dann laufen Videos automatisch "
+            "über die Cloud.")
+
     key = model_key or get_active_video_model()
     m   = VIDEO_MODELS.get(key)
     if m is None:
         raise ValueError(f"Videomodell '{key}' nicht bekannt. Verfügbar: {list(VIDEO_MODELS)}")
-
-    # Ehrlicher Guard: Wan auf CPU ist praktisch unbrauchbar (Stunden je Clip +
-    # mehrere GB Download). Klare Meldung statt stundenlangem Hänger.
-    if hardware_info()["device"] == "cpu":
-        raise RuntimeError(
-            "Lokale Videogenerierung (Wan 2.1) benötigt eine GPU — auf dieser CPU "
-            "würde ein Clip Stunden dauern. Nutze stattdessen den Modus "
-            "'Higgsfield Cloud' für Videos."
-        )
 
     t0   = time.time()
     pipe = _load_video_pipe(key)
