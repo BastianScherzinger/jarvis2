@@ -169,6 +169,24 @@ def track_compute(seconds: float, use_gpu: bool = False,
         return 0.0
 
 
+def track_message(model: str, msg, task: str = "", name: str = "") -> float:
+    """Bequemer Wrapper: liest die Token-Usage direkt aus einem Anthropic-Message-
+    Objekt (egal ob aus messages.create() oder stream.get_final_message()) und
+    bucht sie als API-Kosten. Thread-safe, silent — nie crashend."""
+    try:
+        u = getattr(msg, "usage", None)
+        if not u:
+            return 0.0
+        return track_api(
+            model,
+            getattr(u, "input_tokens", 0) or 0,
+            getattr(u, "output_tokens", 0) or 0,
+            task, name,
+        )
+    except Exception:
+        return 0.0
+
+
 def today_summary() -> dict:
     """Heutiger Kostenzusammenfassung-Dict."""
     with _lock:

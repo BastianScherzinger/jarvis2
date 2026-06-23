@@ -548,18 +548,32 @@ def generate_video(
         )
 
     suffix = out.suffix
-    return {
+    vid_res = {
         "path":    str(out),
         "web_url": f"/workspace/media/videos/{out.name}",
         "model":   m["name"],
         "prompt":  prompt,
         "elapsed": round(time.time() - t0, 1),
     }
+    try:
+        import logger as _lg
+        _lg.activity("MediaEngine", "Video generiert",
+                     f"{m['name']} · {prompt[:60]}", "🎬", "video")
+        import cost_tracker as _ct
+        # Lokales Wan-Video läuft nur auf GPU (CPU-Pfad bricht oben ab) → use_gpu=True.
+        _ct.track_compute(vid_res["elapsed"], True, "video_gen")
+    except Exception:
+        pass
+    return vid_res
 
 
 # ── Higgsfield.ai Cloud API ──────────────────────────────────────────────────
 
 _HIGGSFIELD_BASE = "https://platform.higgsfield.ai"
+
+# Credits je Higgsfield-Soul-Bild (Schätzung, via .env feinjustierbar). Wird für das
+# Kostentracking genutzt — Videos lesen ihre Credits aus HIGGSFIELD_MODELS.
+_HF_IMAGE_CREDITS = int(os.environ.get("JARVIS_HF_IMAGE_CREDITS", "1") or "1")
 
 # Verfügbare Higgsfield-Modelle
 HIGGSFIELD_MODELS = {
@@ -872,6 +886,14 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
         web_url = f"/workspace/media/images/{rel.as_posix()}"
     except ValueError:
         web_url = ""
+    try:
+        import logger as _lg
+        _lg.activity("Higgsfield", "Bild generiert",
+                     f"Soul · {prompt[:60]}", "🖼", "image")
+        import cost_tracker as _ct
+        _ct.track_higgsfield(_HF_IMAGE_CREDITS, "image_gen")
+    except Exception:
+        pass
     return {"path": str(out), "web_url": web_url, "model": "Higgsfield Soul",
             "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
 

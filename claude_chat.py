@@ -122,6 +122,8 @@ def stream_chat(messages: list[dict], *, think: bool = False, search: bool = Fal
                 u = final.usage
                 metrics.record_claude(getattr(u, "input_tokens", 0),
                                       getattr(u, "output_tokens", 0))
+                import cost_tracker
+                cost_tracker.track_message(MODEL, final, "claude_chat")
             except Exception:
                 pass
         except anthropic.AuthenticationError:

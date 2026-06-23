@@ -149,6 +149,12 @@ def _scrape_query(page, region: str, branche: str, on_lead, stop_event, max_per:
                 if lead_id:
                     lead["id"] = lead_id
                     logger.success("Maps", f"Gefunden: {lead['name']} ({lead['stadt']})")
+                    try:
+                        logger.activity("GoogleMaps", "Lead gefunden",
+                                        f"{lead['name']} · {lead.get('branche','')} · {lead['stadt']}",
+                                        "📡", "scrape")
+                    except Exception:
+                        pass
                     on_lead(lead)
                     found += 1
 

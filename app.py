@@ -436,7 +436,9 @@ def api_website_asset(wid, fname):
 
 @app.route("/api/websites/<int:wid>/improve", methods=["POST"])
 def api_website_improve(wid):
-    """'Top verbessern': 5-Agenten-Pipeline + Re-Deploy (Hintergrund-Job)."""
+    """'Top verbessern': mehrstufiges Skill-Makeover (7 Stufen, design-pro/taste/
+    frontend-design) — Commit je Stufe, Deploy am Ende, Discord-Freigabe wenn komplett.
+    Läuft als Hintergrund-Job (Fortschritt im Webseiten-Reiter)."""
     import website_builder
     row = db_websites.get(wid)
     if not row:
@@ -444,7 +446,7 @@ def api_website_improve(wid):
     folder = (row.get("folder") or "").strip()
     if not folder or not os.path.isdir(folder):
         return jsonify({"ok": False, "reason": "Ordner nicht gefunden"}), 409
-    job_id = website_builder.improve_existing(folder, row.get("name") or None)
+    job_id = website_builder.makeover_existing(folder, row.get("name") or None)
     return jsonify({"ok": True, "job_id": job_id})
 
 
@@ -1210,6 +1212,31 @@ def api_costs_history():
         return jsonify({"ok": False, "error": str(e), "history": []})
 
 
+@app.route("/api/costs/export")
+def api_costs_export():
+    """Kostenhistorie als CSV-Datei zum Download (Semikolon-getrennt für Excel-DE)."""
+    import csv
+    import io
+    import cost_tracker
+    try:
+        days = max(1, min(365, int(request.args.get("days", 30))))
+    except ValueError:
+        days = 30
+    rows = cost_tracker.history(days)
+    buf = io.StringIO()
+    w   = csv.writer(buf, delimiter=";")
+    w.writerow(["Datum", "Gesamt_EUR", "API_EUR", "Strom_EUR", "Higgsfield_EUR",
+                "Tokens_Ein", "Tokens_Aus", "HF_Credits", "Seiten_gebaut", "Leads_bewertet"])
+    for r in rows:
+        w.writerow([r["date"], r["total_eur"], r["api_eur"], r["power_eur"], r["hf_eur"],
+                    r["tokens_in"], r["tokens_out"], r["hf_credits"], r["sites"], r["leads"]])
+    return Response(
+        "﻿" + buf.getvalue(),   # BOM → Umlaute korrekt in Excel
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="jarvis_kosten_{days}d.csv"'},
+    )
+
+
 @app.route("/api/activity/recent")
 def api_activity_recent():
     """Letzte Aktivitäten für den Live-Feed (Home + Kosten)."""
@@ -1302,6 +1329,15 @@ def run_server() -> None:
     """Startet den Server: im Produktionsmodus (JARVIS_SERVER=1) über waitress
     (robuster WSGI-Server, Windows-tauglich), sonst der Flask-Dev-Server.
     Fällt ohne waitress sauber auf den Dev-Server zurück."""
+    # War der Night-Builder beim letzten Mal aktiv, hier automatisch fortsetzen (genau da
+    # weiter — Pro-Seite-Stufen liegen in content.json). Nur beim echten Serverstart, nicht
+    # bei Test-Imports.
+    try:
+        import auto_builder
+        auto_builder.resume_if_needed()
+    except Exception:
+        pass
+
     cfg = server_config()
     if cfg["prod"]:
         try:

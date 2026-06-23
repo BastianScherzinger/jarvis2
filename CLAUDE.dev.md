@@ -26,6 +26,7 @@ python app.py          # Nur Flask (ohne Boot-Screen / ohne Auto-Install)
 python serve.py        # Produktionsmodus: waitress WSGI-Server, kein Browser-Autostart
 python update.py       # Update von GitHub ziehen + neue Pakete installieren (Kunden-Befehl)
 python main.py         # Legacy: interaktives Agenten-Team-Menü (vom LeadHunter entkoppelt)
+python startup_check.py # Standalone-Diagnose: prüft Deps/Keys/Playwright (NICHT in app.py verdrahtet)
 ```
 
 ```powershell
@@ -125,6 +126,23 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   `agent_railway._find_service()` sucht bei Re-Builds den bestehenden Service und
   übernimmt die Domain, statt mit einem Fehler abzubrechen.
 
+- **Mehrstufiges Skill-Makeover** (`overnight_makeover.py`): ersetzt das frühere flache
+  „Verbessern". `run_makeover(folder, meta, say, stop)` fährt eine gebaute Seite durch
+  **7 Stufen** (Inhalt → Layout → Typografie → Farbe → Politur(taste) → Motion →
+  Responsive/QA), je mit einem echten Skill (design-pro/taste/frontend-design). Jede Stufe
+  läuft über **Headless Claude Code** (`claude_coder.run_prompt`, Snapshot + Render-Gate +
+  Rollback), wird in `content.json["makeover_stages"]` markiert (**resume-fähig**),
+  per **Git-Commit** als Rollback-Punkt gesichert und ins Kostentracking gebucht. Job-Wrapper
+  `website_builder.makeover_existing()` → `_run_makeover`: Commit je Stufe, **Railway-Deploy
+  einmal am Ende**, dann `finalize_review()` → Discord (**1× 👍 = Kunden-Mail / 1× 👎 =
+  verwerfen**, `DISCORD_APPROVALS_NEEDED` Default jetzt 1) oder Vorschau-Mail-Fallback.
+  Der Night-Builder fährt jede der 10 Seiten komplett durch; Phase 2 holt offene Stufen
+  bestehender Seiten nach (`_pick_improve_target` bevorzugt Seiten mit offenen Stufen).
+  Der „Webseiten verbessern"-Button (`/api/websites/<id>/improve`) löst denselben Lauf aus.
+  Wichtig: `claude_coder` gibt `--append-system-prompt` mit, damit ein im Zielordner
+  gefundenes CLAUDE.md (JARVIS-Persona) den Headless-Lauf nicht in einen Chat verwandelt.
+  Modell via `JARVIS_MAKEOVER_MODEL` (Default `sonnet`).
+
 - **Eigene-Marke-Modus** (`custom_build.py`): Manueller Build — Name, Logo, Hero und
   Beschreibung von Sir vorgegeben. Nutzt dieselbe `website_builder`-Engine + 7-Pass-
   Improve + Discord-Freigabe-Gate → Versand an 11+ Empfänger. Uploads landen in
@@ -153,6 +171,25 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   `_pick_next_lead()` überspringt Leads mit `lead_typ="Archiviert"` oder `erwartungswert_euro=0`.
   `db_evaluated.archive_lead(eval_id, reason)` setzt beides inkl. Cloud-Sync.
 
+- **Kostentracking** (`cost_tracker.py`): Täglich aggregierte Kosten in `data/costs.json`
+  (gitignored, kein SQLite). Drei `track_*()`-Funktionen — `track_api(model, in, out)`
+  (Anthropic-Tokens → €, Preistabelle `_API_PRICES`), `track_higgsfield(credits)`,
+  `track_compute(seconds, use_gpu)` (Stromkosten aus Watt × Laufzeit). Alle **fire-and-forget,
+  thread-safe, nie crashend** (Aufrufer in `media_engine`, `auto_builder`,
+  `agents/evaluator/pipeline`). Diese Garantie nicht brechen. Aktivitätszähler
+  (`sites_built`, `leads_evaluated`, `images/videos_generated`) leiten sich aus dem `task`-Tag ab.
+
+- **Dashboard-Tabs Home/Kosten** (Routes `/api/home/stats`, `/api/costs/today`,
+  `/api/costs/history`, `/api/activity/recent`): Home zeigt alle Webseiten aus
+  `db_websites` als Karten; Kosten liest aus `cost_tracker` (Heute-Summary, Pro-Site,
+  14-Tage-Zeitreihe für Chart.js). Der Live-Activity-Feed kommt aus `_logger.get_activities()`.
+
+- **Nightly Feature-Backlog** (`feature_backlog.py`): Priorisierte Liste klein baubarer
+  Web-Features je Branche (+ generische). Der Nightly-Improver (`claude_coder`/`local_coder`)
+  zieht pro Seite das nächste noch nicht gebaute Feature; gebaute Keys stehen in
+  `content.json["features_added"]`. Jedes Feature: `{key, label, spec}` — `spec` ist die
+  präzise Bau-Anweisung.
+
 ### Flask-API (`app.py`, Port 5000)
 
 - Steuerung: `/api/start`, `/api/stop`, `/api/status`, `/api/clear`
@@ -164,6 +201,7 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
 - Cloud/Graph/Logs/Medien: `/api/sync`, `/api/graph/*`, `/api/logs`, `/api/media/*`
 - Auto-Builder: `/api/auto-build/start|stop|status|daily`
 - Discord-Freigabe: `/api/discord/status|send-now`, `/api/reviews`
+- Home/Kosten: `/api/home/stats`, `/api/costs/today`, `/api/costs/history`, `/api/activity/recent`
 
 ---
 

@@ -107,6 +107,11 @@ def _claude_json(system: str, prompt: str, max_tokens: int = 2200) -> "dict | No
         msg = client.messages.create(
             model=MODEL, max_tokens=max_tokens, system=system,
             messages=[{"role": "user", "content": prompt}])
+        try:
+            import cost_tracker
+            cost_tracker.track_message(MODEL, msg, "website_improve")
+        except Exception:
+            pass
         text = "".join(getattr(b, "text", "") for b in msg.content
                        if getattr(b, "type", "") == "text")
         return _extract_json(text)
@@ -397,6 +402,9 @@ def _render_check(folder: Path, content: dict) -> tuple:
     Django-Template-Engine. Gibt (ok, fehlertext). Ohne Django: (True, '') (skip)."""
     try:
         import django
+    except ImportError:
+        return True, ""   # ohne Django: Render-Check überspringen (Gate degradiert sauber)
+    try:
         from django.conf import settings
         if not settings.configured:
             settings.configure(
@@ -628,6 +636,11 @@ def chat_edit(folder: "str | Path", instruction: str) -> dict:
     try:
         msg = client.messages.create(model=MODEL, max_tokens=3000, system=sys,
                                      messages=[{"role": "user", "content": prompt}])
+        try:
+            import cost_tracker
+            cost_tracker.track_message(MODEL, msg, "website_improve", content.get("site_name", ""))
+        except Exception:
+            pass
         text = "".join(getattr(b, "text", "") for b in msg.content
                        if getattr(b, "type", "") == "text")
         data = _extract_json(text) or {}
@@ -674,6 +687,11 @@ def integrate(folder: "str | Path", text: str, image_paths: list) -> dict:
     try:
         msg = client.messages.create(model=MODEL, max_tokens=3000, system=sys,
                                      messages=[{"role": "user", "content": prompt}])
+        try:
+            import cost_tracker
+            cost_tracker.track_message(MODEL, msg, "website_improve", content.get("site_name", ""))
+        except Exception:
+            pass
         out = "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text")
         data = _extract_json(out) or {}
     except Exception as e:

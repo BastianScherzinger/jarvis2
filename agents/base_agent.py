@@ -85,6 +85,11 @@ class Agent:
                 system=system,
                 messages=messages,
             )
+            try:
+                import cost_tracker
+                cost_tracker.track_message(self.model, response, "agent", self.name)
+            except Exception:
+                pass
             reply = response.content[0].text
 
         self.history.append(AgentMessage(role="assistant", content=reply))

@@ -1492,12 +1492,13 @@ let _costsChart       = null;
 let _costsActFilter   = '';
 let _costsActPollId   = null;
 let _costsAllActs     = [];
+let _costsRange       = 14;
 
 async function loadCosts() {
   try {
     const [todayRes, histRes, actRes] = await Promise.all([
       fetch('/api/costs/today').then(r => r.json()),
-      fetch('/api/costs/history?days=14').then(r => r.json()),
+      fetch('/api/costs/history?days=' + _costsRange).then(r => r.json()),
       fetch('/api/activity/recent?limit=80').then(r => r.json()),
     ]);
     _renderCostsSummary(todayRes.summary || {});
@@ -1508,6 +1509,21 @@ async function loadCosts() {
   } catch(e) {
     console.warn('[Costs] Ladefehler:', e);
   }
+}
+
+// Zeitraum des Verlaufs-Charts umschalten (14 / 30 / 90 Tage)
+function setCostRange(btn, days) {
+  _costsRange = days;
+  document.querySelectorAll('.cst-rng[data-days]').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.days, 10) === days));
+  const lbl = document.getElementById('cst-range-label');
+  if (lbl) lbl.textContent = days;
+  loadCosts();
+}
+
+// Kostenhistorie als CSV herunterladen (aktueller Zeitraum)
+function exportCosts() {
+  window.location.href = '/api/costs/export?days=' + _costsRange;
 }
 
 function _fmt_eur(v) {

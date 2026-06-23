@@ -100,6 +100,11 @@ def plan_feature(folder: str, feature: dict, branche: str = "") -> str:
                   "Schreibe die seitenspezifische Bau-Anweisung (max ~12 Zeilen).")
         msg = client.messages.create(model=MODEL_CLAUDE, max_tokens=700, system=sys,
                                      messages=[{"role": "user", "content": prompt}])
+        try:
+            import cost_tracker
+            cost_tracker.track_message(MODEL_CLAUDE, msg, "nightly_improve")
+        except Exception:
+            pass
         txt = "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text")
         return txt.strip() or generic
     except Exception:

@@ -691,10 +691,18 @@
     <!-- Diagramme + Pro-Site Tabelle -->
     <div class="costs-charts-row">
 
-      <!-- 14-Tage Chart -->
+      <!-- Kostenverlauf -->
       <div class="costs-chart-box">
-        <div class="costs-chart-title">Kosten der letzten 14 Tage</div>
-        <canvas id="costs-chart" height="200"></canvas>
+        <div class="costs-chart-title">
+          <span>Kosten der letzten <span id="cst-range-label">14</span> Tage</span>
+          <span class="cst-range-btns">
+            <button class="cst-rng active" data-days="14" onclick="setCostRange(this,14)">14T</button>
+            <button class="cst-rng" data-days="30" onclick="setCostRange(this,30)">30T</button>
+            <button class="cst-rng" data-days="90" onclick="setCostRange(this,90)">90T</button>
+            <button class="cst-rng cst-export" onclick="exportCosts()" title="Als CSV herunterladen">⬇ CSV</button>
+          </span>
+        </div>
+        <div class="costs-chart-canvas"><canvas id="costs-chart"></canvas></div>
       </div>
 
       <!-- Pro-Site Aufschlüsselung -->

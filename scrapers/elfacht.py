@@ -159,6 +159,12 @@ def _scrape_query(region, branche, on_lead, stop_event, max_per, BS4):
         if lead_id:
             lead["id"] = lead_id
             logger.success("11880", f"Gefunden: {name} ({region})")
+            try:
+                logger.activity("11880", "Lead gefunden",
+                                f"{name} · {lead.get('branche','')} · {region}",
+                                "📡", "scrape")
+            except Exception:
+                pass
             on_lead(lead)
             found += 1
 

@@ -350,6 +350,11 @@ def _claude_content(lead: dict, fotos: list) -> dict:
             model=MODEL, max_tokens=1400, system=sys,
             messages=[{"role": "user", "content": prompt}],
         )
+        try:
+            import cost_tracker
+            cost_tracker.track_message(MODEL, msg, "website_build", lead.get("name", ""))
+        except Exception:
+            pass
         text = "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text")
         data = _extract_json(text)
         if isinstance(data, dict):
@@ -488,6 +493,7 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
             railway_note = (f"Rebuild läuft ({redeploy_url}) — in 1-2 Min erneut öffnen. "
                             "Falls dauerhaft 502: Railway-Build-Log prüfen.")
             say(96, "Rebuild läuft — noch nicht erreichbar.")
+        _deploy_activity(site_name or name, live_url, live_ok)
         return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
                 "live_ok": live_ok, "railway_note": railway_note, "railway_log": railway_log}
 
@@ -526,8 +532,25 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
         railway_note = railway_note or "RAILWAY_TOKEN fehlt in der .env."
         say(96, "Railway übersprungen (kein RAILWAY_TOKEN in .env).")
 
+    _deploy_activity(site_name or name, live_url, live_ok)
     return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
             "live_ok": live_ok, "railway_note": railway_note, "railway_log": railway_log}
+
+
+def _deploy_activity(name: str, live_url: str, live_ok: bool) -> None:
+    """Schreibt einen Deploy-Eintrag in den Aktivitäts-Feed (Home/Kosten-Tab).
+    Nur wenn überhaupt eine Domain entstand. Silent."""
+    if not live_url:
+        return
+    try:
+        import logger
+        logger.activity(
+            "WebsiteBuilder",
+            "Webseite live" if live_ok else "Deploy angestoßen",
+            f"{name} · {live_url}", "🚀", "deploy",
+        )
+    except Exception:
+        pass
 
 
 # ── Worker ────────────────────────────────────────────────────────────────────
@@ -916,6 +939,99 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
                                                  if dep["railway_note"] else "Deploy angestoßen.")
         else:
             final = "Verbessert (lokal). Deploy nicht möglich: " + str(dep.get("railway_note", ""))[:140]
+        _set(job_id, status="done")
+        _step(job_id, 100, final)
+        _sync_push(job_id)
+    except Exception as e:
+        _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+
+
+def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
+    """Mehrstufiges Skill-Makeover (7 Stufen, design-pro/taste/frontend-design) für eine
+    bereits gebaute Seite: Commit je Stufe, Deploy am Ende, Discord-Freigabe wenn komplett.
+    stop(): optionaler Callback — gibt er True zurück, hält die Pipeline ZWISCHEN den Stufen
+    an (für den stoppbaren Night-Builder). Verfolgbar im Webseiten-Reiter. Gibt die job_id zurück."""
+    target = Path(folder)
+    nm = _folder_name(target, name)
+    runner = (_run_makeover if stop is None
+              else (lambda jid, f, n: _run_makeover(jid, f, n, stop=stop)))
+    return _start_folder_job(str(target), nm, runner, "Makeover in Warteschlange…")
+
+
+def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
+    try:
+        target = Path(folder)
+        if not target.is_dir():
+            raise RuntimeError("Ordner nicht gefunden.")
+        _set(job_id, status="running", folder=str(target), live=0)
+        _step(job_id, 4, f"Makeover für {name} startet…")
+
+        meta = {"name": name}
+        existing_live = ""
+        try:
+            import db_websites
+            row = db_websites.get_by_job(job_id) or db_websites.get_by_folder(str(target))
+            if row:
+                meta = {"name": row.get("name") or name, "stadt": row.get("stadt", ""),
+                        "branche": row.get("branche", ""),
+                        "email": row.get("kontakt_email", ""),
+                        "ansprechpartner": row.get("ansprechpartner", "")}
+                existing_live = (row.get("live_url") or "").strip()
+        except Exception:
+            pass
+
+        import overnight_makeover
+        result = overnight_makeover.run_makeover(
+            target, meta, say=lambda p, t: _step(job_id, p, t), stop=stop)
+
+        # Nichts Neues gebaut (alle Stufen bereits erledigt oder CLI fehlt) → kein Re-Deploy.
+        if not result.get("stages_done"):
+            _set(job_id, status="done")
+            reason = result.get("reason") or "Alle Makeover-Stufen bereits erledigt."
+            _step(job_id, 100, reason)
+            return
+
+        # Vom Nutzer gestoppt, bevor alle Stufen durch waren → nicht deployen, Fortschritt
+        # ist committet und wird beim Fortsetzen genau hier weitergeführt.
+        if stop and stop() and not result.get("all_done"):
+            _set(job_id, status="done")
+            _step(job_id, 100, "Makeover pausiert (gestoppt) — Fortschritt gesichert, fortsetzbar.")
+            return
+
+        # Deploy einmal am Ende — die Stufen-Commits werden mitgepusht.
+        slug = _slug(name)
+
+        def _say(p, t):
+            if p is None:
+                with _lock:
+                    j = _jobs.get(job_id)
+                    cur = (j.get("progress", 92) if j else 92)
+                _step(job_id, min(cur + 1, 99), t)
+            else:
+                _step(job_id, max(p, 92), t)
+
+        prev = get(job_id) or {}
+        site_name = overnight_makeover._read_content(target).get("site_name") or name
+        dep = _deploy_folder(target, slug, name, _django_secret_key(), site_name, _say,
+                             redeploy_url=(prev.get("live_url") or existing_live))
+        if dep.get("railway_log"):
+            _set(job_id, railway_log=dep["railway_log"])
+        if dep["repo_url"]:
+            _set(job_id, repo_url=dep["repo_url"])
+        _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
+        live = dep.get("live_url") or existing_live
+
+        # Discord-Freigabe NUR wenn alle 7 Stufen durch sind (1× 👍 = Mail, 1× 👎 = verwerfen).
+        if result.get("all_done") and live:
+            overnight_makeover.finalize_review(meta, live, str(target))
+            final = f"Makeover komplett & zur Freigabe gepostet: {live}"
+        elif dep.get("live_ok") and live:
+            final = f"Makeover-Fortschritt live: {live}"
+        elif live:
+            final = f"Makeover gepusht — Build läuft. {live}"
+        else:
+            final = "Makeover lokal — Deploy nicht möglich: " + str(dep.get("railway_note", ""))[:120]
         _set(job_id, status="done")
         _step(job_id, 100, final)
         _sync_push(job_id)

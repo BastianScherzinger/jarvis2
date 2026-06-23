@@ -43,8 +43,10 @@ def _save(data: dict) -> None:
 
 
 def _needed() -> int:
+    # Standard: 1× 👍 gibt die Seite frei (1× 👎 ist weiterhin ein Veto → verworfen).
+    # Über DISCORD_APPROVALS_NEEDED in der .env anhebbar.
     import os
-    return max(1, int(os.environ.get("DISCORD_APPROVALS_NEEDED", "2") or "2"))
+    return max(1, int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1"))
 
 
 def add(name: str, stadt: str, branche: str, link: str, email: str = "",

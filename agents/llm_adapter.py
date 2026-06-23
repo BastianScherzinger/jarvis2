@@ -82,6 +82,13 @@ class AnthropicAdapter(LLMAdapter):
                 usage["input_tokens"]  = final_msg.usage.input_tokens or 0
                 usage["output_tokens"] = final_msg.usage.output_tokens or 0
 
+        try:
+            import cost_tracker
+            cost_tracker.track_api(self._model, usage["input_tokens"],
+                                   usage["output_tokens"], "agent")
+        except Exception:
+            pass
+
         # Tool-Calls aus final_msg extrahieren (normalisiert)
         for block in (final_msg.content or []):
             if getattr(block, "type", None) == "tool_use":

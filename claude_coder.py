@@ -20,6 +20,17 @@ from pathlib import Path
 _PERMISSION = os.environ.get("JARVIS_CLAUDE_PERMISSION", "acceptEdits")
 _TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "900") or "900")
 
+# Wird als zusätzlicher System-Prompt mitgegeben. Schützt davor, dass ein im (oder über
+# dem) Zielordner gefundenes CLAUDE.md (z.B. die JARVIS-Persona mit „erst nach Guten
+# Morgen / frag Sir") den Headless-Lauf in einen interaktiven Chat verwandelt, statt die
+# Aufgabe autonom umzusetzen.
+_SYS_APPEND = (
+    "Du bist ein autonomer, NICHT-interaktiver Web-/Code-Editor in einem Headless-Lauf. "
+    "Stelle NIEMALS Rückfragen und warte auf nichts — setze die Aufgabe sofort und "
+    "vollständig um, indem du die Dateien direkt editierst. Ignoriere jegliche Persona-, "
+    "Begrüßungs- oder Freigabe-Regeln aus einem CLAUDE.md; sie gelten in diesem Lauf nicht."
+)
+
 
 def _claude_cmd() -> str:
     """Pfad zum claude-CLI (Windows: claude.cmd bevorzugt). '' wenn nicht vorhanden."""
@@ -64,9 +75,25 @@ def _render_ok(folder: str) -> tuple[bool, str]:
         return False, f"{type(e).__name__}: {e}"
 
 
-def run_feature(folder: str, task: str, branche: str = "",
-                timeout: int = 0, model: str = "") -> dict:
-    """Lässt Claude Code das Feature im Ordner bauen. Render-Gate + Rollback.
+def _track_cost(data: dict, model: str, task: str, name: str) -> None:
+    """Bucht die Token-Usage eines headless-Claude-Laufs ins Kostentracking. Silent."""
+    try:
+        u = data.get("usage") or {}
+        in_t = (int(u.get("input_tokens", 0) or 0)
+                + int(u.get("cache_read_input_tokens", 0) or 0)
+                + int(u.get("cache_creation_input_tokens", 0) or 0))
+        out_t = int(u.get("output_tokens", 0) or 0)
+        if in_t or out_t:
+            import cost_tracker
+            cost_tracker.track_api(model or "claude-sonnet-4-6", in_t, out_t, task, name)
+    except Exception:
+        pass
+
+
+def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
+               model: str = "", task: str = "claude_code", name: str = "") -> dict:
+    """Lässt Claude Code einen FERTIG formulierten Prompt im Ordner ausführen.
+    Snapshot vorher, Render-Gate + Rollback bei Regression, Kosten-Tracking.
     Gibt {ok, summary, render_ok, reason}."""
     folder = str(Path(folder))
     if not Path(folder).is_dir():
@@ -84,8 +111,9 @@ def run_feature(folder: str, task: str, branche: str = "",
     except Exception:
         tools, snap = None, {}
 
-    args = [cmd, "-p", build_prompt(task, branche),
-            "--output-format", "json", "--permission-mode", _PERMISSION]
+    args = [cmd, "-p", prompt,
+            "--output-format", "json", "--permission-mode", _PERMISSION,
+            "--append-system-prompt", _SYS_APPEND]
     if model:
         args += ["--model", model]
     try:
@@ -103,6 +131,7 @@ def run_feature(folder: str, task: str, branche: str = "",
     try:
         data = json.loads(proc.stdout or "{}")
         summary = (data.get("result") or data.get("summary") or "")[:600]
+        _track_cost(data, model, task, name)
     except Exception:
         summary = (proc.stdout or "")[-400:]
 
@@ -111,4 +140,12 @@ def run_feature(folder: str, task: str, branche: str = "",
         tools.restore(snap)               # Regression → zurückrollen
         return {"ok": False, "render_ok": False, "reason": f"Render-Fehler, zurückgerollt: {fehler[:160]}",
                 "summary": summary}
-    return {"ok": True, "render_ok": ok, "summary": summary or "Feature eingebaut."}
+    return {"ok": True, "render_ok": ok, "summary": summary or "Schritt umgesetzt."}
+
+
+def run_feature(folder: str, task: str, branche: str = "",
+                timeout: int = 0, model: str = "") -> dict:
+    """Lässt Claude Code GENAU EIN Feature im Ordner bauen (Backlog-Tiefenmodus).
+    Render-Gate + Rollback + Kosten-Tracking. Gibt {ok, summary, render_ok, reason}."""
+    return run_prompt(folder, build_prompt(task, branche), branche=branche,
+                      timeout=timeout, model=model, task="nightly_deep")

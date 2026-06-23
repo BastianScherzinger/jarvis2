@@ -36,6 +36,7 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
 
         raw_id = lead["id"]
         try:
+            _t0 = time.time()
             logger.eval_("Evaluator", f"Prüfe: {lead.get('name')} ({lead.get('stadt')})")
             # Agent 1: Website TIEF analysieren (findet Website aktiv, EINE Suche)
             web    = analyze(lead)
@@ -142,7 +143,7 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                                 f"Score {row.get('score',0)} · {row.get('erwartungswert_euro',0)}€",
                                 "🔍", "eval")
                 import cost_tracker as _ct
-                _ct.track_compute(0, False, "lead_eval", lead.get("name", ""))
+                _ct.track_compute(time.time() - _t0, False, "lead_eval", lead.get("name", ""))
             except Exception:
                 pass
             on_update({"type": "evaluated", "data": row})

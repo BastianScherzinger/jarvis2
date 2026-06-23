@@ -30,6 +30,16 @@ _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
 _DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
+# Die Cutoff-Stunde ist ein Konzept für den unbeaufsichtigten Dauerbetrieb. Ein
+# MANUELLER Start soll sofort arbeiten — sonst „passiert nichts", wenn Sir den
+# Builder tagsüber startet. Mit JARVIS_IMPROVE_RESPECT_CUTOFF=1 gilt wieder die
+# alte Logik (Verbessern nur vor der Cutoff-Stunde).
+_RESPECT_CUTOFF = (os.environ.get("JARVIS_IMPROVE_RESPECT_CUTOFF", "0").strip().lower()
+                   in ("1", "true", "yes", "ja"))
+# Ein volles 7-Stufen-Makeover (Headless Claude Code) dauert lange — bis zu ~15 Min je
+# Stufe. Großzügiges Warte-Limit, damit der Night-Builder eine Seite KOMPLETT fertigstellt,
+# bevor er die nächste beginnt (keine parallele Claude-/Deploy-Last).
+_MAKEOVER_WAIT = int(os.environ.get("JARVIS_MAKEOVER_WAIT", "9000") or "9000")
 # Tiefen-Modus für den Nightly-Improver: off | local (Claude plant, Ollama baut) |
 # claude (Claude Code headless baut echte Code-Features).
 _NIGHTLY_DEEP  = os.environ.get("JARVIS_NIGHTLY_DEEP", "off").strip().lower()
@@ -41,6 +51,28 @@ _state = {
     "nightly_deep": _NIGHTLY_DEEP, "last_feature": "",
 }
 _lock = threading.Lock()
+
+# Persistenter An/Aus-Schalter — überlebt einen Programm-Neustart. Steht hier "running":
+# true, nimmt der Night-Builder beim nächsten App-Start automatisch wieder auf (genau da
+# weiter, denn der Pro-Seite-Fortschritt liegt in content.json["makeover_stages"]).
+_STATE_PATH = _BASE / "data" / "overnight_state.json"
+
+
+def _persist_running(running: bool) -> None:
+    try:
+        _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_PATH.write_text(
+            json.dumps({"running": bool(running), "ts": time.time()}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _persisted_running() -> bool:
+    try:
+        return bool(json.loads(_STATE_PATH.read_text(encoding="utf-8")).get("running"))
+    except Exception:
+        return False
 
 
 # ── Status / Steuerung ────────────────────────────────────────────────────────
@@ -62,21 +94,40 @@ def _set(**kw) -> None:
         _state.update(kw)
 
 
-def start() -> dict:
+def start(_resume: bool = False) -> dict:
     with _lock:
         if _state["running"]:
             return {"ok": True, "already": True}
         _state.update({"running": True, "started": time.time(), "current": "",
-                       "day": _today(), "phase": "Starte Tagesplan…", "mode": "build"})
+                       "day": _today(),
+                       "phase": "Setze fort…" if _resume else "Starte Tagesplan…",
+                       "mode": "build"})
+    _persist_running(True)
     threading.Thread(target=_loop, name="AutoBuilder", daemon=True).start()
-    logger.info("AutoBuilder", f"gestartet — {_DAILY_LIMIT} Seiten/Tag, Verbesserung bis {_IMPROVE_UNTIL}:00")
+    logger.info("AutoBuilder",
+                ("fortgesetzt" if _resume else "gestartet")
+                + f" — {_DAILY_LIMIT} Seiten/Tag, Makeover 7 Stufen/Seite")
     return {"ok": True}
 
 
 def stop() -> dict:
+    """Stoppt den Night-Builder. Wirkt zwischen den Makeover-Stufen (eine laufende Stufe
+    läuft noch zu Ende bzw. bis Timeout). Der Aus-Zustand wird persistiert — beim nächsten
+    App-Start bleibt der Builder aus, bis er erneut gestartet wird."""
     _set(running=False, phase="gestoppt", current="", mode="")
-    logger.info("AutoBuilder", "gestoppt")
+    _persist_running(False)
+    logger.info("AutoBuilder", "gestoppt — Fortschritt gesichert, jederzeit fortsetzbar")
     return {"ok": True}
+
+
+def resume_if_needed() -> bool:
+    """Beim App-Start aufrufen: war der Night-Builder beim letzten Mal an, läuft er
+    automatisch wieder an (genau da weiter — Pro-Seite-Stufen liegen in content.json)."""
+    if _persisted_running() and not is_running():
+        logger.info("AutoBuilder", "Vorheriger Lauf war aktiv → automatische Fortsetzung")
+        start(_resume=True)
+        return True
+    return False
 
 
 # ── Tages-Historie (persistente Speicherung welche Seiten wann gebaut wurden) ──
@@ -162,16 +213,29 @@ def _pick_next_lead():
 
 
 def _pick_improve_target():
-    """Bestehende, fertige Seite mit dem ältesten 'updated' (rundlaufend verbessern)."""
+    """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst
+    (danach älteste 'updated'). Seiten, die alle 7 Stufen durch haben, werden
+    übersprungen — sonst würde die Phase 2 fertige Seiten endlos neu deployen."""
     try:
         import db_websites
+        import overnight_makeover
         sites = [w for w in db_websites.get_all()
                  if (w.get("folder") and os.path.isdir(w["folder"])
                      and (w.get("status") == "done"))]
         if not sites:
             return None
-        sites.sort(key=lambda w: w.get("updated") or 0)
-        return sites[0]
+
+        def _open(w):
+            try:
+                return overnight_makeover.open_stages(w["folder"])
+            except Exception:
+                return 0
+
+        sites.sort(key=lambda w: (-_open(w), w.get("updated") or 0))
+        top = sites[0]
+        if _open(top) == 0:          # alle Seiten komplett makeovert → nichts zu tun
+            return None
+        return top
     except Exception:
         return None
 
@@ -209,6 +273,13 @@ def _before_cutoff() -> bool:
     return datetime.now().hour < _IMPROVE_UNTIL
 
 
+def _improve_gate() -> bool:
+    """Darf die Verbesserungs-Phase jetzt laufen? Standardmäßig immer (ein manueller
+    Start soll sofort arbeiten); nur mit JARVIS_IMPROVE_RESPECT_CUTOFF=1 greift die
+    Cutoff-Stunde."""
+    return (not _RESPECT_CUTOFF) or _before_cutoff()
+
+
 def _idle_sleep(seconds: int = 60) -> None:
     """Schläft in kleinen Schritten, damit Stop sofort greift."""
     end = time.time() + seconds
@@ -222,6 +293,7 @@ def _build_and_email(lead: dict) -> None:
     import website_builder
     import db_websites
     import duplicate_guard
+    _t0     = time.time()
     name    = (lead.get("name") or "").strip()
     stadt   = lead.get("stadt", "")
     branche = lead.get("branche", "")
@@ -241,10 +313,13 @@ def _build_and_email(lead: dict) -> None:
     if not is_running():
         return
     folder = (job or {}).get("folder", "")
+    # Mehrstufiges Skill-Makeover (7 Stufen, Commit je Stufe, Deploy am Ende). Die
+    # Discord-Freigabe (1× 👍 = Mail / 1× 👎 = verwerfen) bzw. die Vorschau-Mail an
+    # Bastian erfolgt am Ende INNERHALB der Makeover-Pipeline (finalize_review).
     if folder:
-        _set(phase="Top-verbessern…")
-        ij  = website_builder.improve_existing(folder, name)
-        job = _wait_job(ij) or job
+        _set(phase="Makeover (7 Skill-Stufen)…")
+        mj  = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
+        job = _wait_job(mj, timeout=_MAKEOVER_WAIT) or job
     if not is_running():
         return
     link = (job or {}).get("live_url") or ""
@@ -254,24 +329,9 @@ def _build_and_email(lead: dict) -> None:
     except Exception:
         pass
     email_addr = wrow.get("kontakt_email", "")
-    ap         = wrow.get("ansprechpartner", "")
-    # Discord-Freigabe-Gate: ist der Bot aktiv, geht die Seite NICHT direkt raus,
-    # sondern zur Abstimmung. Erst 2× 👍 → Versand um 12 Uhr an den echten Kunden.
-    posted = False
-    try:
-        import discord_bot
-        if discord_bot.enabled():
-            _set(phase="Zur Discord-Freigabe gepostet…")
-            posted = bool(discord_bot.submit_for_review(
-                name, stadt, branche, link, email_addr, ap, folder))
-    except Exception as e:
-        logger.warn("AutoBuilder", f"Discord-Review fehlgeschlagen: {type(e).__name__}")
-    if not posted:                                   # Fallback: Vorschau an Bastian
-        _set(phase="E-Mail an Bastian…")
-        _email(name, link, branche, stadt, ap)
     _record({"name": name, "stadt": stadt, "branche": branche, "link": link,
              "email": email_addr, "folder": folder,
-             "review": posted, "ts": time.time()})
+             "review": True, "ts": time.time()})
     with _lock:
         _state["done"] += 1
         _state["last"] = name
@@ -281,7 +341,7 @@ def _build_and_email(lead: dict) -> None:
                         f"{name} · {branche} · {stadt}{' · ' + link if link else ''}",
                         "🌐", "build")
         import cost_tracker as _ct
-        _ct.track_compute(0, False, "website_build", name)
+        _ct.track_compute(time.time() - _t0, False, "website_build", name)
     except Exception:
         pass
 
@@ -333,48 +393,23 @@ def _deep_step(folder: str, branche: str, name: str) -> dict:
 
 
 def _improve_existing_once() -> bool:
-    """Verbessert EINE bestehende Seite (Nightly-Improver). True wenn etwas getan.
-    Bei JARVIS_NIGHTLY_DEEP=local|claude wird ein echtes Code-Feature eingebaut
-    (mit Render-Gate + Rollback) und neu deployt; sonst der Inhalts-/Design-Pass."""
+    """Holt bei EINER bestehenden Seite die offenen Makeover-Stufen nach (Resume).
+    Ist die Seite danach komplett (alle 7 Stufen durch), postet die Makeover-Pipeline
+    sie automatisch zur Discord-Freigabe. True, wenn eine Seite mit offenen Stufen
+    bearbeitet wurde; False, wenn alle Seiten bereits fertig makeovert sind."""
     import website_builder
     tgt = _pick_improve_target()
     if not tgt:
         return False
-    name    = tgt.get("name") or "Seite"
-    folder  = tgt["folder"]
-    branche = tgt.get("branche", "")
-
-    if _NIGHTLY_DEEP in ("local", "claude"):
-        _set(mode="deep", current=name, phase=f"Tiefen-Feature ({_NIGHTLY_DEEP})…")
-        logger.info("AutoBuilder", f"Nightly-Deep ({_NIGHTLY_DEEP}): {name}")
-        try:
-            res = _deep_step(folder, branche, name)
-        except Exception as e:
-            res = {"ok": False, "reason": f"{type(e).__name__}"}
-        if res.get("ok"):
-            _set(last_feature=res.get("feature", ""))
-            try:
-                jid = website_builder.deploy_existing(folder, name)
-                _wait_job(jid)
-            except Exception:
-                pass
-            logger.success("AutoBuilder", f"Feature '{res.get('feature','')}' in {name} eingebaut")
-            try:
-                logger.activity("AutoBuilder", "Webseite deployt",
-                                f"{name} · Feature: {res.get('feature','?')}", "🚀", "deploy")
-            except Exception:
-                pass
-            return True
-        logger.info("AutoBuilder", f"Tiefen-Schritt übersprungen: {res.get('reason','')}")
-        # Fällt auf den normalen Inhalts-Pass zurück.
-
-    _set(mode="improve", current=name, phase="Verbessere bestehende Seite (lokal)…")
-    logger.info("AutoBuilder", f"Nightly-Improve: {name}")
+    name   = tgt.get("name") or "Seite"
+    folder = tgt["folder"]
+    _set(mode="improve", current=name, phase="Makeover-Stufen nachholen…")
+    logger.info("AutoBuilder", f"Makeover (Resume): {name}")
     try:
-        ij = website_builder.improve_existing(folder, name)
-        _wait_job(ij)
+        mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
+        _wait_job(mj, timeout=_MAKEOVER_WAIT)
     except Exception as e:
-        logger.warn("AutoBuilder", f"Improve fehlgeschlagen: {type(e).__name__}")
+        logger.warn("AutoBuilder", f"Makeover fehlgeschlagen: {type(e).__name__}")
     return True
 
 
@@ -400,8 +435,8 @@ def _loop() -> None:
                 continue
             # keine offenen Leads → in die Verbesserungs-Phase fallen
 
-        # ── Phase 2: bestehende Seiten verbessern bis Cutoff-Stunde ──────────
-        if _before_cutoff():
+        # ── Phase 2: bestehende Seiten verbessern (manueller Start: jederzeit) ─
+        if _improve_gate():
             if _improve_existing_once():
                 continue
 
