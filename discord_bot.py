@@ -82,9 +82,25 @@ def status() -> dict:
 # ── E-Mail-Versand der freigegebenen Seiten (Standardbibliothek, threadsicher) ──
 
 def _send_one_real(review: dict) -> tuple:
-    """Schickt EINE freigegebene Seite an die echte Kundenadresse. (ok, info)."""
+    """Schickt eine freigegebene Seite an den/die echten Empfänger. (ok, info).
+    Bei einer Empfängerliste (Custom-Modus, 11+) geht das Angebot an JEDE Adresse."""
     import mailer
     import offer_mail
+    betreff, text, html = offer_mail.build(
+        review.get("name", ""), review.get("link", ""), review.get("branche", ""),
+        review.get("stadt", ""), review.get("ansprechpartner", ""))
+
+    recipients = [e.strip() for e in (review.get("recipients") or []) if "@" in (e or "")]
+    if recipients:                                   # Custom-Modus: an alle senden
+        ok_n, fail_n = 0, 0
+        for to in recipients:
+            r = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
+            if r.get("ok"):
+                ok_n += 1
+            else:
+                fail_n += 1
+        return ok_n > 0, f"{ok_n}/{len(recipients)} gesendet" + (f", {fail_n} Fehler" if fail_n else "")
+
     to = (review.get("email") or "").strip()
     if "@" not in to:                                # Adresse fehlt → on-demand suchen
         try:
@@ -98,9 +114,6 @@ def _send_one_real(review: dict) -> tuple:
             pass
     if "@" not in to:
         return False, "keine Kundenadresse gefunden"
-    betreff, text, html = offer_mail.build(
-        review.get("name", ""), review.get("link", ""), review.get("branche", ""),
-        review.get("stadt", ""), review.get("ansprechpartner", ""))
     # bypass_redirect=True: bewusst an den echten Kunden (Voting ist die Freigabe).
     r = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
     return bool(r.get("ok")), (r.get("status") or r.get("fehler") or "")
@@ -155,9 +168,12 @@ if _HAS_DISCORD:
         meta = " · ".join(x for x in [r.get("branche", ""), r.get("stadt", "")] if x)
         if meta:
             e.add_field(name="Betrieb", value=meta, inline=True)
-        e.add_field(name="Kunden-E-Mail",
-                    value=(r.get("email") or "⚠️ noch keine — wird vor Versand gesucht"),
-                    inline=True)
+        rec = r.get("recipients") or []
+        if rec:
+            empf = f"📋 {len(rec)} Empfänger" + (f" (z.B. {rec[0]})" if rec else "")
+        else:
+            empf = r.get("email") or "⚠️ noch keine — wird vor Versand gesucht"
+        e.add_field(name="Empfänger", value=empf, inline=True)
         e.add_field(
             name="Status",
             value=f"{_STATUS_LABEL.get(st, st)}  ·  👍 {len(r.get('votes_up', []))}/{needed}"
@@ -257,12 +273,14 @@ if _HAS_DISCORD:
 # ── Öffentliche API (vom Auto-Builder / app.py genutzt) ────────────────────────
 
 def submit_for_review(name: str, stadt: str, branche: str, link: str,
-                      email: str = "", ansprechpartner: str = "", folder: str = "") -> "dict | None":
+                      email: str = "", ansprechpartner: str = "", folder: str = "",
+                      recipients: "list | None" = None) -> "dict | None":
     """Legt einen Review an und postet ihn (falls der Bot läuft) in den Discord-Kanal.
-    Gibt den Review zurück, oder None wenn der Bot nicht aktiv ist."""
+    Gibt den Review zurück, oder None wenn der Bot nicht aktiv ist.
+    recipients: optionale Empfängerliste (Custom-Modus, 11+)."""
     if not enabled() or not _started or _loop is None:
         return None
-    review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder)
+    review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder, recipients)
     try:
         asyncio.run_coroutine_threadsafe(_post(review), _loop)
     except Exception as e:

@@ -825,6 +825,48 @@ def api_autobuild_daily():
     return jsonify(auto_builder.daily_log())
 
 
+# ── Eigene Marke (Custom-Build) ───────────────────────────────────────────────
+
+@app.route("/api/custom-build", methods=["POST"])
+def api_custom_build():
+    """Manueller Build: Name/Logo/Hero/Beschreibung von Sir vorgegeben. Akzeptiert
+    multipart (mit Datei-Uploads) oder JSON."""
+    import custom_build
+    f = request.form if request.form else {}
+    name = (f.get("name") or "").strip()
+    if not name and request.is_json:
+        f = request.get_json(silent=True) or {}
+        name = (f.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "reason": "Name fehlt"}), 400
+
+    slug = custom_build._slugify(name)
+    logo_path = custom_build.save_upload(request.files.get("logo"), "logo", slug)
+    hero_path = custom_build.save_upload(request.files.get("hero"), "hero", slug)
+
+    # Empfänger: aus Textarea (eine Adresse pro Zeile/Komma/Semikolon).
+    roh = f.get("recipients") or ""
+    if isinstance(roh, list):
+        recipients = roh
+    else:
+        recipients = [x for x in __import__("re").split(r"[\n,;]+", str(roh)) if x.strip()]
+
+    data = {
+        "name": name, "branche": f.get("branche", ""), "stadt": f.get("stadt", ""),
+        "beschreibung": f.get("beschreibung", ""), "telefon": f.get("telefon", ""),
+        "email": f.get("email", ""), "adresse": f.get("adresse", ""),
+        "hero_prompt": f.get("hero_prompt", ""),
+        "logo_path": logo_path, "hero_path": hero_path, "recipients": recipients,
+    }
+    return jsonify(custom_build.start(data))
+
+
+@app.route("/api/custom-build/status/<job_id>")
+def api_custom_build_status(job_id):
+    import custom_build
+    return jsonify(custom_build.status(job_id))
+
+
 # ── Discord-Freigabe (Voting-Gate) ───────────────────────────────────────────
 
 @app.route("/api/discord/status")

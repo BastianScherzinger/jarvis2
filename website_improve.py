@@ -188,6 +188,13 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     _generate_images(folder, branche, content, say)
     _write_content(folder, content)
 
+    # Logo: vom Inhaber hochgeladenes Logo behalten, sonst sauberes SVG-Monogramm.
+    if not (content.get("logo_image") or "").strip():
+        logo = _make_logo(folder, name, akzent)
+        if logo:
+            content["logo_image"] = logo
+            _write_content(folder, content)
+
     # 5/7 — Design-Pro: Premium-Layout + Effekte/Animationen ---------------
     say(80, "Pass 5/7 · Design-Pro: Premium-Layout, Effekte & Animationen…")
     _install_premium_template(folder)
@@ -199,7 +206,14 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
 
     # 7/7 — QA: Bugs, Konsistenz, Vollständigkeit --------------------------
     say(94, "Pass 7/7 · QA: Bugs, Konsistenz & Vollständigkeit prüfen…")
+    # Asset-Pfade sichern — der QA-Pass lässt Claude die content.json neu schreiben
+    # und würde Bild-/Logo-Pfade sonst evtl. verlieren.
+    assets = {k: content.get(k) for k in ("hero_image", "about_image", "logo_image", "fotos")
+              if content.get(k)}
     content = _qa_pass(content, name, branche, stadt, base)
+    for k, v in assets.items():
+        if not content.get(k):
+            content[k] = v
     content = _sanitize_content(content)          # Typ-Härtung gegen Render-Bugs
     _wire_contact(folder, content)                # klickbare Kontaktdaten aus der DB
     _write_content(folder, content)
@@ -222,7 +236,8 @@ def _sanitize_content(content: dict) -> dict:
 
     for k in ("site_name", "branche", "stadt", "headline", "subline", "ueber_titel",
               "ueber_text", "cta_text", "kontakt_text", "seo_title", "seo_desc",
-              "telefon", "email", "adresse", "hero_image", "about_image", "akzent", "claim"):
+              "telefon", "email", "adresse", "hero_image", "about_image", "logo_image",
+              "akzent", "claim"):
         if k in content:
             content[k] = _s(content[k])
 
@@ -416,6 +431,57 @@ def _generate_images(folder: Path, branche: str, content: dict, say) -> None:
         pass
 
 
+def _initials(name: str) -> str:
+    """1–2 Initialen aus dem Firmennamen (ohne Rechtsform-Zusätze)."""
+    stop = {"gmbh", "kg", "ohg", "ug", "co", "und", "&", "ag", "mbh", "e.k", "ek", "se"}
+    worte = [w for w in re.split(r"[\s\.\-]+", (name or "").strip()) if w and w.lower().strip(".") not in stop]
+    if not worte:
+        return (name or "?").strip()[:1].upper() or "?"
+    if len(worte) == 1:
+        return worte[0][:2].upper()
+    return (worte[0][:1] + worte[1][:1]).upper()
+
+
+def _make_logo(folder: Path, name: str, akzent: str) -> str:
+    """Schreibt ein sauberes SVG-Monogramm-Logo (Initialen + Akzentfarbe) und gibt den
+    /static/-Pfad zurück. Deterministisch, immer verfügbar, druck-/retinascharf."""
+    akz = akzent if re.fullmatch(r"#[0-9a-fA-F]{6}", str(akzent or "")) else "#c8102e"
+    ini = _html_escape(_initials(name))
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" '
+        f'role="img" aria-label="{_html_escape(name)}">'
+        f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0" stop-color="{akz}"/>'
+        f'<stop offset="1" stop-color="{_shade(akz, -28)}"/></linearGradient></defs>'
+        f'<rect x="4" y="4" width="112" height="112" rx="26" fill="url(#g)"/>'
+        f'<text x="60" y="62" text-anchor="middle" dominant-baseline="central" '
+        f'font-family="Georgia, \'Fraunces\', serif" font-size="52" font-weight="700" '
+        f'fill="#ffffff">{ini}</text></svg>'
+    )
+    try:
+        img_dir = folder / "static" / "img"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        (img_dir / "logo.svg").write_text(svg, encoding="utf-8")
+        return "/static/img/logo.svg"
+    except Exception:
+        return ""
+
+
+def _shade(hex_color: str, amount: int) -> str:
+    """Hellt/dunkelt eine Hex-Farbe ab (amount negativ = dunkler)."""
+    try:
+        h = hex_color.lstrip("#")
+        r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        f = lambda v: max(0, min(255, v + amount))
+        return f"#{f(r):02x}{f(g):02x}{f(b):02x}"
+    except Exception:
+        return hex_color
+
+
+def _html_escape(s: str) -> str:
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 def _install_premium_template(folder: Path) -> None:
     """Schreibt die erweiterte Premium-Vorlage (index.html + style.css)."""
     (folder / "templates").mkdir(parents=True, exist_ok=True)
@@ -532,7 +598,7 @@ _PREMIUM_HTML = r"""{% load static %}<!DOCTYPE html>
 <body>
   <header class="nav">
     <div class="wrap nav-in">
-      <a class="brand" href="#top">{{ c.site_name }}</a>
+      <a class="brand" href="#top">{% if c.logo_image %}<img class="brand-logo" src="{{ c.logo_image }}" alt="{{ c.site_name }}"><span class="brand-name">{{ c.site_name }}</span>{% else %}{{ c.site_name }}{% endif %}</a>
       <nav class="nav-links">
         <a href="#leistungen">Leistungen</a>
         <a href="#ueber">Über uns</a>
@@ -683,7 +749,9 @@ img{max-width:100%;display:block}
 /* Nav */
 .nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .nav-in{display:flex;align-items:center;gap:20px;height:66px}
-.brand{font-family:'Fraunces',serif;font-weight:700;font-size:21px;letter-spacing:-.02em}
+.brand{font-family:'Fraunces',serif;font-weight:700;font-size:21px;letter-spacing:-.02em;display:inline-flex;align-items:center;gap:11px}
+.brand-logo{height:38px;width:38px;border-radius:10px;display:block}
+.brand-name{font-family:'Fraunces',serif;font-weight:700}
 .nav-links{display:flex;gap:26px;margin-left:auto;font-weight:500;font-size:15px;color:var(--ink2)}
 .nav-links a:hover{color:var(--accent)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:13px 24px;border-radius:999px;transition:transform .15s,filter .15s;box-shadow:0 6px 20px rgba(0,0,0,.10)}

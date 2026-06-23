@@ -17,7 +17,7 @@
 <body>
   <header class="nav">
     <div class="wrap nav-in">
-      <a class="brand" href="#top">{{ c.site_name }}</a>
+      <a class="brand" href="#top">{% if c.logo_image %}<img class="brand-logo" src="{{ c.logo_image }}" alt="{{ c.site_name }}">{% else %}{{ c.site_name }}{% endif %}</a>
       <nav class="nav-links">
         <a href="#leistungen">Leistungen</a>
         <a href="#ueber">Über uns</a>

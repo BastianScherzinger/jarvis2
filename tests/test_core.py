@@ -870,3 +870,103 @@ def test_offer_mail_betreff_variiert_und_ohne_spam():
     # ohne Live-Link greift der andere Betreff-Pool
     b3, _, _ = offer_mail.build("Gamma", "", "Elektriker", "")
     assert b3 and "€" not in b3
+
+
+# ── Eigene Marke (Custom-Build) ───────────────────────────────────────────────
+def test_custom_build_lead_struktur():
+    import custom_build
+    lead, rec = custom_build._build_lead({
+        "name": " Müller Dachtechnik GmbH ", "branche": "Dachdecker", "stadt": "Freiburg",
+        "beschreibung": "Familienbetrieb seit 1990", "telefon": "0761 1",
+        "hero_prompt": "cinematic roof", "logo_path": "x.png",
+        "recipients": ["a@b.de", "ungueltig", "c@d.de"]})
+    assert lead["name"] == "Müller Dachtechnik GmbH"
+    assert lead["beschreibung"] == "Familienbetrieb seit 1990"
+    assert lead["_custom"]["hero_prompt"] == "cinematic roof"
+    assert lead["_custom"]["logo_path"] == "x.png"
+    assert rec == ["a@b.de", "c@d.de"]              # ungültige Adresse rausgefiltert
+
+
+def test_custom_build_start_braucht_name():
+    import custom_build
+    assert custom_build.start({"name": "  "})["ok"] is False
+
+
+def test_custom_slugify():
+    import custom_build
+    assert custom_build._slugify("Müller & Co. GmbH") == "mueller-und-co-gmbh"
+
+
+# ── Review-Empfänger (11+) ────────────────────────────────────────────────────
+def test_review_queue_recipients(tmp_path, monkeypatch):
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    r = rq.add("B", "S", "Br", "https://x", recipients=["a@b.de", "bad", "c@d.de", ""])
+    assert r["recipients"] == ["a@b.de", "c@d.de"]
+
+
+def test_discord_send_recipients_loop(monkeypatch):
+    import discord_bot, mailer, offer_mail
+    sent = []
+    monkeypatch.setattr(offer_mail, "build", lambda *a, **k: ("B", "T", "<b>"))
+    monkeypatch.setattr(mailer, "send_email",
+                        lambda to, *a, **k: sent.append(to) or {"ok": True, "status": "gesendet"})
+    ok, info = discord_bot._send_one_real(
+        {"name": "X", "link": "https://x", "branche": "", "stadt": "",
+         "recipients": ["a@b.de", "c@d.de", "e@f.de"]})
+    assert ok and sent == ["a@b.de", "c@d.de", "e@f.de"] and "3/3" in info
+
+
+# ── Logo + Template-Slot + Render ─────────────────────────────────────────────
+def test_improve_logo_und_initialen(tmp_path):
+    import website_improve as wi
+    assert wi._initials("Müller Dachtechnik GmbH") == "MD"
+    assert wi._initials("Findeisen") == "FI"
+    p = wi._make_logo(tmp_path, "Test GmbH", "#1e8eff")
+    assert p == "/static/img/logo.svg"
+    svg = (tmp_path / "static" / "img" / "logo.svg").read_text(encoding="utf-8")
+    assert "<svg" in svg and ">TE<" in svg.replace(" ", "")
+
+
+def test_premium_template_hat_logo_slot():
+    import website_improve as wi
+    assert "c.logo_image" in wi._PREMIUM_HTML
+    # Vorlage ebenso
+    from pathlib import Path
+    tpl = (Path(__file__).resolve().parents[1] / "vorlage_landing" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert "c.logo_image" in tpl
+
+
+def test_premium_render_mit_logo(tmp_path):
+    import website_improve as wi
+    c = {"site_name": "Test GmbH", "akzent": "#1e8eff", "logo_image": "/static/img/logo.svg",
+         "hero_image": "/static/img/hero.png", "headline": "H", "subline": "S",
+         "leistungen": [{"titel": "A", "text": "B"}], "usps": ["x"],
+         "faq": [{"frage": "q", "antwort": "a"}], "jahr": 2026}
+    ok, err = wi._render_check(tmp_path, c)
+    assert ok, err
+
+
+def test_improve_qa_behaelt_assets():
+    # Der QA-Pass darf Bild-/Logo-Pfade nicht verlieren (Asset-Sicherung).
+    import website_improve as wi
+    src = wi._PREMIUM_HTML
+    assert 'src="{{ c.logo_image }}"' in src and "c.hero_image" in src
+
+
+# ── Railway: bestehenden Service wiederverwenden (Link trotzdem zeigen) ────────
+def test_railway_find_service_parst_domain(monkeypatch):
+    import agent_railway as ar
+    fake = {"ok": True, "data": {"project": {"services": {"edges": [
+        {"node": {"id": "svc1", "name": "web-test", "serviceInstances": {"edges": [
+            {"node": {"domains": {"serviceDomains": [{"domain": "web-test.up.railway.app"}]}}}]}}}]}}}}
+    monkeypatch.setattr(ar, "_gql", lambda *a, **k: fake)
+    res = ar._find_service("tok", "proj", "web-test")
+    assert res["found"] and res["domain"] == "web-test.up.railway.app" and res["service_id"] == "svc1"
+
+
+def test_railway_find_service_nicht_gefunden(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_gql", lambda *a, **k:
+                        {"ok": True, "data": {"project": {"services": {"edges": []}}}})
+    assert ar._find_service("tok", "proj", "web-x") == {"found": False}

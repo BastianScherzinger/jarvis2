@@ -794,7 +794,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'claude'];
+const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'custom', 'claude'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -821,6 +821,64 @@ window.addEventListener('hashchange', () => {
   const h = (location.hash || '').slice(1);
   if(_PAGES.includes(h)) showPage(h);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  EIGENE MARKE — Custom-Build
+// ════════════════════════════════════════════════════════════════════════════
+function cbHeroMode(){
+  const m = (document.getElementById('cb-hero-mode')||{}).value;
+  const pw = document.getElementById('cb-hero-prompt-wrap');
+  const fw = document.getElementById('cb-hero-file-wrap');
+  if(pw) pw.style.display = (m==='generate') ? '' : 'none';
+  if(fw) fw.style.display = (m==='upload')   ? '' : 'none';
+}
+
+let _cbPoll = null;
+async function startCustomBuild(){
+  const name = (document.getElementById('cb-name').value||'').trim();
+  if(!name){ alert('Bitte einen Firmennamen eingeben, Sir.'); return; }
+  const btn = document.getElementById('cb-submit');
+  btn.disabled = true; btn.textContent = 'Wird gebaut…';
+
+  const fd = new FormData();
+  const g = id => (document.getElementById(id)||{}).value || '';
+  fd.append('name', name);
+  ['branche','stadt','beschreibung','telefon','email','adresse','recipients'].forEach(k=>fd.append(k, g('cb-'+k)));
+  const heroMode = g('cb-hero-mode');
+  if(heroMode==='generate') fd.append('hero_prompt', g('cb-hero-prompt'));
+  const logo = (document.getElementById('cb-logo')||{}).files?.[0]; if(logo) fd.append('logo', logo);
+  if(heroMode==='upload'){ const hf=(document.getElementById('cb-hero-file')||{}).files?.[0]; if(hf) fd.append('hero', hf); }
+
+  let res;
+  try{ res = await(await fetch('/api/custom-build',{method:'POST',body:fd})).json(); }
+  catch{ res = {ok:false, reason:'Netzwerkfehler'}; }
+  if(!res.ok){ alert('Fehler: '+(res.reason||'unbekannt')); btn.disabled=false; btn.textContent='Bauen & zur Freigabe schicken'; return; }
+
+  document.getElementById('cb-status-empty').style.display='none';
+  document.getElementById('cb-prog').style.display='';
+  document.getElementById('cb-prog-name').textContent = name;
+  _cbWatch(res.job_id, btn);
+}
+
+function _cbWatch(jobId, btn){
+  if(_cbPoll) clearInterval(_cbPoll);
+  _cbPoll = setInterval(async ()=>{
+    let d; try{ d = await(await fetch('/api/custom-build/status/'+jobId)).json(); }catch{ return; }
+    const b = d.build||{}, c = d.custom||{};
+    const fill = document.getElementById('cb-prog-fill');
+    const step = document.getElementById('cb-prog-step');
+    const link = document.getElementById('cb-prog-link');
+    if(fill) fill.style.width = (b.progress||0)+'%';
+    if(step) step.textContent = c.phase || b.step || '…';
+    if(b.live_url && link){ link.style.display=''; link.href = b.live_url; }
+    if(c.done){
+      clearInterval(_cbPoll); _cbPoll=null;
+      if(fill) fill.style.width='100%';
+      if(step) step.textContent = c.phase || 'Fertig';
+      if(btn){ btn.disabled=false; btn.textContent='Bauen & zur Freigabe schicken'; }
+    }
+  }, 2500);
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MEDIA — Bild / Video Generierung

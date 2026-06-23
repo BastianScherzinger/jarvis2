@@ -324,12 +324,15 @@ def _claude_content(lead: dict, fotos: list) -> dict:
             "KI-Geschwurbel, kein Fülltext, deutsch, konkret und vertrauenswürdig. "
             "Antworte AUSSCHLIESSLICH mit einem JSON-Objekt."
         )
+        beschr = (lead.get("beschreibung") or "").strip()
+        beschr_block = f"- Beschreibung vom Inhaber (verbindlich nutzen): {beschr}\n" if beschr else ""
         prompt = (
             "Betrieb:\n"
             f"- Name: {lead.get('name','')}\n"
             f"- Branche: {lead.get('branche','')}\n"
             f"- Stadt: {lead.get('stadt','')}\n"
-            f"- Bewertung: {lead.get('bewertung','')}\n\n"
+            f"- Bewertung: {lead.get('bewertung','')}\n"
+            f"{beschr_block}\n"
             "Erzeuge JSON mit GENAU diesen Feldern:\n"
             "{\n"
             '  "headline": "starke, kurze Hero-Headline (max 7 Wörter)",\n'
@@ -529,6 +532,33 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
 
 # ── Worker ────────────────────────────────────────────────────────────────────
 
+def _apply_custom_assets(target: Path, content: dict, lead: dict) -> None:
+    """Custom-Modus: vom Inhaber gelieferte Assets übernehmen.
+      - logo_path  → static/img/logo.png  (+ content['logo_image'])
+      - hero_path  → static/img/hero.png  (Generierung wird dann übersprungen)
+    Best-effort, wirft nie — fehlende/ungültige Pfade werden ignoriert."""
+    custom = lead.get("_custom") or {}
+    img_dir = target / "static" / "img"
+    try:
+        img_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+    logo = (custom.get("logo_path") or "").strip()
+    if logo and os.path.isfile(logo):
+        try:
+            shutil.copyfile(logo, img_dir / "logo.png")
+            content["logo_image"] = "/static/img/logo.png"
+        except Exception:
+            pass
+    hero = (custom.get("hero_path") or "").strip()
+    if hero and os.path.isfile(hero):
+        try:
+            shutil.copyfile(hero, img_dir / "hero.png")
+            content["hero_image"] = "/static/img/hero.png"
+        except Exception:
+            pass
+
+
 def _run(job_id: str) -> None:
     with _lock:
         j0 = _jobs[job_id]
@@ -571,6 +601,11 @@ def _run(job_id: str) -> None:
         # 3) Claude textet + designt -----------------------------------------
         _step(job_id, 38, "Claude schreibt Texte & wählt das Design…")
         content = _claude_content(lead, fotos)
+        # Custom-Modus: vom Inhaber gelieferte Kontaktdaten direkt übernehmen.
+        for k in ("telefon", "email", "adresse"):
+            if (lead.get(k) or "").strip():
+                content[k] = str(lead[k]).strip()
+        _apply_custom_assets(target, content, lead)      # Logo + ggf. hochgeladenes Hero
         (target / "content.json").write_text(
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         _step(job_id, 56, f"Texte & Design erstellt: {content.get('headline','')[:40]}")
@@ -583,7 +618,11 @@ def _run(job_id: str) -> None:
             import media_engine  # lazy
             hero_path = target / "static" / "img" / "hero.png"
             branche = lead.get("branche", "")
-            prompt = (
+            # Custom-Modus: eigener Hero-Prompt schlägt den Standard; ein hochgeladenes
+            # Hero (von _apply_custom_assets bereits als hero.png abgelegt) existiert hier
+            # schon → die Generierung wird automatisch übersprungen.
+            custom_prompt = (lead.get("_custom") or {}).get("hero_prompt", "").strip()
+            prompt = custom_prompt or (
                 f"professional wide hero banner photograph for a German {branche} "
                 "business, modern, clean, bright daylight, high quality, no text, "
                 "no logo, no watermark"
@@ -833,12 +872,14 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
         _set(job_id, status="running", folder=str(target), live=0)
         _step(job_id, 5, f"Top-Verbesserung für {name} startet…")
         lead = {"name": name}
+        existing_live = ""
         try:
             import db_websites
-            row = db_websites.get_by_job(job_id)
+            row = db_websites.get_by_job(job_id) or db_websites.get_by_folder(str(target))
             if row:
                 lead = {"name": row.get("name") or name, "stadt": row.get("stadt", ""),
                         "branche": row.get("branche", "")}
+                existing_live = (row.get("live_url") or "").strip()
         except Exception:
             pass
 
@@ -860,7 +901,7 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
         prev = get(job_id) or {}
         dep = _deploy_folder(target, slug, name, _django_secret_key(),
                              content.get("site_name", name), _say,
-                             redeploy_url=prev.get("live_url", ""))
+                             redeploy_url=(prev.get("live_url") or existing_live))
         if dep.get("railway_log"):
             _set(job_id, railway_log=dep["railway_log"])
         if dep["repo_url"]:

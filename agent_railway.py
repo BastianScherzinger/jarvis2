@@ -117,6 +117,32 @@ def _find_project_with_env(token: str, name: str) -> dict:
     return {"found": False}
 
 
+def _find_service(token: str, project_id: str, name: str) -> dict:
+    """Sucht im Projekt einen Service nach Name und liest dessen bestehende Domain.
+    Gibt {found, service_id, domain}. Für den Fall, dass der Service schon existiert
+    (Re-Build derselben Seite) — so kommt trotzdem ein Live-Link zurück."""
+    q = ("query($id:String!){ project(id:$id){ services{ edges{ node{ id name "
+         "serviceInstances{ edges{ node{ domains{ serviceDomains{ domain } } } } } } } } } }")
+    r = _gql(q, {"id": project_id}, token)
+    if not r["ok"]:
+        return {"found": False}
+    edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
+    for e in edges:
+        node = e.get("node") or {}
+        if (node.get("name") or "").strip().lower() != name.strip().lower():
+            continue
+        domain = ""
+        for si in ((node.get("serviceInstances") or {}).get("edges") or []):
+            for sd in (((si.get("node") or {}).get("domains") or {}).get("serviceDomains") or []):
+                if sd.get("domain"):
+                    domain = sd["domain"]
+                    break
+            if domain:
+                break
+        return {"found": True, "service_id": node["id"], "domain": domain}
+    return {"found": False}
+
+
 def project_delete(project_id: str) -> dict:
     """Löscht ein Railway-Projekt unwiderruflich. Gibt {ok} oder {ok:False,error}."""
     token = _token()
@@ -203,23 +229,40 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
         source:{repo:$repo}}){ id } }"""
     r = _gql(q_svc, {"projectId": project_id, "repo": repo_full_name,
                      "branch": branch, "name": name[:60]}, token)
-    if not r["ok"]:
-        return {"ok": False, "error": f"serviceCreate: {r['error']}",
-                "project_id": project_id, "log": log}
-    service_id = r["data"]["serviceCreate"]["id"]
-    _say(f"Service „{name[:60]}“ aus GitHub-Repo verbunden")
-
-    # 3) Öffentliche Domain erzeugen -----------------------------------------
     domain = ""
-    q_dom = """
-    mutation($environmentId:String!,$serviceId:String!){
-      serviceDomainCreate(input:{environmentId:$environmentId, serviceId:$serviceId}){ domain } }"""
-    r = _gql(q_dom, {"environmentId": env_id, "serviceId": service_id}, token)
-    if r["ok"]:
-        domain = r["data"]["serviceDomainCreate"]["domain"]
-        _say(f"Öffentliche Domain erstellt: {domain}")
+    if not r["ok"]:
+        # Service existiert vermutlich schon (Re-Build derselben Seite) → den
+        # bestehenden Service wiederverwenden, damit trotzdem ein Live-Link kommt.
+        existing = _find_service(token, project_id, name[:60])
+        if existing.get("found"):
+            service_id = existing["service_id"]
+            domain = existing.get("domain", "")
+            _say(f"Service „{name[:60]}“ existiert bereits — wird wiederverwendet"
+                 + (f" (Domain {domain})" if domain else ""))
+        else:
+            return {"ok": False, "error": f"serviceCreate: {r['error']}",
+                    "project_id": project_id, "log": log}
     else:
-        _say(f"Domain-Erstellung fehlgeschlagen: {r['error']}")
+        service_id = r["data"]["serviceCreate"]["id"]
+        _say(f"Service „{name[:60]}“ aus GitHub-Repo verbunden")
+
+    # 3) Öffentliche Domain erzeugen (nur falls der Service noch keine hat) ----
+    if not domain:
+        q_dom = """
+        mutation($environmentId:String!,$serviceId:String!){
+          serviceDomainCreate(input:{environmentId:$environmentId, serviceId:$serviceId}){ domain } }"""
+        r = _gql(q_dom, {"environmentId": env_id, "serviceId": service_id}, token)
+        if r["ok"]:
+            domain = r["data"]["serviceDomainCreate"]["domain"]
+            _say(f"Öffentliche Domain erstellt: {domain}")
+        else:
+            # Domain evtl. schon vorhanden → nochmal gezielt nachschlagen.
+            again = _find_service(token, project_id, name[:60])
+            if again.get("domain"):
+                domain = again["domain"]
+                _say(f"Bestehende Domain übernommen: {domain}")
+            else:
+                _say(f"Domain-Erstellung fehlgeschlagen: {r['error']}")
 
     # 4) Umgebungsvariablen setzen (inkl. der frisch erzeugten Domain) --------
     final_env = dict(env or {})

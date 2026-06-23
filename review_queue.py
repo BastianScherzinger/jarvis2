@@ -48,13 +48,18 @@ def _needed() -> int:
 
 
 def add(name: str, stadt: str, branche: str, link: str, email: str = "",
-        ansprechpartner: str = "", folder: str = "") -> dict:
-    """Legt einen neuen Review (Status pending) an und gibt ihn zurück."""
+        ansprechpartner: str = "", folder: str = "", recipients: "list | None" = None) -> dict:
+    """Legt einen neuen Review (Status pending) an und gibt ihn zurück.
+
+    recipients: optionale Empfängerliste (Custom-Modus, 11+). Ist sie gesetzt, geht das
+    Angebot nach Freigabe an JEDE dieser Adressen; sonst an die Einzeladresse `email`."""
     rid = uuid.uuid4().hex[:12]
+    rec = [e.strip() for e in (recipients or []) if e and "@" in e]
     review = {
         "id": rid, "name": name, "stadt": stadt, "branche": branche,
         "link": link, "email": email, "ansprechpartner": ansprechpartner,
-        "folder": folder, "status": PENDING, "votes_up": [], "votes_down": [],
+        "folder": folder, "recipients": rec, "status": PENDING,
+        "votes_up": [], "votes_down": [],
         "message_id": 0, "channel_id": 0, "ts": time.time(),
         "sent_ts": 0.0, "note": "",
     }

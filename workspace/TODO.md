@@ -1,5 +1,18 @@
 # JARVIS — TODO / Offene Punkte (Stand 23.06.2026)
 
+## Erledigt 23.06. (Eigene-Marke-Modus + Live-Link-Fix + Logos im Verbesserer)
+- [x] **„Eigene Marke"-Modus** (`custom_build.py` + Tab): Sir gibt Name/Logo/Hero/
+      Beschreibung selbst vor → gleiche Bau-Engine + Skills → über Nacht verbessert →
+      Discord-Freigabe → an **11+ Empfänger**. Routen `/api/custom-build[/status]`.
+      Plan: `workspace/PLAN_CUSTOM_MODE.md`.
+- [x] **Live-Link trotz „Projekt existiert schon"** (`agent_railway._find_service` +
+      Deploy-Fallback): bestehenden Railway-Service wiederverwenden, Domain holen/
+      erzeugen → URL kommt zurück, Link wird gezeigt. `_run_improve` nutzt bestehende
+      Live-URL als Redeploy-Ziel.
+- [x] **Verbesserer baut jetzt Logos** (`website_improve._make_logo`): sauberes SVG-
+      Monogramm (Initialen + Akzent), Logo-Slot in Premium- & Vorlage-Template,
+      Asset-Sicherung über den QA-Pass (Bild-/Logo-Pfade gehen nicht mehr verloren).
+
 ## Erledigt 23.06. (Discord-Freigabe-Bot + Mails + Restbrocken)
 - [x] **Discord-Freigabe-Bot** (`discord_bot.py` + `review_queue.py`): fertige Seiten
       gehen zur Abstimmung (👍/👎), 2× 👍 ohne Veto → Versand um 12 Uhr an echte

@@ -29,6 +29,7 @@
     <button class="topnav-btn"        data-page="graph"  onclick="showPage('graph')">Graph</button>
     <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
     <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
+    <button class="topnav-btn"        data-page="custom" onclick="showPage('custom')">Eigene Marke</button>
     <button class="topnav-btn"        data-page="claude" onclick="showPage('claude')">Claude</button>
   </nav>
 
@@ -419,6 +420,76 @@
       <div class="empty-title">Noch keine Webseiten gebaut</div>
       <div class="empty-sub">Bei einem Lead auf „Webseite bauen“ drücken — die Seite erscheint hier mit Live-Status.</div>
     </div>
+  </div>
+</main>
+
+<!-- ══════════════════════════ EIGENE MARKE ═════════════════════════════════ -->
+<main class="custom-page page" data-page="custom">
+  <div class="media-head">
+    <div class="media-title">Eigene Marke</div>
+    <div class="media-sub">Name, Logo, Hero-Hintergrund und Beschreibung selbst vorgeben — JARVIS &amp; die lokalen KIs bauen die Seite, verbessern sie über Nacht und schicken sie nach Discord-Freigabe an alle Empfänger.</div>
+  </div>
+
+  <div class="cb-grid">
+    <!-- Formular -->
+    <form class="cb-form" id="cb-form" onsubmit="return false;">
+      <div class="cb-sec">Marke</div>
+      <label class="cb-field"><span>Firmenname *</span>
+        <input id="cb-name" type="text" placeholder="z.B. Müller Dachtechnik GmbH" required></label>
+      <div class="cb-row">
+        <label class="cb-field"><span>Branche</span>
+          <input id="cb-branche" type="text" placeholder="z.B. Dachdecker"></label>
+        <label class="cb-field"><span>Stadt</span>
+          <input id="cb-stadt" type="text" placeholder="z.B. Freiburg"></label>
+      </div>
+      <label class="cb-field"><span>Beschreibung (wird verbindlich genutzt)</span>
+        <textarea id="cb-beschreibung" rows="4" placeholder="Worum geht es? Stärken, Leistungen, Tonalität, Besonderheiten…"></textarea></label>
+
+      <div class="cb-sec">Kontakt (optional, erscheint auf der Seite)</div>
+      <div class="cb-row">
+        <label class="cb-field"><span>Telefon</span><input id="cb-telefon" type="text" placeholder="0761 …"></label>
+        <label class="cb-field"><span>E-Mail</span><input id="cb-email" type="text" placeholder="info@…"></label>
+      </div>
+      <label class="cb-field"><span>Adresse</span><input id="cb-adresse" type="text" placeholder="Straße, PLZ Ort"></label>
+
+      <div class="cb-sec">Logo &amp; Hero</div>
+      <div class="cb-row">
+        <label class="cb-field"><span>Logo (PNG/JPG, optional)</span>
+          <input id="cb-logo" type="file" accept="image/*"></label>
+        <label class="cb-field"><span>Hero-Hintergrund</span>
+          <select id="cb-hero-mode" onchange="cbHeroMode()">
+            <option value="generate">KI generieren (Prompt)</option>
+            <option value="upload">Bild hochladen</option>
+            <option value="none">Keiner (Farbverlauf)</option>
+          </select></label>
+      </div>
+      <label class="cb-field" id="cb-hero-prompt-wrap"><span>Hero-Prompt</span>
+        <input id="cb-hero-prompt" type="text" placeholder="cinematic wide banner, modern roofing business, bright daylight, no text"></label>
+      <label class="cb-field" id="cb-hero-file-wrap" style="display:none"><span>Hero-Bild</span>
+        <input id="cb-hero-file" type="file" accept="image/*"></label>
+
+      <div class="cb-sec">Empfänger <span class="cb-hint">(eine E-Mail pro Zeile · 11+ möglich)</span></div>
+      <label class="cb-field"><span>An wen geht das Angebot?</span>
+        <textarea id="cb-recipients" rows="5" placeholder="kunde1@firma.de&#10;kunde2@firma.de&#10;…"></textarea></label>
+
+      <button class="cb-submit" id="cb-submit" onclick="startCustomBuild()">Bauen &amp; zur Freigabe schicken</button>
+      <div class="cb-note">Nach dem Bau wird die Seite über Nacht verbessert. Erst nach 2× 👍 in Discord geht das Angebot um 12 Uhr an die Empfänger.</div>
+    </form>
+
+    <!-- Live-Status -->
+    <aside class="cb-status" id="cb-status">
+      <div class="cb-status-empty" id="cb-status-empty">
+        <div class="empty-icon">◎</div>
+        <div class="empty-title">Bereit</div>
+        <div class="empty-sub">Marke ausfüllen und „Bauen“ drücken — der Fortschritt erscheint hier live.</div>
+      </div>
+      <div class="cb-prog" id="cb-prog" style="display:none">
+        <div class="cb-prog-name" id="cb-prog-name">—</div>
+        <div class="cb-prog-bar"><div class="cb-prog-fill" id="cb-prog-fill"></div></div>
+        <div class="cb-prog-step" id="cb-prog-step">…</div>
+        <a class="cb-prog-link" id="cb-prog-link" href="#" target="_blank" rel="noopener" style="display:none">Live ansehen →</a>
+      </div>
+    </aside>
   </div>
 </main>
 
