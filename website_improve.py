@@ -20,6 +20,12 @@ import os
 import re
 from pathlib import Path
 
+try:
+    import site_skills
+    _SITE_SKILLS_OK = True
+except ImportError:
+    _SITE_SKILLS_OK = False
+
 MODEL = "claude-opus-4-8"
 
 
@@ -110,6 +116,80 @@ def _claude_json(system: str, prompt: str, max_tokens: int = 2200) -> "dict | No
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
+def _stats_pass(content: dict, lead: dict) -> dict:
+    """Generiert plausible Stats-Zahlen für die Counter-Sektion (Claude).
+    Setzt jahre_erfahrung, kunden_bedient, anz_bewertungen, bewertung_display
+    nur wenn nicht bereits vorhanden."""
+    # Alle vier Felder schon gesetzt? Nichts zu tun.
+    if all(content.get(k) for k in ("jahre_erfahrung", "kunden_bedient",
+                                    "anz_bewertungen", "bewertung_display")):
+        return content
+
+    name    = content.get("site_name") or lead.get("name", "")
+    branche = content.get("branche")   or lead.get("branche", "Handwerk")
+    stadt   = content.get("stadt")     or lead.get("stadt", "")
+    bewertung_raw = lead.get("bewertung") or content.get("bewertung") or ""
+
+    data = _claude_json(
+        "Du bist Business-Analyst für lokale Handwerks-/Dienstleistungsbetriebe. "
+        "Schätze realistische, glaubwürdige Zahlen. Antworte NUR mit JSON.",
+        f"Betrieb: {name}, Branche: {branche}, Stadt: {stadt}\n"
+        f"Bekannte Bewertung aus Daten: {bewertung_raw}\n\n"
+        "Liefere JSON mit genau diesen Feldern:\n"
+        "{\n"
+        '  "jahre_erfahrung": <int 5-25, passend zur Branche>,\n'
+        '  "kunden_bedient": <int 50-2000, realistisch für Branche und Betriebsgröße>,\n'
+        '  "anz_bewertungen": <int, nutze den echten Wert aus den Daten falls vorhanden, sonst schätze>,\n'
+        '  "bewertung_display": <str z.B. "4.8", nutze echten Wert falls vorhanden>\n'
+        "}", max_tokens=400) or {}
+
+    for k in ("jahre_erfahrung", "kunden_bedient", "anz_bewertungen"):
+        if not content.get(k) and k in data:
+            try:
+                content[k] = int(data[k])
+            except (TypeError, ValueError):
+                pass
+    if not content.get("bewertung_display") and data.get("bewertung_display"):
+        content["bewertung_display"] = str(data["bewertung_display"]).strip()
+    return content
+
+
+def _testimonials_pass(content: dict, branche: str, stadt: str) -> dict:
+    """Generiert 3-4 echte, branchenspezifische deutsche Kundenstimmen (Claude).
+    Schreibt content['bewertungen'] nur wenn leer/fehlend."""
+    if content.get("bewertungen"):
+        return content
+
+    name = content.get("site_name", "der Betrieb")
+
+    data = _claude_json(
+        "Du bist Texter für authentische deutsche Kundenbewertungen. "
+        "Keine Floskeln, keine KI-Sprache. Jede Bewertung klingt anders und echt. "
+        "Antworte NUR mit JSON.",
+        f"Betrieb: {name}, Branche: {branche}, Stadt: {stadt}\n\n"
+        "Schreibe 3-4 realistische deutsche Kundenstimmen. "
+        "Jeder Text (2-3 Sätze) muss konkret auf die Branche eingehen "
+        "(spezifische Tätigkeit, konkretes Detail, persönliche Note). "
+        "Namen: typisch deutsch, nur Vorname + Nachname-Initial (z.B. 'Thomas K.'). "
+        "Orte: verschiedene Orte aus der Region von " + (stadt or "Deutschland") + ".\n\n"
+        "JSON-Format:\n"
+        '{"bewertungen": [{"name": "Max M.", "ort": "München", "text": "…"}, …]}',
+        max_tokens=900) or {}
+
+    bewertungen = data.get("bewertungen")
+    if isinstance(bewertungen, list) and bewertungen:
+        content["bewertungen"] = [
+            {
+                "name": str(x.get("name", "")).strip(),
+                "ort":  str(x.get("ort",  "")).strip(),
+                "text": str(x.get("text", "")).strip(),
+            }
+            for x in bewertungen[:4]
+            if isinstance(x, dict) and x.get("text")
+        ]
+    return content
+
+
 def enrich(folder: "str | Path", lead: dict, say) -> dict:
     """Führt die 5-stufige Verbesserung durch. say(progress, text) meldet jeden
     Schritt. Gibt das finale content-dict zurück (bereits geschrieben)."""
@@ -141,22 +221,31 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     say(22, "Pass 2/7 · Texter: erweiterte, lead-genaue Inhalte…")
     texte = _claude_json(
         "Du bist Senior-Werbetexter (design-pro). Konkret, deutsch, vertrauenswürdig, "
-        "kein KI-Geschwurbel, keine leeren Floskeln. Antworte NUR mit JSON.",
+        "kein KI-Geschwurbel, keine leeren Floskeln. Jeder Text muss 100 % auf diesen "
+        "spezifischen Betrieb zugeschnitten sein — nichts Generisches. "
+        "Antworte NUR mit JSON.",
         f"Betrieb:\n{lead_info}\nPositionierung: {strat.get('positionierung','')}\n"
         f"Ton: {strat.get('ton','')}\n\n"
-        "Erzeuge JSON mit GENAU diesen Feldern (Texte auf den Betrieb zugeschnitten):\n"
+        "Erzeuge JSON mit GENAU diesen Feldern:\n"
         "{\n"
-        '  "headline": "kraftvolle Hero-Headline (max 8 Wörter)",\n'
-        '  "subline": "1 Nutzenversprechen-Satz",\n'
-        '  "ueber_titel": "Überschrift Über-uns",\n'
-        '  "ueber_text": "3-4 Sätze, echt & vertrauenswürdig",\n'
-        '  "leistungen": [{"titel":"…","text":"1-2 Sätze konkret"}, … 5-6 Stück],\n'
-        '  "usps": ["kurzer Vorteil", … 3-4 Stück],\n'
-        '  "faq": [{"frage":"…","antwort":"…"}, … 3-4 Stück],\n'
+        '  "headline": "kraftvolle Hero-Headline (max 8 Wörter, Nutzen sofort klar)",\n'
+        '  "subline": "1 konkretes Nutzenversprechen, kein Allgemeinplatz",\n'
+        '  "ueber_titel": "Überschrift Über-uns-Sektion",\n'
+        '  "ueber_text": "4-5 Sätze, persönlich, echt & vertrauenswürdig — Gründungsjahr oder Inhaber erwähnen",\n'
+        '  "leistungen": [{"titel":"…","text":"2-3 konkrete Sätze zur Leistung"}, … GENAU 6 Stück],\n'
+        '  "team": [{"name":"Thomas M.","rolle":"Geschäftsführer"}, … 2-3 Teammitglieder],\n'
+        '  "process_steps": [\n'
+        '    {"schritt":"1","titel":"…","text":"1-2 Sätze wie Schritt 1 abläuft"},\n'
+        '    {"schritt":"2","titel":"…","text":"…"},\n'
+        '    {"schritt":"3","titel":"…","text":"…"}\n'
+        '  ],\n'
+        '  "usps": ["spezifischer Vorteil 8-12 Wörter", … GENAU 4 Stück — nicht generisch],\n'
+        '  "faq": [{"frage":"…","antwort":"…"}, … 4-5 branchenspezifische Fragen],\n'
         '  "kontakt_text": "1 einladender Satz für die Kontakt-Sektion",\n'
         '  "cta_text": "konkreter Call-to-Action",\n'
-        '  "seo_title": "Titel-Tag", "seo_desc": "Meta-Description max 150 Z."\n'
-        "}", max_tokens=2600) or {}
+        '  "seo_title": "Titel-Tag (Branche + Stadt + Markenname)", '
+        '"seo_desc": "Meta-Description max 150 Z."\n'
+        "}", max_tokens=3200) or {}
 
     content.update({"site_name": name, "branche": branche, "stadt": stadt, "akzent": akzent})
     for k in ("headline", "subline", "ueber_titel", "ueber_text", "cta_text",
@@ -173,9 +262,25 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     if isinstance(texte.get("faq"), list):
         content["faq"] = [{"frage": str(x.get("frage", "")).strip(),
                            "antwort": str(x.get("antwort", "")).strip()}
-                          for x in texte["faq"][:4]
+                          for x in texte["faq"][:5]
                           if isinstance(x, dict) and x.get("frage")]
+    if isinstance(texte.get("team"), list) and texte["team"]:
+        content["team"] = [{"name": str(x.get("name", "")).strip(),
+                            "rolle": str(x.get("rolle", "")).strip()}
+                           for x in texte["team"][:3]
+                           if isinstance(x, dict) and x.get("name")]
+    if isinstance(texte.get("process_steps"), list) and texte["process_steps"]:
+        content["process_steps"] = [{"schritt": str(x.get("schritt", "")).strip(),
+                                     "titel":   str(x.get("titel",   "")).strip(),
+                                     "text":    str(x.get("text",    "")).strip()}
+                                    for x in texte["process_steps"][:3]
+                                    if isinstance(x, dict) and x.get("titel")]
     content.setdefault("claim", strat.get("claim", ""))
+    _write_content(folder, content)
+
+    # Stats & Testimonials --------------------------------------------------
+    content = _stats_pass(content, lead)
+    content = _testimonials_pass(content, branche, stadt)
     _write_content(folder, content)
 
     # 3/7 — UI-UX-Pro-Max: Conversion, Hierarchie, Vertrauen ----------------
@@ -196,8 +301,14 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
             _write_content(folder, content)
 
     # 5/7 — Design-Pro: Premium-Layout + Effekte/Animationen ---------------
-    say(80, "Pass 5/7 · Design-Pro: Premium-Layout, Effekte & Animationen…")
-    _install_premium_template(folder)
+    if _SITE_SKILLS_OK:
+        variant = site_skills.pick_variant(branche, content)
+        say(80, f"Pass 5/7 · Design-Pro: Variante '{variant}' für {branche}…")
+        site_skills.install_variant(folder, variant)
+        content["design_variant"] = variant
+    else:
+        say(80, "Pass 5/7 · Design-Pro: Premium-Layout, Effekte & Animationen…")
+        _install_premium_template(folder)
 
     # 6/7 — Taste: Feinschliff & Microcopy ---------------------------------
     say(88, "Pass 6/7 · Taste: Microcopy & Feinschliff…")

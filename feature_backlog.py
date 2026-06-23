@@ -33,6 +33,23 @@ _GENERIC = [
     {"key": "sticky_cta", "label": "Mobiler Sticky-CTA",
      "spec": "Füge mobil einen dauerhaft sichtbaren 'Anrufen'-Button (tel:) am unteren "
              "Rand hinzu (position:fixed, nur <760px), ohne Desktop zu stören."},
+    {"key": "stats_counter", "label": "Stats-Counter mit Animation",
+     "spec": "Füge eine Stats-Sektion mit 3 animierten Zählern hinzu: Jahre Erfahrung, Kunden bedient, Bewertungen. "
+             "Die Zähler (class='count-up', data-target=ZAHL) laufen hoch wenn der Nutzer scrollt. "
+             "Daten in content.json['jahre_erfahrung'], content.json['kunden_bedient']. JS-Datei counter_up.js "
+             "muss im Template eingebunden sein: "
+             "<script src=\"{% static 'js/counter_up.js' %}\"></script>"},
+    {"key": "testimonials", "label": "Kundenstimmen-Sektion",
+     "spec": "Füge eine Bewertungs-/Kundenstimmen-Sektion hinzu (content.json['bewertungen'] = [{name, ort, text}]). "
+             "3-4 glaubwürdige, branchenspezifische Kundenstimmen (keine leeren Floskeln). "
+             "Grid-Layout, je Karte: Name, Ort, Text, 5 Sterne. Seriös, kein Slider (Zugänglichkeit)."},
+    {"key": "process_steps", "label": "Ablauf in 3 Schritten",
+     "spec": "Füge eine 'So funktioniert es'-Sektion (3 Schritte) hinzu. Schritt-Nummer als large accent-farbene Zahl. "
+             "content.json['process_steps'] = [{schritt:'1', titel:'Anfrage', text:'...'}]. Konvertierungsstark."},
+    {"key": "team_sektion", "label": "Team-Vorstellung",
+     "spec": "Füge eine Team-/Über-uns-Sektion mit Mitarbeiter-Karten hinzu. "
+             "content.json['team'] = [{name:'...', rolle:'...'}]. Fotos optional (Platzhalter-Monogramm wenn kein Bild). "
+             "Menschlich, vertrauenswürdig. Max 4 Personen."},
 ]
 
 # Branchen-spezifische Features (Reihenfolge = Priorität).
@@ -98,6 +115,97 @@ _BACKLOG = {
         {"key": "team", "label": "Ärzte-/Team-Vorstellung",
          "spec": "Team-Sektion mit Name + Qualifikation (content.json['team'])."},
     ],
+    "heizung": [
+        {"key": "leistungs_kacheln", "label": "Heizsystem-Kacheln",
+         "spec": "Strukturiere die Leistungen als Kacheln (Gas, Wärme, Solar, Wartung) "
+                 "mit Icon/Strich und kurzem Nutzen-Text."},
+        {"key": "notdienst", "label": "Notdienst-Banner",
+         "spec": "Füge ein dezentes Notdienst-Banner hinzu ('Heizung ausgefallen? 24h erreichbar') "
+                 "mit klickbarer Telefonnummer."},
+        {"key": "foerderung", "label": "Förderhinweis-Box (BAFA/KfW)",
+         "spec": "Info-Box zu aktuellen Heizungs-Förderungen (BAFA, KfW) mit kurzem Vertrauens-Text "
+                 "und Link zur Förderberatung (content.json['foerderung_hinweis'])."},
+    ],
+    "maler": [
+        {"key": "referenzen", "label": "Referenz-Galerie (Vorher/Nachher)",
+         "spec": "Füge eine Referenz-Galerie als Vorher/Nachher-Grid hinzu "
+                 "(content.json['referenzen'] = [{titel, ort, vorher_bild, nachher_bild}]) "
+                 "mit sauberem Grid-Layout."},
+        {"key": "farbberatung_cta", "label": "Farbberatungs-CTA",
+         "spec": "Füge einen auffälligen CTA-Block für kostenlose Farbberatung hinzu "
+                 "('Kostenlose Farbberatung anfordern') mit Telefon und Kontaktformular-Link."},
+        {"key": "leistungs_kacheln", "label": "Leistungskacheln",
+         "spec": "Strukturiere die Leistungen als Kacheln (Innenarbeiten, Außenarbeiten, Tapezieren) "
+                 "mit Icon und kurzem Nutzen-Text."},
+    ],
+    "reinigung": [
+        {"key": "service_pakete", "label": "Service-Pakete-Tabelle",
+         "spec": "Füge eine Vergleichstabelle der Service-Pakete hinzu (Büroreinigung, Privatreinigung, "
+                 "Fensterreinigung) — content.json['service_pakete'] = [{name, leistungen:[...], preis_ab}]."},
+        {"key": "sofort_anfrage", "label": "Sofort-Anfrage-Formular",
+         "spec": "Füge ein schlankes Sofort-Anfrage-Formular hinzu (Art der Reinigung, Fläche in qm, "
+                 "Wunschtermin, Kontakt) — per POST oder mailto-Fallback."},
+        {"key": "team", "label": "Team-Vorstellung",
+         "spec": "Team-Sektion mit Name + Funktion (content.json['team'] = [{name, rolle}]) "
+                 "mit Karten und optionalem Monogramm-Platzhalter."},
+    ],
+    "schreiner": [
+        {"key": "portfolio", "label": "Portfolio-Galerie (Möbel/Einbauten)",
+         "spec": "Füge eine Portfolio-Galerie mit Fotos individueller Möbelstücke und Einbauten hinzu "
+                 "(content.json['portfolio'] = [{titel, beschreibung, bild}]) als sauberes Grid."},
+        {"key": "material_auswahl", "label": "Material-Auswahl-Box",
+         "spec": "Füge eine Info-Box mit verfügbaren Holzarten und Materialien hinzu "
+                 "(content.json['materialien'] = [{name, beschreibung}]) — ansprechend, vertrauensbildend."},
+        {"key": "aufmass_cta", "label": "Aufmaß-Termin CTA",
+         "spec": "Füge einen klaren CTA-Block für einen kostenlosen Aufmaß-Termin hinzu "
+                 "('Kostenloses Aufmaß vereinbaren') mit Telefon und kurzer Terminanfrage."},
+    ],
+    "physiotherapeut": [
+        {"key": "behandlungsangebot", "label": "Behandlungsangebot-Grid",
+         "spec": "Strukturiere das Behandlungsangebot als Grid-Kacheln (Massage, KG, MLD, Sportphysio usw.) "
+                 "(content.json['behandlungen'] = [{name, beschreibung}]) mit Icon und kurzem Text."},
+        {"key": "online_termin", "label": "Online-Terminbuchung CTA",
+         "spec": "Füge einen auffälligen CTA-Block für Online-Terminbuchung hinzu "
+                 "('Termin online buchen') mit Link/Button und optionaler Telefonnummer."},
+        {"key": "team", "label": "Therapeuten-Sektion",
+         "spec": "Team-Sektion mit Name, Qualifikation und Schwerpunkten "
+                 "(content.json['team'] = [{name, rolle, schwerpunkte}]) mit Karten."},
+    ],
+    "steuerberater": [
+        {"key": "leistungsuebersicht", "label": "Leistungsübersicht",
+         "spec": "Füge eine strukturierte Leistungsübersicht hinzu (Jahresabschluss, Lohnbuchhaltung, "
+                 "Steuerberatung, Unternehmensberatung) als Kacheln oder Tabelle "
+                 "(content.json['leistungen'] = [{name, beschreibung}])."},
+        {"key": "mandanten_stats", "label": "Mandanten-Zahlen Stats",
+         "spec": "Füge eine Stats-Sektion hinzu (Jahre Erfahrung, betreute Mandate, Mitarbeiter) "
+                 "(content.json['stats'] = [{zahl, einheit, beschreibung}]) — seriös, vertrauensstärkend."},
+        {"key": "termin_buchung", "label": "Termin-Buchung",
+         "spec": "Füge einen Termin-Buchungs-CTA hinzu ('Erstgespräch vereinbaren') "
+                 "mit Kontaktformular oder Telefon — niedrigschwellig und professionell."},
+    ],
+    "rechtsanwalt": [
+        {"key": "rechtsgebiete", "label": "Rechtsgebiete-Kacheln",
+         "spec": "Strukturiere die Rechtsgebiete als Kacheln (Arbeitsrecht, Familienrecht, Strafrecht usw.) "
+                 "(content.json['rechtsgebiete'] = [{name, beschreibung}]) mit Icon und kurzem Text."},
+        {"key": "erstberatung_cta", "label": "Erstberatung-CTA",
+         "spec": "Füge einen prominenten CTA-Block für eine Erstberatung hinzu "
+                 "('Erstberatung vereinbaren') mit Telefon, E-Mail und kurzem Vertrauenstext."},
+        {"key": "team", "label": "Kanzlei-Team",
+         "spec": "Team-Sektion mit Name, Rechtsgebiet und Qualifikation "
+                 "(content.json['team'] = [{name, rolle, schwerpunkte}]) — seriös, professionell."},
+    ],
+    "zahnarzt": [
+        {"key": "behandlungsspektrum", "label": "Behandlungsspektrum-Grid",
+         "spec": "Strukturiere das Behandlungsspektrum als Grid-Kacheln (Prophylaxe, Zahnersatz, "
+                 "Implantate, Ästhetik usw.) (content.json['behandlungen'] = [{name, beschreibung}])."},
+        {"key": "angstpatienten", "label": "Angstpatienten-Sektion",
+         "spec": "Füge eine einfühlsame Sektion für Angstpatienten hinzu — kurzer Text, "
+                 "Beruhigung, Hinweis auf sanfte Behandlung und Betäubungsmöglichkeiten "
+                 "(content.json['angstpatienten_text'])."},
+        {"key": "online_termin", "label": "Online-Termin buchen",
+         "spec": "Füge einen auffälligen CTA-Block für Online-Terminbuchung hinzu "
+                 "('Termin online buchen') mit Link/Button und optionaler Telefonnummer."},
+    ],
 }
 
 # Mapping von Branchen-Stichwörtern auf Backlog-Schlüssel.
@@ -109,8 +217,18 @@ _ALIASES = {
     "restaurant": "restaurant", "gastro": "restaurant", "café": "restaurant",
     "cafe": "restaurant", "bäcker": "restaurant", "imbiss": "restaurant",
     "umzug": "umzug", "umzüge": "umzug", "transport": "umzug",
-    "arzt": "arzt", "praxis": "arzt", "zahnarzt": "arzt", "therapie": "arzt",
-    "physio": "arzt", "logopäd": "arzt", "heilprakt": "arzt",
+    "arzt": "arzt", "praxis": "arzt", "therapie": "arzt",
+    "logopäd": "arzt", "heilprakt": "arzt",
+    "heizung": "heizung", "klempner": "heizung", "sanitär": "heizung",
+    "maler": "maler", "streicher": "maler",
+    "reinigung": "reinigung", "reinig": "reinigung", "gebäude": "reinigung",
+    "schreiner": "schreiner", "tischler": "schreiner", "zimmerer": "schreiner",
+    "physiotherapeut": "physiotherapeut", "physio": "physiotherapeut",
+    "therapeut": "physiotherapeut",
+    "steuerberater": "steuerberater", "steuer": "steuerberater",
+    "buchhalter": "steuerberater",
+    "rechtsanwalt": "rechtsanwalt", "anwalt": "rechtsanwalt", "kanzlei": "rechtsanwalt",
+    "zahnarzt": "zahnarzt",
 }
 
 

@@ -139,6 +139,16 @@ def run(quiet: bool = False) -> bool:
             if not quiet:
                 print(f"\r  {YL}!{R}   Git  {GY}({e}){R}          ")
 
+    # ── Site-Skills (Design-Varianten + Counter-JS) ──────────────────────────
+    try:
+        import site_skills
+        from pathlib import Path as _Path
+        site_skills.ensure_base_skills(_Path(__file__).parent / "data" / "skills")
+        if not quiet:
+            print(f"  {CY}>{R}   Site-Skills bereit (5 Design-Varianten)      {G}OK{R}")
+    except Exception as _e:
+        _warn("Site-Skills", str(_e)[:80])
+
     # ── Python-Version ───────────────────────────────────────────────
     v = sys.version_info
     if v >= (3, 10):
