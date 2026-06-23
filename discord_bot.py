@@ -250,10 +250,16 @@ if _HAS_DISCORD:
     async def _send_startup_embed():
         """Postet beim Bot-Start eine Statusnachricht in den Kanal."""
         try:
-            ch = _bot.get_channel(_channel_id()) if _bot else None
+            cid = _channel_id()
+            ch  = _bot.get_channel(cid) if _bot else None
             if ch is None and _bot is not None:
-                ch = await _bot.fetch_channel(_channel_id())
+                try:
+                    ch = await _bot.fetch_channel(cid)
+                except Exception as fetch_err:
+                    logger.warn("Discord", f"Kanal {cid} nicht erreichbar: {fetch_err}")
+                    return
             if ch is None:
+                logger.warn("Discord", f"Kanal {cid} nicht gefunden — Startnachricht übersprungen")
                 return
             # Infos zusammenstellen
             from datetime import datetime as _dt
@@ -310,6 +316,9 @@ if _HAS_DISCORD:
 
         async def on_ready(self):
             logger.success("Discord", f"Bot online als {self.user} — Kanal {_channel_id()}")
+            # Kurz warten bis Guild-Cache vollständig geladen ist,
+            # sonst gibt get_channel() None zurück obwohl der Kanal existiert.
+            await asyncio.sleep(2)
             await _send_startup_embed()
 
     @tasks.loop(time=dtime(hour=_send_hour(), minute=0))

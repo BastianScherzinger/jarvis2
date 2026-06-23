@@ -82,24 +82,18 @@ def _install_deps() -> None:
 
 
 def _ensure_model(model: str) -> None:
-    """Lädt das Modell per 'ollama pull' falls noch nicht installiert (mit Nachfrage)."""
+    """Prüft ob das Modell in Ollama installiert ist — startet ohne Rückfrage."""
     try:
         import hardware
         if model in hardware.installed_models():
-            return
+            return   # bereits installiert
+        # Modell fehlt → hinweis, aber KEIN blockierender input()
+        print()
+        print(f"  {YL}[!]{R}  Modell '{model}' nicht in Ollama gefunden.")
+        print(f"  {GY}     Tipp: 'ollama pull {model}' im Terminal nachinstallieren.{R}")
+        print(f"  {GY}     JARVIS startet trotzdem — Evaluator nutzt lokalen Fallback.{R}")
     except Exception:
-        return
-    print()
-    print(f"  {YL}[!]{R}  Modell '{model}' ist noch nicht installiert.")
-    try:
-        ans = input(f"  {C}›{R}  Jetzt herunterladen? (j/N): ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        ans = ""
-    if ans in ("j", "ja", "y", "yes"):
-        print(f"  {C}[>]{R}  Lade {model} … (kann je nach Größe einige Minuten dauern)")
-        subprocess.run(["ollama", "pull", model], check=False)
-    else:
-        print(f"  {GY}     Übersprungen — bestehendes Modell wird genutzt.{R}")
+        pass   # Ollama offline → still
 
 
 def _boot_screen(cfg: dict) -> str:
