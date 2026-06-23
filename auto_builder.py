@@ -52,6 +52,11 @@ _state = {
 }
 _lock = threading.Lock()
 
+# Ordner, bei denen in dieser Session kein Makeover-Fortschritt erzielt wurde.
+# Wird täglich um Mitternacht zurückgesetzt. Verhindert Endlosschleifen wenn
+# z.B. die claude-CLI fehlt oder alle Stufen schon erledigt sind.
+_makeover_stuck: set = set()
+
 # Persistenter An/Aus-Schalter — überlebt einen Programm-Neustart. Steht hier "running":
 # true, nimmt der Night-Builder beim nächsten App-Start automatisch wieder auf (genau da
 # weiter, denn der Pro-Seite-Fortschritt liegt in content.json["makeover_stages"]).
@@ -215,13 +220,15 @@ def _pick_next_lead():
 def _pick_improve_target():
     """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst
     (danach älteste 'updated'). Seiten, die alle 7 Stufen durch haben, werden
-    übersprungen — sonst würde die Phase 2 fertige Seiten endlos neu deployen."""
+    übersprungen. Seiten, bei denen in dieser Session kein Fortschritt möglich war
+    (_makeover_stuck), werden bis zum nächsten Tag ausgelassen."""
     try:
         import db_websites
         import overnight_makeover
         sites = [w for w in db_websites.get_all()
                  if (w.get("folder") and os.path.isdir(w["folder"])
-                     and (w.get("status") == "done"))]
+                     and (w.get("status") == "done")
+                     and w["folder"] not in _makeover_stuck)]
         if not sites:
             return None
 
@@ -396,20 +403,51 @@ def _improve_existing_once() -> bool:
     """Holt bei EINER bestehenden Seite die offenen Makeover-Stufen nach (Resume).
     Ist die Seite danach komplett (alle 7 Stufen durch), postet die Makeover-Pipeline
     sie automatisch zur Discord-Freigabe. True, wenn eine Seite mit offenen Stufen
-    bearbeitet wurde; False, wenn alle Seiten bereits fertig makeovert sind."""
+    bearbeitet wurde; False, wenn alle Seiten bereits fertig makeovert sind.
+
+    Kein Fortschritt nach dem Lauf (gleiche Anzahl offener Stufen) → Seite wird in
+    _makeover_stuck eingetragen und heute nicht mehr angefasst (verhindert Endlosschleife
+    z.B. wenn die claude-CLI fehlt oder ein Render fehlschlug)."""
     import website_builder
+    import overnight_makeover
     tgt = _pick_improve_target()
     if not tgt:
         return False
     name   = tgt.get("name") or "Seite"
     folder = tgt["folder"]
-    _set(mode="improve", current=name, phase="Makeover-Stufen nachholen…")
-    logger.info("AutoBuilder", f"Makeover (Resume): {name}")
+
+    open_before = 0
+    try:
+        open_before = overnight_makeover.open_stages(folder)
+    except Exception:
+        pass
+
+    _set(mode="improve", current=name,
+         phase=f"Makeover ({7 - open_before + 1}/7)… {name}")
+    logger.info("AutoBuilder", f"Makeover: {name} ({open_before} Stufen offen)")
     try:
         mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
         _wait_job(mj, timeout=_MAKEOVER_WAIT)
     except Exception as e:
         logger.warn("AutoBuilder", f"Makeover fehlgeschlagen: {type(e).__name__}")
+        _makeover_stuck.add(folder)
+        return True
+
+    # Fortschritts-Check: hat der Lauf mindestens eine Stufe erledigt?
+    try:
+        open_after = overnight_makeover.open_stages(folder)
+        if open_after >= open_before:
+            # Keine Verbesserung — heute nicht mehr versuchen
+            logger.warn("AutoBuilder",
+                        f"Kein Makeover-Fortschritt für '{name}' — überspringe heute")
+            _makeover_stuck.add(folder)
+        else:
+            logger.success("AutoBuilder",
+                           f"Makeover: {name} — {open_before - open_after} Stufe(n) erledigt, "
+                           f"{open_after} offen")
+    except Exception:
+        pass
+
     return True
 
 
@@ -419,6 +457,7 @@ def _loop() -> None:
         with _lock:
             if _state["day"] != today:               # neuer Tag → Zähler/Phase zurück
                 _state["day"] = today
+                _makeover_stuck.clear()              # täglich zurücksetzen
                 logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
 
         # ── Phase 1: bis Tageslimit neue Seiten bauen ────────────────────────

@@ -160,31 +160,57 @@ if _HAS_DISCORD:
     def _embed(r: dict) -> "discord.Embed":
         st = r.get("status", rq.PENDING)
         needed = int(os.environ.get("DISCORD_APPROVALS_NEEDED", "2") or "2")
+        link   = r.get("link") or ""
+
+        # Titel: Name + Live-Link direkt anklickbar
+        title_url = link if link.startswith("http") else None
         e = discord.Embed(
-            title=f"🌐 {r.get('name','Webseite')}",
-            description=(r.get("link") or "*(noch kein Live-Link)*"),
+            title=f"🌐 {r.get('name','Webseite')} — Makeover fertig",
+            url=title_url,
             color=_STATUS_COLOR.get(st, 0x4a6fa5),
         )
+
+        # Zeile 1: Betrieb + Link
         meta = " · ".join(x for x in [r.get("branche", ""), r.get("stadt", "")] if x)
-        if meta:
-            e.add_field(name="Betrieb", value=meta, inline=True)
+        link_field = f"[{link}]({link})" if link.startswith("http") else (link or "—")
+        e.add_field(name="🏢 Betrieb", value=meta or "—", inline=True)
+        e.add_field(name="🔗 Live-Link", value=link_field, inline=True)
+
+        # Zeile 2: Empfänger
         rec = r.get("recipients") or []
         if rec:
-            empf = f"📋 {len(rec)} Empfänger" + (f" (z.B. {rec[0]})" if rec else "")
+            empf = f"📋 {len(rec)} Empfänger" + (f"\n`{rec[0]}`" if rec else "")
         else:
-            empf = r.get("email") or "⚠️ noch keine — wird vor Versand gesucht"
-        e.add_field(name="Empfänger", value=empf, inline=True)
+            empf = f"`{r.get('email')}`" if r.get("email") else "⚠️ wird vor Versand gesucht"
+        e.add_field(name="📬 Empfänger", value=empf, inline=False)
+
+        # E-Mail-Betreff (wenn vorhanden)
+        subj = (r.get("email_subject") or "").strip()
+        if subj:
+            e.add_field(name="✉️ Betreff", value=f"**{subj[:150]}**", inline=False)
+
+        # E-Mail-Text-Vorschau — der eigentliche Angebotstext (max. 900 Zeichen)
+        email_txt = (r.get("email_text") or "").strip()
+        if email_txt:
+            preview = email_txt[:900] + ("…" if len(email_txt) > 900 else "")
+            e.add_field(name="📝 Angebots-Mail (Vorschau)", value=f"```{preview}```",
+                        inline=False)
+
+        # Status + Stimmen
         e.add_field(
-            name="Status",
+            name="🗳️ Abstimmung",
             value=f"{_STATUS_LABEL.get(st, st)}  ·  👍 {len(r.get('votes_up', []))}/{needed}"
                   f"  👎 {len(r.get('votes_down', []))}",
             inline=False)
+
         if st == rq.APPROVED:
-            e.set_footer(text=f"Versand heute um {_send_hour()}:00 an den echten Kunden")
+            e.set_footer(text=f"✅ Freigegeben — Versand heute um {_send_hour()}:00 an den Kunden.")
         elif st == rq.REJECTED:
-            e.set_footer(text="Ein 👎 ist ein Veto — diese Seite wird nicht versendet.")
+            e.set_footer(text="❌ Ein 👎 ist ein Veto — diese Seite wird nicht versendet.")
+        elif st == rq.SENT:
+            e.set_footer(text="📨 Versendet.")
         else:
-            e.set_footer(text=f"{needed}× 👍 (ohne 👎) gibt die Seite frei.")
+            e.set_footer(text=f"👍 {needed}× Daumen hoch (ohne 👎) gibt die Seite frei · Versand um {_send_hour()}:00")
         return e
 
     class VoteButton(discord.ui.DynamicItem[discord.ui.Button],
@@ -337,13 +363,23 @@ if _HAS_DISCORD:
 
 def submit_for_review(name: str, stadt: str, branche: str, link: str,
                       email: str = "", ansprechpartner: str = "", folder: str = "",
-                      recipients: "list | None" = None) -> "dict | None":
+                      recipients: "list | None" = None,
+                      email_text: str = "", email_subject: str = "") -> "dict | None":
     """Legt einen Review an und postet ihn (falls der Bot läuft) in den Discord-Kanal.
     Gibt den Review zurück, oder None wenn der Bot nicht aktiv ist.
-    recipients: optionale Empfängerliste (Custom-Modus, 11+)."""
+    recipients: optionale Empfängerliste (Custom-Modus, 11+).
+    email_text: Plaintext der Angebots-Mail (wird im Embed angezeigt).
+    email_subject: Betreffzeile der Angebots-Mail."""
     if not enabled() or not _started or _loop is None:
         return None
-    review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder, recipients)
+    review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder, recipients,
+                    email_text=email_text)
+    if email_subject:
+        try:
+            rq.update(review["id"], email_subject=email_subject)
+            review["email_subject"] = email_subject
+        except Exception:
+            pass
     try:
         asyncio.run_coroutine_threadsafe(_post(review), _loop)
     except Exception as e:

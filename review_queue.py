@@ -50,11 +50,13 @@ def _needed() -> int:
 
 
 def add(name: str, stadt: str, branche: str, link: str, email: str = "",
-        ansprechpartner: str = "", folder: str = "", recipients: "list | None" = None) -> dict:
+        ansprechpartner: str = "", folder: str = "", recipients: "list | None" = None,
+        email_text: str = "") -> dict:
     """Legt einen neuen Review (Status pending) an und gibt ihn zurück.
 
     recipients: optionale Empfängerliste (Custom-Modus, 11+). Ist sie gesetzt, geht das
-    Angebot nach Freigabe an JEDE dieser Adressen; sonst an die Einzeladresse `email`."""
+    Angebot nach Freigabe an JEDE dieser Adressen; sonst an die Einzeladresse `email`.
+    email_text: Plaintext-Version der Angebots-Mail (für Discord-Vorschau)."""
     rid = uuid.uuid4().hex[:12]
     rec = [e.strip() for e in (recipients or []) if e and "@" in e]
     review = {
@@ -63,7 +65,7 @@ def add(name: str, stadt: str, branche: str, link: str, email: str = "",
         "folder": folder, "recipients": rec, "status": PENDING,
         "votes_up": [], "votes_down": [],
         "message_id": 0, "channel_id": 0, "ts": time.time(),
-        "sent_ts": 0.0, "note": "",
+        "sent_ts": 0.0, "note": "", "email_text": (email_text or ""),
     }
     with _lock:
         data = _load()

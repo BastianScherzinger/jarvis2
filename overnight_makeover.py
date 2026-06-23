@@ -329,16 +329,29 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
 
 def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     """Postet die fertige Seite zur Freigabe in Discord (1× 👍 = Mail, 1× 👎 = verwerfen).
-    Ist der Discord-Bot aus, geht eine Vorschau-Mail an die Fallback-Adresse."""
+    Ist der Discord-Bot aus, geht eine Vorschau-Mail an die Fallback-Adresse.
+    Die Plaintext-Version des Angebots-Mails wird mit zur Discord-Nachricht geschickt,
+    damit Bastian den Text direkt in der Abstimmung sehen und freigeben kann."""
     name    = meta.get("name", "")
     stadt   = meta.get("stadt", "")
     branche = meta.get("branche", "")
     email   = meta.get("email", "")
     ap      = meta.get("ansprechpartner", "")
+
+    # Angebots-Mail-Text vorbauen (für Discord-Vorschau + Fallback-Mail)
+    betreff = text = html_mail = ""
+    try:
+        import offer_mail
+        betreff, text, html_mail = offer_mail.build(name, live_url, branche, stadt, ap)
+    except Exception:
+        pass
+
     try:
         import discord_bot
         if discord_bot.enabled():
-            r = discord_bot.submit_for_review(name, stadt, branche, live_url, email, ap, str(folder))
+            r = discord_bot.submit_for_review(
+                name, stadt, branche, live_url, email, ap, str(folder),
+                email_text=text, email_subject=betreff)
             if r:
                 logger.info("Makeover", f"Zur Discord-Freigabe gepostet: {name}")
                 return {"review": True}
@@ -348,10 +361,13 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     # Fallback: Vorschau-Mail an Bastian
     try:
         import mailer
-        import offer_mail
         to = os.environ.get("JARVIS_FALLBACK_EMAIL", "bastian.scherzinger05@gmail.com")
-        betreff, text, html = offer_mail.build(name, live_url, branche, stadt, ap)
-        mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
+        if betreff and text:
+            mailer.send_email(to, betreff, text, html=html_mail, bypass_redirect=True)
+        else:
+            import offer_mail
+            b, t, h = offer_mail.build(name, live_url, branche, stadt, ap)
+            mailer.send_email(to, b, t, html=h, bypass_redirect=True)
         logger.info("Makeover", f"Vorschau-Mail an {to}: {name}")
     except Exception as e:
         logger.warn("Makeover", f"Vorschau-Mail fehlgeschlagen: {type(e).__name__}")
