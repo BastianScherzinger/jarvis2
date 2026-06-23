@@ -21,7 +21,12 @@ import logger
 
 _BASE        = Path(__file__).parent
 _UPLOAD_BASE = _BASE / "workspace" / "custom_uploads"
-_BASTIAN     = "bastian.scherzinger05@gmail.com"
+
+
+def _fallback_email() -> str:
+    """Fallback-Empfänger für Vorschau-Mails wenn der Discord-Bot nicht läuft.
+    Über CUSTOM_BUILD_FALLBACK_EMAIL in .env überschreibbar."""
+    return os.environ.get("CUSTOM_BUILD_FALLBACK_EMAIL", "bastian.scherzinger05@gmail.com")
 
 _jobs: dict = {}                 # job_id → {phase, name, recipients, review_id, ...}
 _lock = threading.Lock()
@@ -166,7 +171,7 @@ def _watch(job_id: str, lead: dict, recipients: list) -> None:
             import mailer
             import offer_mail
             betreff, text, html = offer_mail.build(name, link, branche, stadt, ap)
-            mailer.send_email(_BASTIAN, betreff, text, html=html, bypass_redirect=True)
+            mailer.send_email(_fallback_email(), betreff, text, html=html, bypass_redirect=True)
         except Exception:
             pass
 

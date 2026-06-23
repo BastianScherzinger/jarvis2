@@ -19,6 +19,7 @@ import logger
 _stop_event        = threading.Event()
 _active            = False
 _evaluator_started = False   # läuft der Evaluator (via Scraper ODER standalone)?
+_eval_lock         = threading.Lock()   # schützt _evaluator_started gegen Race Condition
 
 # SSE-Fan-out: jeder verbundene Client bekommt seine EIGENE Queue. Eine einzige
 # geteilte Queue würde Events bei mehreren Tabs auf die Clients aufteilen
@@ -67,9 +68,10 @@ def _warmup_model() -> None:
 def _spawn_evaluator() -> None:
     """Startet Warmup + Evaluator-Threads. Idempotent (via _evaluator_started)."""
     global _evaluator_started
-    if _evaluator_started:
-        return
-    _evaluator_started = True
+    with _eval_lock:
+        if _evaluator_started:
+            return
+        _evaluator_started = True
     threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
     db_raw.init_db()
     db_raw.reset_stale()
