@@ -455,13 +455,22 @@ def generate_image(
         web_url = f"/workspace/media/images/{rel.as_posix()}"
     except ValueError:
         web_url = ""
-    return {
+    res = {
         "path":    str(out),
         "web_url": web_url,
         "model":   m["name"],
         "prompt":  prompt,
         "elapsed": round(time.time() - t0, 1),
     }
+    try:
+        import logger as _lg
+        _lg.activity("MediaEngine", "Bild generiert",
+                     f"{m['name']} · {prompt[:60]}", "🖼", "image")
+        import cost_tracker as _ct
+        _ct.track_compute(res["elapsed"], hw.get("device") != "cpu" if "hw" in dir() else False, "image_gen")
+    except Exception:
+        pass
+    return res
 
 
 def generate_video(
@@ -692,7 +701,7 @@ def generate_video_higgsfield(
     out = WORKSPACE_VIDEOS / f"higgsfield_{ts}.mp4"
     out.write_bytes(video_bytes)
 
-    return {
+    hf_res = {
         "path":    str(out),
         "web_url": f"/workspace/media/videos/{out.name}",
         "model":   HIGGSFIELD_MODELS.get(model, {}).get("name", model),
@@ -700,6 +709,16 @@ def generate_video_higgsfield(
         "gen_id":  gen_id,
         "elapsed": round(time.time() - t0, 1),
     }
+    try:
+        import logger as _lg
+        _lg.activity("Higgsfield", "Video generiert",
+                     f"{hf_res['model']} · {prompt[:60]}", "🎬", "video")
+        credits = HIGGSFIELD_MODELS.get(model, {}).get("credits", 3)
+        import cost_tracker as _ct
+        _ct.track_higgsfield(credits, "video_gen")
+    except Exception:
+        pass
+    return hf_res
 
 
 def _hf_id() -> str:

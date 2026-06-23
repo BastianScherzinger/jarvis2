@@ -794,7 +794,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'custom', 'claude'];
+const _PAGES = ['home', 'leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'custom', 'claude', 'costs'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -811,6 +811,10 @@ function showPage(name){
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
   if(name === 'websites' && typeof initWebsites === 'function') initWebsites();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
+  // Stop costs polling when leaving that tab
+  if(name !== 'costs') _stopCostsPoll();
+  if(name === 'home')  loadHome();
+  if(name === 'costs') { loadCosts(); _startCostsPoll(); }
 }
 
 function _initPageFromHash(){
@@ -1385,3 +1389,273 @@ function clearLogView() {
   if (el) el.innerHTML = '';
   _logLastTs = '';
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   HOME TAB
+   ════════════════════════════════════════════════════════════════════════════ */
+
+async function loadHome() {
+  try {
+    const [statsRes, actRes] = await Promise.all([
+      fetch('/api/home/stats').then(r => r.json()),
+      fetch('/api/activity/recent?limit=20').then(r => r.json()),
+    ]);
+    _renderHomeStats(statsRes);
+    _renderHomeGrid(statsRes.sites || []);
+    _renderHomeActivity(actRes.activities || []);
+  } catch(e) {
+    console.warn('[Home] Ladefehler:', e);
+  }
+}
+
+function _renderHomeStats(d) {
+  const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+  set('hstat-total',  d.total   ?? 0);
+  set('hstat-live',   d.live    ?? 0);
+  set('hstat-build',  d.building ?? 0);
+  set('hstat-errors', d.errors  ?? 0);
+}
+
+function _renderHomeGrid(sites) {
+  const grid  = document.getElementById('home-grid');
+  const empty = document.getElementById('home-empty');
+  if (!grid) return;
+
+  if (!sites.length) {
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  const statusLabels = {live:'Online',building:'Wird gebaut',error:'Fehler',pending:'Ausstehend',done:'Fertig'};
+  const brancheIcons = {'Dachdecker':'🏠','Maler':'🎨','Elektriker':'⚡','Klempner':'🔧','Zahnarzt':'🦷','Friseur':'✂️','Restaurant':'🍽️','default':'🌐'};
+
+  const cards = sites.map(s => {
+    const icon = brancheIcons[s.branche] || brancheIcons.default;
+    const statusCls = s.live ? 'live' : (s.status || 'unknown').toLowerCase();
+    const statusLbl = s.live ? 'Online' : (statusLabels[s.status] || s.status || 'Unbekannt');
+    const prog      = Math.min(100, Math.max(0, s.progress || 0));
+    const thumb     = s.thumbnail
+      ? `<img class="site-thumb" src="${_e(s.thumbnail)}" alt="${_e(s.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        + `<div class="site-thumb-placeholder" style="display:none">${icon}</div>`
+      : `<div class="site-thumb-placeholder">${icon}</div>`;
+    const liveBtnAttr = s.live_url ? `href="${_e(s.live_url)}" target="_blank"` : 'disabled';
+    const gitBtnAttr  = s.repo_url ? `href="${_e(s.repo_url)}" target="_blank"` : 'disabled';
+    const created = s.created ? new Date(s.created).toLocaleDateString('de-DE') : '';
+    return `<div class="site-card">
+      ${thumb}
+      <div class="site-body">
+        <div class="site-name">${_e(s.name)}</div>
+        <div class="site-meta">
+          ${s.branche ? `<span class="site-branche">${_e(s.branche)}</span>` : ''}
+          ${s.stadt   ? `<span class="site-stadt">📍 ${_e(s.stadt)}</span>` : ''}
+        </div>
+        <div class="site-status ${statusCls}">${statusLbl}</div>
+        ${s.status === 'building' ? `<div class="site-progress-bar"><div class="site-progress-fill" style="width:${prog}%"></div></div>` : ''}
+        ${created ? `<div style="font-size:10px;color:var(--tx3)">${created}</div>` : ''}
+        <div class="site-actions">
+          <a class="site-btn live-btn" ${liveBtnAttr}>🌐 Live</a>
+          <a class="site-btn" ${gitBtnAttr}>⎔ GitHub</a>
+        </div>
+      </div>
+    </div>`;
+  });
+  grid.innerHTML = cards.join('');
+}
+
+function _renderHomeActivity(acts) {
+  const el = document.getElementById('home-act-list');
+  if (!el) return;
+  if (!acts.length) { el.innerHTML = '<div class="home-act-empty">Noch keine Aktivitäten.</div>'; return; }
+  el.innerHTML = [...acts].reverse().map(a =>
+    `<div class="act-item">
+      <span class="act-icon">${_e(a.icon||'⚡')}</span>
+      <div class="act-body">
+        <div class="act-action">${_e(a.action)}</div>
+        ${a.detail ? `<div class="act-detail">${_e(a.detail)}</div>` : ''}
+      </div>
+      <div class="act-meta">
+        <span class="act-agent">${_e(a.agent)}</span>
+        <span class="act-ts">${_e(a.ts)}</span>
+      </div>
+    </div>`
+  ).join('');
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   KOSTEN TAB
+   ════════════════════════════════════════════════════════════════════════════ */
+
+let _costsChart       = null;
+let _costsActFilter   = '';
+let _costsActPollId   = null;
+let _costsAllActs     = [];
+
+async function loadCosts() {
+  try {
+    const [todayRes, histRes, actRes] = await Promise.all([
+      fetch('/api/costs/today').then(r => r.json()),
+      fetch('/api/costs/history?days=14').then(r => r.json()),
+      fetch('/api/activity/recent?limit=80').then(r => r.json()),
+    ]);
+    _renderCostsSummary(todayRes.summary || {});
+    _renderCostsChart(histRes.history || []);
+    _renderCostsSiteList(todayRes.per_site || []);
+    _costsAllActs = actRes.activities || [];
+    _renderCostsActLog(_costsAllActs, _costsActFilter);
+  } catch(e) {
+    console.warn('[Costs] Ladefehler:', e);
+  }
+}
+
+function _fmt_eur(v) {
+  return (parseFloat(v) || 0).toLocaleString('de-DE', {minimumFractionDigits:2,maximumFractionDigits:4}) + ' €';
+}
+function _fmt_k(v) {
+  const n = parseInt(v) || 0;
+  return n >= 1000 ? (n/1000).toFixed(1) + ' k' : String(n);
+}
+
+function _renderCostsSummary(s) {
+  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('cst-total',  _fmt_eur(s.total_eur  || 0));
+  set('cst-api',    _fmt_eur(s.api_eur    || 0));
+  set('cst-tokens', _fmt_k((s.tokens_in||0) + (s.tokens_out||0)));
+  set('cst-hf',     _fmt_eur(s.hf_eur     || 0));
+  set('cst-power',  _fmt_eur(s.power_eur  || 0));
+}
+
+function _renderCostsChart(history) {
+  const ctx = document.getElementById('costs-chart');
+  if (!ctx) return;
+  if (!window.Chart) return;
+  const labels = history.map(h => {
+    const d = new Date(h.date);
+    return d.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
+  });
+  const apiData   = history.map(h => parseFloat(h.api_eur)   || 0);
+  const powerData = history.map(h => parseFloat(h.power_eur) || 0);
+  const hfData    = history.map(h => parseFloat(h.hf_eur)    || 0);
+
+  if (_costsChart) { _costsChart.destroy(); _costsChart = null; }
+  _costsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Claude API',
+          data: apiData, backgroundColor: 'rgba(0,232,122,.55)', borderColor: 'rgba(0,232,122,.8)',
+          borderWidth: 1, borderRadius: 4,
+        },
+        {
+          label: 'Higgsfield',
+          data: hfData, backgroundColor: 'rgba(180,120,255,.45)', borderColor: 'rgba(180,120,255,.7)',
+          borderWidth: 1, borderRadius: 4,
+        },
+        {
+          label: 'Strom',
+          data: powerData, backgroundColor: 'rgba(255,59,78,.35)', borderColor: 'rgba(255,59,78,.6)',
+          borderWidth: 1, borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#c4d4e4', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)} €`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks:  { color: '#7a9ab5', font: { size: 10 } },
+          grid:   { color: 'rgba(255,255,255,.04)' },
+        },
+        y: {
+          stacked: true, beginAtZero: true,
+          ticks:  { color: '#7a9ab5', font: { size: 10 },
+                    callback: v => v.toFixed(3) + ' €' },
+          grid:   { color: 'rgba(255,255,255,.06)' },
+        },
+      },
+    },
+  });
+}
+
+function _renderCostsSiteList(sites) {
+  const el = document.getElementById('costs-site-list');
+  if (!el) return;
+  if (!sites.length) {
+    el.innerHTML = '<div class="costs-site-empty">Heute noch keine Kosten erfasst.</div>';
+    return;
+  }
+  const max = Math.max(...sites.map(s => s.total_eur), 0.0001);
+  el.innerHTML = sites.map(s => {
+    const pct = Math.round((s.total_eur / max) * 100);
+    return `<div class="csite-row">
+      <span class="csite-name" title="${_e(s.name)}">${_e(s.name)}</span>
+      ${s.tokens ? `<span class="csite-tokens">${_fmt_k(s.tokens)} Tok</span>` : ''}
+      <div class="csite-bar-wrap"><div class="csite-bar" style="width:${pct}%"></div></div>
+      <span class="csite-eur">${_fmt_eur(s.total_eur)}</span>
+    </div>`;
+  }).join('');
+}
+
+function _renderCostsActLog(acts, filter) {
+  const el = document.getElementById('costs-actlog-body');
+  if (!el) return;
+  let filtered = [...acts].reverse();
+  if (filter) filtered = filtered.filter(a => a.cat === filter);
+  if (!filtered.length) {
+    el.innerHTML = '<div class="costs-actlog-empty">Keine Einträge für diesen Filter.</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(a =>
+    `<div class="clog-row" data-cat="${_e(a.cat||'info')}">
+      <span class="clog-icon">${_e(a.icon||'⚡')}</span>
+      <div class="clog-main">
+        <div class="clog-action">${_e(a.action)}</div>
+        ${a.detail ? `<div class="clog-detail">${_e(a.detail)}</div>` : ''}
+      </div>
+      <div class="clog-right">
+        <span class="clog-agent">${_e(a.agent)}</span>
+        <span class="clog-ts">${_e(a.ts)}</span>
+      </div>
+    </div>`
+  ).join('');
+}
+
+function setCostFilter(btn, cat) {
+  _costsActFilter = cat;
+  document.querySelectorAll('.caf-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
+  _renderCostsActLog(_costsAllActs, cat);
+}
+
+function _startCostsPoll() {
+  if (_costsActPollId) clearInterval(_costsActPollId);
+  _costsActPollId = setInterval(async () => {
+    try {
+      const [actRes, todayRes] = await Promise.all([
+        fetch('/api/activity/recent?limit=80').then(r => r.json()),
+        fetch('/api/costs/today').then(r => r.json()),
+      ]);
+      _costsAllActs = actRes.activities || [];
+      _renderCostsActLog(_costsAllActs, _costsActFilter);
+      _renderCostsSummary(todayRes.summary || {});
+      _renderCostsSiteList(todayRes.per_site || []);
+    } catch(_) {}
+  }, 4000);
+}
+
+function _stopCostsPoll() {
+  if (_costsActPollId) { clearInterval(_costsActPollId); _costsActPollId = null; }
+}
+
+

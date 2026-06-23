@@ -276,6 +276,14 @@ def _build_and_email(lead: dict) -> None:
         _state["done"] += 1
         _state["last"] = name
     logger.success("AutoBuilder", f"Fertig: {name} ({link or 'lokal'})")
+    try:
+        logger.activity("AutoBuilder", "Webseite gebaut",
+                        f"{name} · {branche} · {stadt}{' · ' + link if link else ''}",
+                        "🌐", "build")
+        import cost_tracker as _ct
+        _ct.track_compute(0, False, "website_build", name)
+    except Exception:
+        pass
 
 
 def _deep_claude(folder: str, branche: str) -> dict:
@@ -351,6 +359,11 @@ def _improve_existing_once() -> bool:
             except Exception:
                 pass
             logger.success("AutoBuilder", f"Feature '{res.get('feature','')}' in {name} eingebaut")
+            try:
+                logger.activity("AutoBuilder", "Webseite deployt",
+                                f"{name} · Feature: {res.get('feature','?')}", "🚀", "deploy")
+            except Exception:
+                pass
             return True
         logger.info("AutoBuilder", f"Tiefen-Schritt übersprungen: {res.get('reason','')}")
         # Fällt auf den normalen Inhalts-Pass zurück.

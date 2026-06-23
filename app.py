@@ -1144,6 +1144,83 @@ def api_media_gallery():
     return jsonify(media_queue.gallery())
 
 
+# ── Home-Tab ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/home/stats")
+def api_home_stats():
+    """Alle Webseiten + Kurzzusammenfassung für den Home-Tab."""
+    import db_websites
+    sites = db_websites.get_all()
+    total   = len(sites)
+    live    = sum(1 for s in sites if s.get("live"))
+    building = sum(1 for s in sites if s.get("status") == "building")
+    errors  = sum(1 for s in sites if s.get("status") == "error")
+    # Jede Site kompakt aufbereiten
+    cards = []
+    for s in sites:
+        imgs = []
+        try:
+            imgs = json.loads(s.get("images") or "[]") if isinstance(s.get("images"), str) else (s.get("images") or [])
+        except Exception:
+            imgs = []
+        cards.append({
+            "id":        s.get("id"),
+            "name":      s.get("name") or "–",
+            "branche":   s.get("branche") or "",
+            "stadt":     s.get("stadt") or "",
+            "status":    s.get("status") or "unknown",
+            "live":      bool(s.get("live")),
+            "live_url":  s.get("live_url") or "",
+            "repo_url":  s.get("repo_url") or "",
+            "thumbnail": imgs[0] if imgs else "",
+            "created":   s.get("created") or "",
+            "updated":   s.get("updated") or "",
+            "progress":  s.get("progress") or 0,
+            "step":      s.get("step") or "",
+        })
+    return jsonify({
+        "total": total, "live": live, "building": building, "errors": errors,
+        "sites": cards,
+    })
+
+
+# ── Kosten-Tab ────────────────────────────────────────────────────────────────
+
+@app.route("/api/costs/today")
+def api_costs_today():
+    """Kostenzusammenfassung für heute + Pro-Site-Aufschlüsselung."""
+    try:
+        import cost_tracker
+        summary   = cost_tracker.today_summary()
+        per_site  = cost_tracker.per_site_costs(20)
+        events    = cost_tracker.recent_events(40)
+        return jsonify({"ok": True, "summary": summary, "per_site": per_site, "events": events})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "summary": {}, "per_site": [], "events": []})
+
+
+@app.route("/api/costs/history")
+def api_costs_history():
+    """Kosten der letzten 14 Tage als Zeitreihe für Chart.js."""
+    try:
+        import cost_tracker
+        days = int(request.args.get("days", 14))
+        return jsonify({"ok": True, "history": cost_tracker.history(days)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "history": []})
+
+
+@app.route("/api/activity/recent")
+def api_activity_recent():
+    """Letzte Aktivitäten für den Live-Feed (Home + Kosten)."""
+    try:
+        limit = int(request.args.get("limit", 60))
+        acts  = _logger.get_activities(limit)
+        return jsonify({"ok": True, "activities": acts})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "activities": []})
+
+
 @app.route("/api/stream")
 def api_stream():
     q = controller.subscribe()   # eigene Queue pro Client (Fan-out)

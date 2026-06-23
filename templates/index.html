@@ -23,14 +23,16 @@
   </div>
 
   <nav class="topnav">
-    <button class="topnav-btn active" data-page="leads"  onclick="showPage('leads')">Leads</button>
-    <button class="topnav-btn"        data-page="images" onclick="showPage('images')">Bilder</button>
-    <button class="topnav-btn"        data-page="videos" onclick="showPage('videos')">Videos</button>
-    <button class="topnav-btn"        data-page="graph"  onclick="showPage('graph')">Graph</button>
+    <button class="topnav-btn"        data-page="home"    onclick="showPage('home')">⌂ Home</button>
+    <button class="topnav-btn active" data-page="leads"   onclick="showPage('leads')">Leads</button>
+    <button class="topnav-btn"        data-page="images"  onclick="showPage('images')">Bilder</button>
+    <button class="topnav-btn"        data-page="videos"  onclick="showPage('videos')">Videos</button>
+    <button class="topnav-btn"        data-page="graph"   onclick="showPage('graph')">Graph</button>
     <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
     <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
-    <button class="topnav-btn"        data-page="custom" onclick="showPage('custom')">Eigene Marke</button>
-    <button class="topnav-btn"        data-page="claude" onclick="showPage('claude')">Claude</button>
+    <button class="topnav-btn"        data-page="custom"  onclick="showPage('custom')">Eigene Marke</button>
+    <button class="topnav-btn"        data-page="claude"  onclick="showPage('claude')">Claude</button>
+    <button class="topnav-btn topnav-costs" data-page="costs" onclick="showPage('costs')">€ Kosten</button>
   </nav>
 
   <div class="topbar-center">
@@ -592,6 +594,146 @@
     <div class="log-entries" id="log-entries"></div>
   </div>
 </div>
+
+<!-- ══════════════════════════════ HOME-TAB ════════════════════════════════ -->
+<main class="layout page home-page" data-page="home">
+  <div class="home-wrap">
+
+    <!-- Stat-Karten -->
+    <div class="home-stats" id="home-stats">
+      <div class="hstat-card">
+        <div class="hstat-val" id="hstat-total">–</div>
+        <div class="hstat-lbl">Webseiten gesamt</div>
+      </div>
+      <div class="hstat-card hstat-live">
+        <div class="hstat-val" id="hstat-live">–</div>
+        <div class="hstat-lbl">Live online</div>
+      </div>
+      <div class="hstat-card hstat-build">
+        <div class="hstat-val" id="hstat-build">–</div>
+        <div class="hstat-lbl">In Bearbeitung</div>
+      </div>
+      <div class="hstat-card hstat-err">
+        <div class="hstat-val" id="hstat-errors">–</div>
+        <div class="hstat-lbl">Fehler</div>
+      </div>
+    </div>
+
+    <!-- Site-Cards Grid -->
+    <div class="home-grid" id="home-grid">
+      <div class="home-empty" id="home-empty">
+        <div class="home-empty-icon">🌐</div>
+        <div>Noch keine Webseiten gebaut.</div>
+        <div style="font-size:12px;color:var(--tx3);margin-top:6px">
+          Starte den Auto-Builder oder baue manuell eine Seite im Webseiten-Tab.
+        </div>
+      </div>
+    </div>
+
+    <!-- Letzte Aktivitäten (kompakt) -->
+    <div class="home-act-panel">
+      <div class="home-act-head">
+        <span class="home-act-title">Letzte Aktivitäten</span>
+        <button class="home-act-refresh" onclick="loadHome()" title="Aktualisieren">↻</button>
+      </div>
+      <div class="home-act-list" id="home-act-list">
+        <div class="home-act-empty">Noch keine Aktivitäten.</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+
+<!-- ══════════════════════════════ KOSTEN-TAB ══════════════════════════════ -->
+<main class="layout page costs-page" data-page="costs">
+  <div class="costs-wrap">
+
+    <!-- Summary-Karten oben -->
+    <div class="costs-cards" id="costs-cards">
+      <div class="cst-card">
+        <div class="cst-icon">€</div>
+        <div class="cst-right">
+          <div class="cst-val" id="cst-total">0,00 €</div>
+          <div class="cst-lbl">Gesamtkosten heute</div>
+        </div>
+      </div>
+      <div class="cst-card">
+        <div class="cst-icon cst-api">AI</div>
+        <div class="cst-right">
+          <div class="cst-val" id="cst-api">0,00 €</div>
+          <div class="cst-lbl">Claude API</div>
+        </div>
+      </div>
+      <div class="cst-card">
+        <div class="cst-icon cst-tok">T</div>
+        <div class="cst-right">
+          <div class="cst-val" id="cst-tokens">0</div>
+          <div class="cst-lbl">Tokens (Ein+Aus)</div>
+        </div>
+      </div>
+      <div class="cst-card">
+        <div class="cst-icon cst-hf">HF</div>
+        <div class="cst-right">
+          <div class="cst-val" id="cst-hf">0,00 €</div>
+          <div class="cst-lbl">Higgsfield Credits</div>
+        </div>
+      </div>
+      <div class="cst-card">
+        <div class="cst-icon cst-pwr">⚡</div>
+        <div class="cst-right">
+          <div class="cst-val" id="cst-power">0,00 €</div>
+          <div class="cst-lbl">Stromkosten (~45 W)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diagramme + Pro-Site Tabelle -->
+    <div class="costs-charts-row">
+
+      <!-- 14-Tage Chart -->
+      <div class="costs-chart-box">
+        <div class="costs-chart-title">Kosten der letzten 14 Tage</div>
+        <canvas id="costs-chart" height="200"></canvas>
+      </div>
+
+      <!-- Pro-Site Aufschlüsselung -->
+      <div class="costs-site-box">
+        <div class="costs-chart-title">Kosten pro Projekt (heute)</div>
+        <div class="costs-site-list" id="costs-site-list">
+          <div class="costs-site-empty">Heute noch keine Kosten erfasst.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live-Aktivitätslog -->
+    <div class="costs-actlog">
+      <div class="costs-actlog-head">
+        <span class="costs-actlog-title">Live-Aktivitätslog</span>
+        <div class="costs-actlog-filters" id="costs-actlog-filters">
+          <button class="caf-btn active" data-cat="" onclick="setCostFilter(this,'')">Alle</button>
+          <button class="caf-btn" data-cat="build"  onclick="setCostFilter(this,'build')">🌐 Bau</button>
+          <button class="caf-btn" data-cat="eval"   onclick="setCostFilter(this,'eval')">🔍 Analyse</button>
+          <button class="caf-btn" data-cat="image"  onclick="setCostFilter(this,'image')">🖼 Bilder</button>
+          <button class="caf-btn" data-cat="video"  onclick="setCostFilter(this,'video')">🎬 Videos</button>
+          <button class="caf-btn" data-cat="scrape" onclick="setCostFilter(this,'scrape')">📡 Scraper</button>
+          <button class="caf-btn" data-cat="deploy" onclick="setCostFilter(this,'deploy')">🚀 Deploy</button>
+        </div>
+        <div class="costs-actlog-live">
+          <span class="live-dot"></span> Live
+        </div>
+      </div>
+      <div class="costs-actlog-body" id="costs-actlog-body">
+        <div class="costs-actlog-empty">Warte auf Aktivitäten…</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
 <!-- ══════════════ DAUER-CHAT-DOCK (auf allen Seiten) ═══════════════════════ -->
 <button class="dock-fab" id="dock-fab" onclick="dockToggle()" title="JARVIS fragen" aria-label="JARVIS-Chat">

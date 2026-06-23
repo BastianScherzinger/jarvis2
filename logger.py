@@ -72,3 +72,34 @@ def get_since(ts_after: str, limit: int = 200) -> list[dict]:
     if ts_after:
         entries = [e for e in entries if e["ts"] > ts_after]
     return entries[-limit:]
+
+
+# ── Aktivitäts-Feed (für Home- und Kosten-Tab) ────────────────────────────────
+_activities: collections.deque = collections.deque(maxlen=200)
+
+# Kategorie → CSS-Klasse / Farbe im Frontend
+_ACTIVITY_CATS = {"build", "eval", "image", "video", "scrape", "deploy", "email", "info", "error"}
+
+
+def activity(agent: str, action: str, detail: str = "",
+             icon: str = "⚡", category: str = "info") -> None:
+    """Loggt einen Aktivitäts-Feed-Eintrag (sichtbar im Home- und Kosten-Tab)."""
+    cat = category if category in _ACTIVITY_CATS else "info"
+    ts  = datetime.now().strftime("%H:%M:%S")
+    entry = {
+        "ts":     ts,
+        "agent":  agent[:40],
+        "action": action[:80],
+        "detail": detail[:140],
+        "icon":   icon,
+        "cat":    cat,
+    }
+    with _lock:
+        _activities.append(entry)
+    _log("INFO", agent, f"{action}{(': ' + detail) if detail else ''}")
+
+
+def get_activities(limit: int = 80) -> list[dict]:
+    """Letzte N Aktivitäts-Feed-Einträge (neueste zuletzt)."""
+    with _lock:
+        return list(_activities)[-limit:]

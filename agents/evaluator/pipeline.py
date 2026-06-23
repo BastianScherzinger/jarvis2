@@ -136,6 +136,15 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
                 f"Bilder: {'ja' if bilder else 'nein'} | "
                 f"Paket {row.get('erwartungswert_euro')}€",
             )
+            try:
+                logger.activity("Evaluator", "Lead analysiert",
+                                f"{lead.get('name')} · {row.get('lead_typ','?')} · "
+                                f"Score {row.get('score',0)} · {row.get('erwartungswert_euro',0)}€",
+                                "🔍", "eval")
+                import cost_tracker as _ct
+                _ct.track_compute(0, False, "lead_eval", lead.get("name", ""))
+            except Exception:
+                pass
             on_update({"type": "evaluated", "data": row})
 
         except Exception as e:
