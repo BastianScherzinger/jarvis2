@@ -71,6 +71,40 @@ def _start_discord():
         pass
 _startup_t.Thread(target=_start_discord, daemon=True).start()
 
+
+# ── Startup-Aufräumen + Auto-Builder Resume ──────────────────────────────────
+def _startup_cleanup():
+    """Beim App-Start: hängende 'running'-Seiten korrigieren und Night-Builder fortsetzen."""
+    import time as _t
+    _t.sleep(2)   # kurz warten bis DB-Sync fertig ist
+    try:
+        import db_websites as _dw
+        stuck = [s for s in _dw.get_all() if s.get("status") == "running"]
+        for s in stuck:
+            job_id = s.get("job_id")
+            if not job_id:
+                continue
+            # Hat bereits eine live_url → war erfolgreich deployed, nur Status hängt
+            if s.get("live_url"):
+                _dw.update(job_id, status="done", live=1, progress=100, step="Fertig")
+                _logger.info("Startup", f"Status korrigiert (done+live): {s.get('name','?')}")
+            else:
+                # Kein live_url → Bau war unvollständig, als done ohne live markieren
+                _dw.update(job_id, status="done", live=0, progress=50, step="Unterbrochen")
+                _logger.info("Startup", f"Status korrigiert (done): {s.get('name','?')}")
+    except Exception as e:
+        _logger.warn("Startup", f"Stuck-Site-Cleanup fehlgeschlagen: {type(e).__name__}")
+
+    # Night-Builder fortsetzen wenn er beim letzten Mal lief
+    try:
+        import auto_builder
+        if auto_builder.resume_if_needed():
+            _logger.info("Startup", "Night-Builder automatisch fortgesetzt")
+    except Exception as e:
+        _logger.warn("Startup", f"Builder-Resume fehlgeschlagen: {type(e).__name__}")
+
+_startup_t.Thread(target=_startup_cleanup, daemon=True).start()
+
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
 
 
@@ -1329,15 +1363,6 @@ def run_server() -> None:
     """Startet den Server: im Produktionsmodus (JARVIS_SERVER=1) über waitress
     (robuster WSGI-Server, Windows-tauglich), sonst der Flask-Dev-Server.
     Fällt ohne waitress sauber auf den Dev-Server zurück."""
-    # War der Night-Builder beim letzten Mal aktiv, hier automatisch fortsetzen (genau da
-    # weiter — Pro-Seite-Stufen liegen in content.json). Nur beim echten Serverstart, nicht
-    # bei Test-Imports.
-    try:
-        import auto_builder
-        auto_builder.resume_if_needed()
-    except Exception:
-        pass
-
     cfg = server_config()
     if cfg["prod"]:
         try:

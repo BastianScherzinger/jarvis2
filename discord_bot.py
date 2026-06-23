@@ -247,6 +247,59 @@ if _HAS_DISCORD:
         except Exception as e:
             logger.warn("Discord", f"Posten fehlgeschlagen: {type(e).__name__}")
 
+    async def _send_startup_embed():
+        """Postet beim Bot-Start eine Statusnachricht in den Kanal."""
+        try:
+            ch = _bot.get_channel(_channel_id()) if _bot else None
+            if ch is None and _bot is not None:
+                ch = await _bot.fetch_channel(_channel_id())
+            if ch is None:
+                return
+            # Infos zusammenstellen
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%d.%m.%Y %H:%M")
+            # Heute gebaute Seiten
+            try:
+                import auto_builder as _ab
+                state = _ab.status()
+                today = state.get("today_count", 0)
+                limit = state.get("daily_limit", 10)
+                builder_info = f"{today}/{limit} Seiten heute gebaut"
+                is_running   = _ab.is_running()
+            except Exception:
+                builder_info = "–"
+                is_running   = False
+            # Webseiten-Gesamt
+            try:
+                import db_websites as _dw
+                sites    = _dw.get_all()
+                n_total  = len(sites)
+                n_live   = sum(1 for s in sites if s.get("live"))
+            except Exception:
+                n_total = n_live = 0
+            # Pending Reviews
+            try:
+                pending = len(rq.pending())
+            except Exception:
+                pending = 0
+
+            e = discord.Embed(
+                title="⬡ JARVIS LeadHunter — System gestartet",
+                description=f"🕐 {ts}",
+                color=0x00d4ff,
+            )
+            e.add_field(name="🌐 Webseiten",
+                        value=f"{n_total} gesamt · **{n_live} live**", inline=True)
+            e.add_field(name="⚡ Auto-Builder",
+                        value=f"{'✅ Läuft' if is_running else '⏸️ Bereit'} · {builder_info}", inline=True)
+            e.add_field(name="🗳️ Offene Reviews",
+                        value=str(pending) if pending else "Keine", inline=True)
+            e.set_footer(text="JARVIS startet automatisch bei 0 Uhr neu · Abstimmung: 👍👍 = Freigabe")
+            await ch.send(embed=e)
+        except Exception as ex:
+            logger.warn("Discord", f"Startnachricht fehlgeschlagen: {type(ex).__name__}")
+
+
     class _Client(discord.Client):
         def __init__(self):
             super().__init__(intents=discord.Intents.default())
@@ -257,6 +310,7 @@ if _HAS_DISCORD:
 
         async def on_ready(self):
             logger.success("Discord", f"Bot online als {self.user} — Kanal {_channel_id()}")
+            await _send_startup_embed()
 
     @tasks.loop(time=dtime(hour=_send_hour(), minute=0))
     async def _noon_loop():
