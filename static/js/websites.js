@@ -72,6 +72,9 @@ function _wsEnsureTimer(){
   }, 2500);
 }
 
+let _wsArchivedOpen = false;
+let _wsArchivedDays = [];
+
 // ── Daten laden ───────────────────────────────────────────────────────────────
 
 async function loadWebsites(silent){
@@ -81,16 +84,119 @@ async function loadWebsites(silent){
       _wsDays  = Array.isArray(d.days) ? d.days : [];
       _wsData  = _wsDays.flatMap(day => day.sites || []);
       _wsTotal = d.total || 0;
+      // Archive-Badge aktualisieren
+      const arcCnt = d.archived_count || 0;
+      const arcSec = document.getElementById('ws-archive-section');
+      const arcCount = document.getElementById('ws-archive-count');
+      if(arcSec) arcSec.style.display = arcCnt > 0 ? '' : 'none';
+      if(arcCount) arcCount.textContent = arcCnt + (arcCnt===1?' Seite':' Seiten');
     }
   }catch(e){ if(!silent){ _wsDays=[]; _wsData=[]; } else return; }
 
-  // Beim allerersten Laden: heute öffnen, alles andere schließen
   if(_wsOpenDays === null){
     _wsOpenDays = new Set();
     const todayDay = _wsDays.find(d => d.is_today);
     if(todayDay) _wsOpenDays.add(todayDay.date);
   }
   _renderWebsites();
+}
+
+async function loadArchived(){
+  try{
+    const d = await(await fetch('/api/websites/archived')).json();
+    if(d && d.ok){
+      _wsArchivedDays = Array.isArray(d.days) ? d.days : [];
+    }
+  }catch(e){ _wsArchivedDays = []; }
+  _renderArchived();
+}
+
+function wsToggleArchive(){
+  _wsArchivedOpen = !_wsArchivedOpen;
+  const body  = document.getElementById('ws-archive-body');
+  const arrow = document.getElementById('ws-archive-arrow');
+  if(_wsArchivedOpen){
+    if(arrow) arrow.textContent = '▾';
+    if(body) body.style.display = '';
+    loadArchived();
+  } else {
+    if(arrow) arrow.textContent = '▸';
+    if(body) body.style.display = 'none';
+  }
+}
+
+function _renderArchived(){
+  const body = document.getElementById('ws-archive-body');
+  if(!body) return;
+  if(!_wsArchivedDays.length){
+    body.innerHTML = '<div class="ws-empty" style="padding:16px"><div class="empty-sub">Keine archivierten Seiten.</div></div>';
+    return;
+  }
+  body.innerHTML = _wsArchivedDays.map(day => {
+    const label = _wsDayLabel(day.date, false);
+    return `<div class="ws-day ws-archived-day">
+      <div class="ws-day-head ws-archived-day-head">
+        <span class="ws-day-label">${_wse(label)}</span>
+        <div class="ws-day-pills">
+          <span class="ws-day-pill done">${day.count} Seiten</span>
+        </div>
+      </div>
+      <div class="ws-day-body" style="opacity:0.65">
+        ${(day.sites||[]).map(_wsArchivedCard).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _wsArchivedCard(w){
+  const meta = [w.branche, w.stadt].filter(Boolean).map(_wse).join(' · ');
+  const liveLink = w.live_url
+    ? `<a class="ws-link live" href="${_wse(w.live_url)}" target="_blank" rel="noopener">🌐 ${_wse(w.live_url)} ↗</a>`
+    : '';
+  return `<div class="ws-card archived">
+    <div class="ws-card-head">
+      <div class="ws-card-titlewrap">
+        <div class="ws-card-title">${_wse(w.name||'Unbenannt')}</div>
+        ${meta ? `<div class="ws-card-meta">${meta}</div>` : ''}
+      </div>
+      <span class="ws-badge archived">Archiv</span>
+    </div>
+    ${liveLink ? `<div class="ws-links">${liveLink}</div>` : ''}
+    <div class="ws-foot">${_wse(_wsAgo(w.updated||w.created))}</div>
+  </div>`;
+}
+
+// ── Neu starten (Archivieren + Night-Builder starten) ─────────────────────────
+
+async function archiveAllAndStart(){
+  const ok = confirm(
+    '⚡ Neu starten\n\n'
+    + 'Das archiviert alle aktuellen Webseiten (sie bleiben unter „Alte Webseiten" sichtbar) '
+    + 'und startet den Night-Builder neu — er baut dann 10 neue Seiten, verbessert jede mit dem '
+    + '7-Stufen-Makeover und schickt jede fertige Seite zur Freigabe in Discord.\n\n'
+    + 'Leads werden nicht doppelt gebaut.\n\nFortfahren?'
+  );
+  if(!ok) return;
+  const btn = document.querySelector('.ws-neu-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Starte…'; }
+  try{
+    const r = await(await fetch('/api/websites/archive_all', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({start_builder: true})
+    })).json();
+    if(r && r.ok){
+      const msg = `✓ ${r.archived} Seite(n) archiviert.`
+        + (r.builder_started ? '\n✓ Night-Builder gestartet — baut jetzt 10 neue Seiten.' : '\n(Builder lief bereits)');
+      alert(msg);
+      loadWebsites(false);
+    } else {
+      alert('Fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
+    }
+  }catch(e){ alert('Fehler: ' + e); }
+  finally{
+    if(btn){ btn.disabled=false; btn.textContent='⚡ Neu starten'; }
+  }
 }
 
 // ── Render: Tages-Ordner-Ansicht ──────────────────────────────────────────────

@@ -21,7 +21,7 @@ _lock   = threading.Lock()
 # 'live' = 1 NUR wenn die Seite verifiziert erreichbar ist (echter Deploy-Status).
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
-    "kontakt_email", "site_key", "ansprechpartner",
+    "kontakt_email", "site_key", "ansprechpartner", "archived",
 }
 
 
@@ -86,6 +86,7 @@ def init_db() -> None:
             kontakt_email TEXT,
             ansprechpartner TEXT,
             site_key      TEXT,
+            archived      INTEGER DEFAULT 0,
             created       REAL,
             updated       REAL
         )
@@ -95,7 +96,6 @@ def init_db() -> None:
         cols = {r[1] for r in c.execute("PRAGMA table_info(websites)").fetchall()}
         if "live" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN live INTEGER DEFAULT 0")
-            # Bestandszeilen mit Live-URL galten unter der alten Logik als 'live'.
             c.execute("UPDATE websites SET live=1 WHERE live_url IS NOT NULL AND live_url != ''")
         if "kontakt_email" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN kontakt_email TEXT")
@@ -103,8 +103,10 @@ def init_db() -> None:
             c.execute("ALTER TABLE websites ADD COLUMN ansprechpartner TEXT")
         if "site_key" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN site_key TEXT")
+        if "archived" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN archived INTEGER DEFAULT 0")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_sitekey ON websites(site_key)")
-        # Bestehende Zeilen ohne site_key nachfüllen (für Cross-PC-Dedup).
+        c.execute("CREATE INDEX IF NOT EXISTS idx_websites_archived ON websites(archived)")
         for r in c.execute("SELECT id, name, stadt FROM websites WHERE site_key IS NULL OR site_key=''").fetchall():
             c.execute("UPDATE websites SET site_key=? WHERE id=?",
                       (_site_key(r["name"], r["stadt"]), r["id"]))
@@ -162,13 +164,40 @@ def update(job_id: str, **fields) -> None:
         c.commit()
 
 
-def get_all() -> list[dict]:
-    """Alle Seiten, neueste zuerst. images/log als geparste Listen."""
+def get_all(include_archived: bool = False) -> list[dict]:
+    """Aktive Seiten (archived=0), neueste zuerst. images/log als geparste Listen.
+    include_archived=True gibt ALLE zurück (z.B. für Dedup-Prüfungen)."""
+    with _lock, _conn() as c:
+        if include_archived:
+            rows = c.execute("SELECT * FROM websites ORDER BY created DESC").fetchall()
+        else:
+            rows = c.execute(
+                "SELECT * FROM websites WHERE archived=0 ORDER BY created DESC"
+            ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def get_archived() -> list[dict]:
+    """Nur archivierte Seiten, neueste zuerst."""
     with _lock, _conn() as c:
         rows = c.execute(
-            "SELECT * FROM websites ORDER BY created DESC"
+            "SELECT * FROM websites WHERE archived=1 ORDER BY created DESC"
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def archive_all() -> int:
+    """Archiviert alle aktiven (nicht laufenden) Seiten. Gibt die Anzahl zurück.
+    Seiten mit status='queued' oder 'running' werden nicht archiviert, da sie aktiv
+    im Build-Prozess sind. Die leads bleiben als gebaut markiert (kein Doppelbau)."""
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE websites SET archived=1, updated=? "
+            "WHERE archived=0 AND status NOT IN ('queued','running')",
+            (time.time(),)
+        )
+        c.commit()
+        return cur.rowcount
 
 
 def get(wid: int) -> "dict | None":

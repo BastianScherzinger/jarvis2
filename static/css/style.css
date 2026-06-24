@@ -2205,3 +2205,58 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
   .home-stats{ grid-template-columns:1fr 1fr; }
   .costs-cards{ grid-template-columns:1fr 1fr; }
 }
+
+/* ── Neu-starten Button ──────────────────────────────────────────────────────── */
+.ws-neu-btn {
+  background: linear-gradient(135deg, #00d4ff22, #00e87a22);
+  border: 1px solid #00e87a66;
+  color: #00e87a;
+  font-weight: 700;
+  padding: 6px 16px;
+  transition: all .2s;
+}
+.ws-neu-btn:hover { background: #00e87a22; border-color: #00e87a; box-shadow: 0 0 12px #00e87a44; }
+
+/* ── Alte Webseiten (Archiv-Bereich) ─────────────────────────────────────────── */
+.ws-archive-section {
+  margin: 28px 0 0;
+  border-top: 1px solid #1a2535;
+}
+.ws-archive-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 4px;
+  cursor: pointer;
+  user-select: none;
+  color: #6a7c90;
+  font-size: .85rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  transition: color .2s;
+}
+.ws-archive-head:hover { color: #8a9cb0; }
+.ws-archive-title { flex: 1; }
+.ws-archive-count {
+  font-size: .78rem;
+  background: #1a2535;
+  border-radius: 20px;
+  padding: 2px 10px;
+  color: #6a7c90;
+}
+.ws-archived-day-head {
+  cursor: default;
+  pointer-events: none;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid #151f2e;
+}
+.ws-card.archived {
+  border-color: #1a2535;
+  opacity: 0.75;
+}
+.ws-badge.archived {
+  color: #6a7c90;
+  border-color: #2a3545;
+  background: #1a2535;
+}

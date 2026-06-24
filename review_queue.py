@@ -59,16 +59,21 @@ def add(name: str, stadt: str, branche: str, link: str, email: str = "",
     email_text: Plaintext-Version der Angebots-Mail (für Discord-Vorschau)."""
     rid = uuid.uuid4().hex[:12]
     rec = [e.strip() for e in (recipients or []) if e and "@" in e]
-    review = {
-        "id": rid, "name": name, "stadt": stadt, "branche": branche,
-        "link": link, "email": email, "ansprechpartner": ansprechpartner,
-        "folder": folder, "recipients": rec, "status": PENDING,
-        "votes_up": [], "votes_down": [],
-        "message_id": 0, "channel_id": 0, "ts": time.time(),
-        "sent_ts": 0.0, "note": "", "email_text": (email_text or ""),
-    }
+    # Dedup: schon ein offener Review für dieselbe Seite → nicht nochmal posten.
     with _lock:
         data = _load()
+        for existing in data["reviews"]:
+            if (existing.get("name", "").lower().strip() == name.lower().strip()
+                    and existing.get("status") in (PENDING, APPROVED)):
+                return dict(existing)
+        review = {
+            "id": rid, "name": name, "stadt": stadt, "branche": branche,
+            "link": link, "email": email, "ansprechpartner": ansprechpartner,
+            "folder": folder, "recipients": rec, "status": PENDING,
+            "votes_up": [], "votes_down": [],
+            "message_id": 0, "channel_id": 0, "ts": time.time(),
+            "sent_ts": 0.0, "note": "", "email_text": (email_text or ""),
+        }
         data["reviews"].append(review)
         _save(data)
     return dict(review)

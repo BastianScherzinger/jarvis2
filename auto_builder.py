@@ -179,9 +179,11 @@ def daily_log(days: int = 14) -> dict:
 # ── Lead-Auswahl ──────────────────────────────────────────────────────────────
 
 def _built_keys() -> set:
+    """Alle jemals gebauten Site-Keys (inkl. archivierte) — verhindert Doppelbau."""
     try:
         import db_websites
-        return {w.get("site_key") for w in db_websites.get_all() if w.get("site_key")}
+        return {w.get("site_key") for w in db_websites.get_all(include_archived=True)
+                if w.get("site_key")}
     except Exception:
         return set()
 
@@ -225,9 +227,10 @@ def _pick_improve_target():
     try:
         import db_websites
         import overnight_makeover
-        sites = [w for w in db_websites.get_all()
+        sites = [w for w in db_websites.get_all()      # include_archived=False (Standard)
                  if (w.get("folder") and os.path.isdir(w["folder"])
                      and (w.get("status") == "done")
+                     and not w.get("archived")
                      and w["folder"] not in _makeover_stuck)]
         if not sites:
             return None
@@ -273,6 +276,18 @@ def _email(name: str, link: str, branche: str, stadt: str, ansprechpartner: str 
         mailer.send_email(_BASTIAN, betreff, text, html=html, bypass_redirect=True)
     except Exception as e:
         logger.warn("AutoBuilder", f"E-Mail fehlgeschlagen: {type(e).__name__}")
+
+
+def _already_reviewed(name: str) -> bool:
+    """True wenn für diese Seite bereits ein offener (pending/approved) Discord-Review
+    existiert — verhindert Doppel-Posts nach build+makeover."""
+    try:
+        import review_queue as _rq
+        return any(r.get("name", "").lower().strip() == name.lower().strip()
+                   and r.get("status") in ("pending", "approved")
+                   for r in _rq.all(limit=100))
+    except Exception:
+        return False
 
 
 def _before_cutoff() -> bool:
@@ -335,7 +350,8 @@ def _build_and_email(lead: dict) -> None:
         wrow = db_websites.get_by_job(jid) or {}
     except Exception:
         pass
-    email_addr = wrow.get("kontakt_email", "")
+    email_addr    = wrow.get("kontakt_email", "")
+    ansprechpart  = wrow.get("ansprechpartner", "")
     _record({"name": name, "stadt": stadt, "branche": branche, "link": link,
              "email": email_addr, "folder": folder,
              "review": True, "ts": time.time()})
@@ -351,6 +367,19 @@ def _build_and_email(lead: dict) -> None:
         _ct.track_compute(time.time() - _t0, False, "website_build", name)
     except Exception:
         pass
+
+    # Discord-Freigabe: sicherstellen dass immer eine Nachricht gepostet wird sobald
+    # die Seite live ist — auch wenn der Makeover nicht alle 7 Stufen abgeschlossen hat
+    # (_run_makeover postet selbst; diese Sicherung greift, falls er es nicht tat).
+    if link and not _already_reviewed(name):
+        try:
+            import overnight_makeover as _om
+            _om.finalize_review(
+                {"name": name, "stadt": stadt, "branche": branche,
+                 "email": email_addr, "ansprechpartner": ansprechpart},
+                link, folder or "")
+        except Exception as _de:
+            logger.warn("AutoBuilder", f"Discord-Freigabe: {type(_de).__name__}")
 
 
 def _deep_claude(folder: str, branche: str) -> dict:

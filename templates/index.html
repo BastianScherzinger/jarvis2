@@ -406,22 +406,33 @@
 </main>
 
 <!-- ══════════════════════════ WEBSEITEN-SEITE ══════════════════════════════ -->
-<main class="websites-page page" data-page="websites">
-  <div class="media-head">
-    <div class="media-title">Generierte Webseiten</div>
-    <div class="media-sub">Status, Live-Links, GitHub & lokaler Ordner aller gebauten Lead-Seiten · Bilder für später hinzufügen</div>
+<main class=”websites-page page” data-page=”websites”>
+  <div class=”media-head”>
+    <div class=”media-title”>Generierte Webseiten</div>
+    <div class=”media-sub”>Status, Live-Links, GitHub &amp; lokaler Ordner aller gebauten Lead-Seiten · Bilder für später hinzufügen</div>
   </div>
-  <div class="ws-bar">
-    <span class="ws-count" id="ws-count">0 Seiten</span>
-    <span class="rank-live" id="ws-live">● LIVE</span>
-    <button class="gc-btn" style="margin-left:auto" onclick="loadWebsites()">↺ Aktualisieren</button>
+  <div class=”ws-bar”>
+    <span class=”ws-count” id=”ws-count”>0 Seiten</span>
+    <span class=”rank-live” id=”ws-live”>● LIVE</span>
+    <button class=”gc-btn ws-neu-btn” style=”margin-left:auto” onclick=”archiveAllAndStart()” title=”Alle aktuellen Seiten archivieren und 10 neue bauen”>⚡ Neu starten</button>
+    <button class=”gc-btn” onclick=”loadWebsites()”>↺ Aktualisieren</button>
   </div>
-  <div class="ws-list" id="ws-list">
-    <div class="ws-empty" id="ws-empty">
-      <div class="empty-icon">◎</div>
-      <div class="empty-title">Noch keine Webseiten gebaut</div>
-      <div class="empty-sub">Bei einem Lead auf „Webseite bauen“ drücken — die Seite erscheint hier mit Live-Status.</div>
+  <div class=”ws-list” id=”ws-list”>
+    <div class=”ws-empty” id=”ws-empty”>
+      <div class=”empty-icon”>◎</div>
+      <div class=”empty-title”>Noch keine Webseiten gebaut</div>
+      <div class=”empty-sub”>„Neu starten” drücken — JARVIS baut 10 Seiten, verbessert sie und schickt jede fertige zur Freigabe in Discord.</div>
     </div>
+  </div>
+
+  <!-- Alte Webseiten ─────────────────────────────────────────────────────── -->
+  <div class=”ws-archive-section” id=”ws-archive-section” style=”display:none”>
+    <div class=”ws-archive-head” onclick=”wsToggleArchive()”>
+      <span class=”ws-day-arrow” id=”ws-archive-arrow”>▸</span>
+      <span class=”ws-archive-title”>🗂️ Alte Webseiten</span>
+      <span class=”ws-archive-count” id=”ws-archive-count”>0</span>
+    </div>
+    <div class=”ws-archive-body” id=”ws-archive-body” style=”display:none”></div>
   </div>
 </main>
 

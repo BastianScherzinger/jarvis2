@@ -300,18 +300,16 @@ def api_websites():
 
 @app.route("/api/websites/grouped")
 def api_websites_grouped():
-    """Websites gruppiert nach Bautag — für den Tages-Ordner-View."""
+    """Aktive (nicht archivierte) Websites gruppiert nach Bautag."""
     import time as _time
     daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
     today = _time.strftime("%Y-%m-%d")
-    all_sites = db_websites.get_all()
+    all_sites = db_websites.get_all()          # archived=0 (Standard)
 
-    # build_date aus created-Timestamp ableiten
     for s in all_sites:
         ts = s.get("created") or 0
         s["build_date"] = _time.strftime("%Y-%m-%d", _time.localtime(ts)) if ts else "unbekannt"
 
-    # Nach Datum gruppieren
     days_dict: dict = {}
     for s in all_sites:
         days_dict.setdefault(s["build_date"], []).append(s)
@@ -319,7 +317,6 @@ def api_websites_grouped():
     days = []
     for d in sorted(days_dict.keys(), reverse=True):
         sites = days_dict[d]
-        # Seiten die den Auto-Limit übersteigen sind Custom/Manual-Builds
         auto_count  = min(len(sites), daily_limit)
         extra_count = max(0, len(sites) - daily_limit)
         days.append({
@@ -333,7 +330,59 @@ def api_websites_grouped():
             "full":        len(sites) >= daily_limit,
         })
 
-    return jsonify({"ok": True, "days": days, "total": len(all_sites)})
+    archived_count = len(db_websites.get_archived())
+    return jsonify({"ok": True, "days": days, "total": len(all_sites),
+                    "archived_count": archived_count})
+
+
+@app.route("/api/websites/archived")
+def api_websites_archived():
+    """Archivierte Websites — für den 'Alte Webseiten'-Bereich."""
+    import time as _time
+    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+    sites = db_websites.get_archived()
+
+    for s in sites:
+        ts = s.get("created") or 0
+        s["build_date"] = _time.strftime("%Y-%m-%d", _time.localtime(ts)) if ts else "unbekannt"
+
+    # Nach Datum gruppieren
+    days_dict: dict = {}
+    for s in sites:
+        days_dict.setdefault(s["build_date"], []).append(s)
+
+    days = []
+    for d in sorted(days_dict.keys(), reverse=True):
+        day_sites = days_dict[d]
+        days.append({
+            "date":       d,
+            "sites":      day_sites,
+            "count":      len(day_sites),
+            "limit":      daily_limit,
+        })
+
+    return jsonify({"ok": True, "days": days, "total": len(sites)})
+
+
+@app.route("/api/websites/archive_all", methods=["POST"])
+def api_websites_archive_all():
+    """Archiviert alle aktiven Seiten und startet optional den Night-Builder neu."""
+    n = db_websites.archive_all()
+    _logger.info("Dashboard", f"{n} Webseite(n) archiviert")
+
+    # Night-Builder optional neu starten
+    start_builder = request.json.get("start_builder", False) if request.is_json else False
+    builder_started = False
+    if start_builder:
+        try:
+            import auto_builder as _ab
+            if not _ab.is_running():
+                _ab.start()
+                builder_started = True
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "archived": n, "builder_started": builder_started})
 
 
 def _website_added_dir(row: dict) -> "Path | None":
