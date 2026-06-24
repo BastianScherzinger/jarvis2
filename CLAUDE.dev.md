@@ -132,9 +132,15 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   Responsive/QA), je mit einem **echten Skill**: Inhalt/Layout/Typografie/Farbe/Responsive
   = `ui-ux-pro-max`, Politur = `design-taste-frontend` (taste), Motion = `design-pro`.
   Die Skills liegen versioniert im Repo unter `skills/<name>/SKILL.md` und werden von
-  `claude_skills.ensure_installed()` (App-Start + install.py) nach `~/.claude/skills/`
-  gespiegelt — nötig, weil der headless Makeover-Claude IM Webseiten-Ordner läuft und dort
-  nur user-globale Skills sieht. Jede Stufe
+  `claude_skills.ensure_installed()` (App-Start + start.py + install.py) nach
+  `~/.claude/skills/` gespiegelt — nötig, weil der headless Makeover-Claude IM
+  Webseiten-Ordner läuft und dort nur user-globale Skills sieht. Die **claude-CLI** (fürs
+  Makeover zwingend) wird beim Start via `claude_coder.ensure_cli()` (best-effort
+  `npm i -g @anthropic-ai/claude-code`) sichergestellt. Jeder Stufen-Prompt wird mit den
+  **dokumentierten Lead-/Betriebsdetails** angereichert (`_context_block` zieht
+  `beschreibung`/`pitch_hook`/`firmengroesse`/Adresse/Ansprechpartner aus db_evaluated über
+  `lead_id` + die volle content.json) und weist den Claude an, das Skill AKTIV zu nutzen
+  (Premium-Ziel, Schritt N/7, baut auf Vorstufen auf). Jede Stufe
   läuft über **Headless Claude Code** (`claude_coder.run_prompt`, Snapshot + Render-Gate +
   Rollback), wird in `content.json["makeover_stages"]` markiert (**resume-fähig**),
   per **Git-Commit** als Rollback-Punkt gesichert und ins Kostentracking gebucht. Job-Wrapper

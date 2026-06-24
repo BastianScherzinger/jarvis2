@@ -238,52 +238,107 @@ def _reset_dirty(folder: Path) -> None:
         logger.info("Makeover", f"Resume: uncommittete Halbstufe verworfen ({folder.name})")
 
 
+def _doc_details(folder: Path, meta: dict) -> dict:
+    """Zusätzliche dokumentierte Fakten zu Seite/Lead aus den DBs (best-effort) — die
+    „gesammelten Details", auf die jede Stufe zurückgreift. Stilles Scheitern erlaubt."""
+    out: dict = {}
+    try:
+        import db_websites
+        row = db_websites.get_by_folder(str(folder)) or {}
+        for k in ("kontakt_email", "ansprechpartner", "live_url", "repo_url"):
+            if row.get(k):
+                out[k] = row[k]
+        lead_id = row.get("lead_id")
+        if lead_id:
+            import db_evaluated
+            # lead_id ist i.d.R. die db_evaluated-id; robust auch raw_id versuchen.
+            lead = (db_evaluated.get_by_id(int(lead_id))
+                    or db_evaluated.get_by_raw_id(int(lead_id)) or {})
+            for k in ("beschreibung", "firmengroesse", "pitch_hook", "potenzial_begruendung",
+                      "adresse", "telefon", "email_adresse", "social_media", "bundesland",
+                      "branche", "stadt", "ansprechpartner"):
+                if lead.get(k) and k not in out:
+                    out[k] = lead[k]
+    except Exception:
+        pass
+    return out
+
+
 def _context_block(folder: Path, meta: dict) -> str:
-    """Standardisierte Fakten zu genau dieser Seite/diesem Lead — in JEDEM Stufen-Prompt."""
+    """Standardisierte, ANGEREICHERTE Fakten zu genau dieser Seite/diesem Lead — in JEDEM
+    Stufen-Prompt (content.json + dokumentierte Lead-/Webseiten-Details aus den DBs)."""
     c = _read_content(folder)
+    d = _doc_details(folder, meta)
+
+    def pick(*keys, default=""):
+        for src in (meta, c, d):
+            for k in keys:
+                v = src.get(k)
+                if v:
+                    return v
+        return default
+
     name    = (meta.get("name") or c.get("site_name") or "Der Betrieb").strip()
-    branche = (meta.get("branche") or c.get("branche") or "").strip()
-    stadt   = (meta.get("stadt") or c.get("stadt") or "").strip()
+    branche = pick("branche")
+    stadt   = pick("stadt")
     akzent  = c.get("akzent") or "#c8102e"
-    # Kompakter content.json-Auszug (gekürzt, nur als Orientierung)
+
+    lines = [
+        "BETRIEB (alle Texte/Designentscheidungen müssen 100 % hierzu passen — nichts erfinden):",
+        f"- Name: {name}",
+        f"- Branche: {branche}",
+        f"- Stadt/Region: {stadt}{(' · ' + d['bundesland']) if d.get('bundesland') else ''}",
+        f"- Adresse: {pick('adresse')}",
+        f"- Telefon: {pick('telefon')}",
+        f"- E-Mail: {pick('email', 'email_adresse', 'kontakt_email')}",
+        f"- Ansprechpartner: {pick('ansprechpartner')}",
+        f"- Firmengröße: {d.get('firmengroesse', '')}",
+        f"- Aktuelle Akzentfarbe: {akzent}",
+        f"- Vorhandene Bilder: {', '.join((c.get('fotos') or [])[:6]) or 'hero_image/logo_image siehe content.json'}",
+    ]
+    if d.get("beschreibung"):
+        lines.append(f"- Dokumentierte Beschreibung (Lead-Recherche): {str(d['beschreibung'])[:600]}")
+    if d.get("pitch_hook"):
+        lines.append(f"- Verkaufs-Aufhänger (pitch_hook): {str(d['pitch_hook'])[:300]}")
+    if d.get("potenzial_begruendung"):
+        lines.append(f"- Potenzial/Stärken (recherchiert): {str(d['potenzial_begruendung'])[:300]}")
+    if d.get("social_media"):
+        lines.append(f"- Social Media: {str(d['social_media'])[:200]}")
+
     dump = json.dumps(c, ensure_ascii=False)
-    if len(dump) > 1800:
-        dump = dump[:1800] + " …"
-    return (
-        "BETRIEB (alle Texte müssen 100 % hierzu passen — nichts erfinden):\n"
-        f"- Name: {name}\n"
-        f"- Branche: {branche}\n"
-        f"- Stadt: {stadt}\n"
-        f"- Adresse: {c.get('adresse', '')}\n"
-        f"- Telefon: {c.get('telefon', meta.get('telefon', ''))}\n"
-        f"- E-Mail: {c.get('email', meta.get('email', ''))}\n"
-        f"- Bewertung: {meta.get('bewertung', c.get('bewertung', ''))}\n"
-        f"- Ansprechpartner: {meta.get('ansprechpartner', '')}\n"
-        f"- Aktuelle Akzentfarbe: {akzent}\n"
-        f"- Vorhandene Bilder: {', '.join((c.get('fotos') or [])[:6]) or 'hero_image/logo_image siehe content.json'}\n\n"
-        f"Aktuelle content.json (Auszug):\n{dump}"
-    )
+    if len(dump) > 3500:
+        dump = dump[:3500] + " …"
+    return "\n".join(lines) + f"\n\nAktuelle content.json (vollständige Inhaltsbasis):\n{dump}"
 
 
-def _build_stage_prompt(folder: Path, meta: dict, stage: dict) -> str:
+def _build_stage_prompt(folder: Path, meta: dict, stage: dict, idx: int, total: int) -> str:
     context = _context_block(folder, meta)
     return (
-        "Du bist Senior-Webdesigner und arbeitest im AKTUELLEN Ordner an einer fertigen, "
-        "deployten Django-Landing-Page eines echten lokalen Betriebs. Die Seite rendert aus "
-        "content.json über templates/index.html + static/css/style.css (+ static/img, static/js).\n\n"
-        f"NUTZE für diese Aufgabe das Skill «{stage['skill']}».\n\n"
+        "Du bist Senior-Webdesigner einer preisgekrönten Agentur und arbeitest im AKTUELLEN "
+        "Ordner an einer fertigen, deployten Django-Landing-Page eines echten lokalen Betriebs. "
+        "Die Seite rendert aus content.json über templates/index.html + static/css/style.css "
+        "(+ static/img, static/js).\n\n"
+        f"Dies ist Schritt {idx}/{total} eines mehrstufigen Upgrades. ZIEL über alle Stufen: "
+        "aus einer Standard-Vorlage eine ECHTE, hochwertige Premium-Webseite machen, die wie von "
+        "einer Top-Agentur wirkt — nicht wie ein Template oder KI-generiert.\n\n"
+        f"SKILL — ZWINGEND NUTZEN: Rufe das Skill «{stage['skill']}» auf (Skill-Tool) und wende es "
+        "AKTIV an: durchsuche seine Datenbank/Referenzen (z.B. Farbpaletten, Font-Pairings, "
+        "UX-Regeln, Style-Empfehlungen) und übernimm KONKRETE, branchengerechte Empfehlungen für "
+        "GENAU diesen Betrieb — nicht nur allgemein „beachten\".\n\n"
         f"{context}\n\n"
         f"AUFGABE — {stage['label']}:\n{stage['task']}\n\n"
         "HARTE REGELN:\n"
         "- Beginne SOFORT und stelle KEINE Rückfragen — setze die Aufgabe autonom vollständig um.\n"
+        "- Nutze ALLE oben dokumentierten Lead-/Betriebsdetails (Beschreibung, Stärken, "
+        "Leistungen, Region, Ansprechpartner) für glaubwürdige, betriebsgenaue Inhalte.\n"
         "- Bearbeite WIRKLICH templates/index.html und static/css/style.css (echtes Design), "
         "nicht nur content.json.\n"
         "- content.json bleibt valides JSON; vorhandene Keys NIE löschen/umbenennen; "
         "hero_image, logo_image und fotos erhalten.\n"
         "- Alles deutsch, konkret, auf genau diesen Betrieb zugeschnitten — kein Lorem/Platzhalter, "
         "kein KI-Geschwurbel.\n"
-        "- Minimaler, gezielter Diff für genau diese Aufgabe; bestehende funktionierende Teile "
-        "nicht zerstören.\n"
+        "- Baue auf dem Ergebnis der vorherigen Stufen AUF; mache vorherige Verbesserungen nicht "
+        "rückgängig. Minimaler, gezielter Diff für genau diese Aufgabe.\n"
         "- Am Ende MUSS `python manage.py check` fehlerfrei sein und das Template ohne Fehler rendern.\n"
         "Fasse zum Schluss in genau einem Satz zusammen, was du verändert hast."
     )
@@ -320,7 +375,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
         pct = 8 + int(i / total * 82)
         say(pct, f"Makeover {i + 1}/{total} · {stage['label']} ({stage['skill']})…")
         logger.info("Makeover", f"{name} — Stufe {stage['label']}")
-        prompt = _build_stage_prompt(folder, meta, stage)
+        prompt = _build_stage_prompt(folder, meta, stage, i + 1, total)
         fp0 = _fingerprint(folder)
         res = claude_coder.run_prompt(
             str(folder), prompt, branche=meta.get("branche", ""),

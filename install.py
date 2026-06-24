@@ -157,6 +157,18 @@ def run(quiet: bool = False) -> bool:
     except Exception as _e:
         _warn("Claude-Skills", str(_e)[:80])
 
+    # ── claude-CLI (für das 7-Stufen-Makeover zwingend) ──────────────────────
+    try:
+        import claude_coder
+        if claude_coder.is_available():
+            _ok("claude-CLI", "vorhanden")
+        elif claude_coder.ensure_cli():
+            _ok("claude-CLI", "installiert (einmalig `claude` zum Anmelden starten)")
+        else:
+            _warn("claude-CLI", "fehlt — Node.js + 'npm i -g @anthropic-ai/claude-code' nötig (sonst kein Makeover)")
+    except Exception as _e:
+        _warn("claude-CLI", str(_e)[:80])
+
     # ── Python-Version ───────────────────────────────────────────────
     v = sys.version_info
     if v >= (3, 10):

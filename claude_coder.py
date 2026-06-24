@@ -45,6 +45,44 @@ def is_available() -> bool:
     return bool(_claude_cmd())
 
 
+def ensure_cli() -> bool:
+    """Best-effort: installiert die claude-CLI (npm i -g @anthropic-ai/claude-code), falls sie
+    fehlt und npm verfügbar ist. Ohne die CLI läuft das 7-Stufen-Makeover NICHT. Gibt True
+    zurück, wenn die CLI danach verfügbar ist. Auth (claude login / ANTHROPIC-Login) bleibt
+    Sache des Nutzers — wird nur hingewiesen."""
+    if is_available():
+        return True
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if not npm:
+        try:
+            import logger
+            logger.warn("Setup", "claude-CLI fehlt & npm/Node nicht gefunden — Makeover deaktiviert. "
+                                 "Node.js installieren, dann: npm i -g @anthropic-ai/claude-code")
+        except Exception:
+            pass
+        return False
+    try:
+        import logger
+        logger.info("Setup", "Installiere claude-CLI (npm i -g @anthropic-ai/claude-code)…")
+    except Exception:
+        pass
+    try:
+        subprocess.run([npm, "i", "-g", "@anthropic-ai/claude-code"],
+                       capture_output=True, text=True, timeout=600)
+    except Exception:
+        return False
+    ok = is_available()
+    try:
+        import logger
+        if ok:
+            logger.success("Setup", "claude-CLI installiert. (Einmalig anmelden: `claude` im Terminal starten.)")
+        else:
+            logger.warn("Setup", "claude-CLI-Installation nicht bestätigt — Terminal neu öffnen / PATH prüfen.")
+    except Exception:
+        pass
+    return ok
+
+
 def build_prompt(task: str, branche: str = "") -> str:
     """Umschließt die Feature-Aufgabe mit harten Qualitäts-/Sicherheitsregeln."""
     br = f" (Branche: {branche})" if branche else ""

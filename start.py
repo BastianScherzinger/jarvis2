@@ -80,6 +80,28 @@ def _install_deps() -> None:
             check=False
         )
 
+    # Makeover-Voraussetzungen: Design-Skills nach ~/.claude/skills spiegeln + claude-CLI.
+    # Ohne diese läuft das 7-Stufen-Skill-Makeover des Night-Builders nicht.
+    try:
+        import claude_skills
+        claude_skills.ensure_installed()
+        print(f"  {GR}[✓]{R}  Design-Skills bereit {GY}(taste, ui-ux-pro-max){R}")
+    except Exception as e:
+        print(f"  {YL}[!]{R}  Design-Skills: {e}")
+    try:
+        import claude_coder
+        if claude_coder.is_available():
+            print(f"  {GR}[✓]{R}  claude-CLI vorhanden")
+        else:
+            print(f"  {YL}[+]{R}  Installiere claude-CLI (einmalig)...")
+            if claude_coder.ensure_cli():
+                print(f"  {GR}[✓]{R}  claude-CLI installiert {GY}(einmalig `claude` zum Anmelden starten){R}")
+            else:
+                print(f"  {YL}[!]{R}  claude-CLI fehlt — Makeover deaktiviert. "
+                      f"{GY}Node.js + 'npm i -g @anthropic-ai/claude-code'{R}")
+    except Exception as e:
+        print(f"  {YL}[!]{R}  claude-CLI-Check: {e}")
+
 
 def _ensure_model(model: str) -> None:
     """Prüft ob das Modell in Ollama installiert ist — startet ohne Rückfrage."""

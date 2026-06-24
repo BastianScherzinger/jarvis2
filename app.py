@@ -61,15 +61,21 @@ def _warmup_voice():
 _startup_t.Thread(target=_warmup_voice, daemon=True).start()
 
 
-# Mitgelieferte Claude-Code-Skills (taste/ui-ux-pro-max) nach ~/.claude/skills spiegeln,
-# damit der headless Makeover-Claude sie im Webseiten-Ordner laden kann.
-def _ensure_claude_skills():
+# Makeover-Voraussetzungen sicherstellen: (1) die mitgelieferten Skills (taste/ui-ux-pro-max)
+# nach ~/.claude/skills spiegeln, damit der headless Makeover-Claude sie im Webseiten-Ordner
+# laden kann; (2) die claude-CLI nachinstallieren, falls sie fehlt (sonst kein Makeover).
+def _ensure_makeover_setup():
     try:
         import claude_skills
         claude_skills.ensure_installed()
     except Exception:
         pass
-_startup_t.Thread(target=_ensure_claude_skills, daemon=True).start()
+    try:
+        import claude_coder
+        claude_coder.ensure_cli()
+    except Exception:
+        pass
+_startup_t.Thread(target=_ensure_makeover_setup, daemon=True).start()
 
 
 # Discord-Freigabe-Bot (Voting-Gate vor dem Kundenversand) — nur wenn konfiguriert.
