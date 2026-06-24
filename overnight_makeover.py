@@ -32,64 +32,93 @@ _MODEL = os.environ.get("JARVIS_MAKEOVER_MODEL", "sonnet").strip()
 
 
 # ── Die 7 Stufen ───────────────────────────────────────────────────────────────
+# Echte, mitgelieferte Skills (claude_skills.ensure_installed → ~/.claude/skills/), damit
+# der headless Makeover-Claude sie im Webseiten-Ordner laden kann:
+#   _UIUX  = «ui-ux-pro-max»        — Design-Intelligenz (Paletten, Font-Pairings, UX-Regeln)
+#   _TASTE = «design-taste-frontend»— Anti-Slop-Politur für Landingpages/Redesigns (taste)
+#   _PRO   = «design-pro»           — Bündel-Skill (ui-ux-pro-max/impeccable/taste/frontend-pro/shadcn)
+# Jede Stufe nutzt das für ihre Facette stärkste Skill.
+_UIUX  = "ui-ux-pro-max"
+_TASTE = "design-taste-frontend"
+_PRO   = "design-pro"
+
 STAGES: list[dict] = [
     {
-        "key": "inhalt", "label": "Inhalt & Struktur", "skill": "design-pro",
+        "key": "inhalt", "label": "Inhalt & Struktur", "skill": _UIUX,
         "task": (
-            "Schärfe Inhalt und Seitenstruktur. Schreibe lead-genaue, glaubwürdige Texte "
-            "(Hero-Headline + Subline, Über-uns, 4–6 KONKRETE Leistungen, echte USPs, 4–5 "
-            "branchenspezifische FAQ, einladender Kontakt-CTA). Bringe die Sektionen in eine "
-            "sinnvolle, konversionsstarke Reihenfolge und entferne jede generische Floskel."
+            "Facette: UX & Conversion (ui-ux-pro-max). Schärfe Inhalt und Seitenstruktur. "
+            "Schreibe lead-genaue, glaubwürdige Texte: eine Hero-Headline mit klarem "
+            "Nutzenversprechen + Subline, Über-uns, 4–6 KONKRETE Leistungen, echte USPs, "
+            "4–5 branchenspezifische FAQ, konkrete CTAs («Kostenlose Anfrage» statt «Senden») "
+            "und sichtbare Vertrauenssignale (Bewertung, Erreichbarkeit, Garantien). In 5 "
+            "Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun. Bringe "
+            "die Sektionen in eine konversionsstarke Reihenfolge und entferne jede Floskel."
         ),
     },
     {
-        "key": "layout", "label": "Layout & Hierarchie", "skill": "design-pro",
+        "key": "layout", "label": "Layout & Hierarchie", "skill": _UIUX,
         "task": (
-            "Überarbeite Layout und visuelle Hierarchie: ein starker Above-the-fold-Hero, "
-            "klar abgegrenzte Sektionen, ein konsistentes Grid, großzügiger Weißraum und EIN "
-            "dominanter primärer CTA-Fluss. Ziel: ruhige, professionelle Komposition."
+            "Facette: Visuelle Hierarchie + Spacing (impeccable-design). Überarbeite Layout und "
+            "Hierarchie: ein starker Above-the-fold-Hero (Nutzenversprechen + EIN dominanter "
+            "primärer CTA + Vertrauenssignal), klar abgegrenzte Sektionen, konsistentes Grid, "
+            "F-/Z-Lesemuster. Nutze eine feste Spacing-Skala (4/8/12/16/24/32/48/72) statt "
+            "willkürlicher Werte und rhythmischen, großzügigen Weißraum. Sekundäre Aktionen "
+            "deutlich leiser als die primäre."
         ),
     },
     {
-        "key": "typografie", "label": "Typografie", "skill": "design-pro",
+        "key": "typografie", "label": "Typografie", "skill": _UIUX,
         "task": (
-            "Typografie-Überarbeitung: wähle eine zur Branche passende, professionelle "
-            "Schriftpaarung (Google Fonts korrekt einbinden), definiere eine klare typografische "
-            "Skala (H1 bis Fließtext), optimale Zeilenlänge, Zeilenhöhe und beste Lesbarkeit auf "
-            "Mobil und Desktop."
+            "Facette: Typografie (impeccable-design §6). Paare einen charakterstarken Display-Font "
+            "mit einem ruhigen, gut lesbaren Body-Font (passend zur Branche, Google Fonts korrekt "
+            "einbinden; generisches Arial/pures Inter meiden). Definiere eine fluide Typo-Skala mit "
+            "clamp(), Zeilenhöhe 1.5–1.7 im Body und eng (1.05–1.2) bei großen Headlines, leicht "
+            "negatives letter-spacing bei großen/fetten Headlines, optimale Zeilenlänge. Beste "
+            "Lesbarkeit auf Mobil und Desktop."
         ),
     },
     {
-        "key": "farbe", "label": "Farbe & Theming", "skill": "design-pro",
+        "key": "farbe", "label": "Farbe & Theming", "skill": _UIUX,
         "task": (
-            "Farb- und Theming-Pass: entwickle eine stimmige Markenpalette rund um die "
-            "Akzentfarbe, lege sie als CSS-Variablen/Tokens an, sorge für WCAG-AA-Kontraste, "
-            "abwechslungsreiche aber konsistente Sektions-Hintergründe und saubere Hover/Active-States."
+            "Facette: Tokens & Theming (shadcn-Prinzipien). Entwickle eine stimmige Markenpalette "
+            "rund um die Akzentfarbe: EINE konsequent eingesetzte Akzentfarbe + leicht getönte "
+            "Neutrals (kein Grau-Einheitsbrei). Lege ALLE Farben als CSS-Custom-Properties/Tokens "
+            "an (--background --foreground --card --muted --border --primary --accent --ring), nutze "
+            "HSL/OKLCH für stimmige Abstufungen, sichere WCAG-AA-Kontraste (Text ≥ 4.5:1) und saubere "
+            "hover/focus-visible/active-States. Keine Effekt-Häufung (nicht Glow + Gradient + Schatten + Border zugleich)."
         ),
     },
     {
-        "key": "politur", "label": "Politur (taste)", "skill": "taste",
+        "key": "politur", "label": "Politur (taste)", "skill": _TASTE,
         "task": (
-            "Detail-Politur im Sinne von «taste»: feinjustiere Spacing-Rhythmus, Border-Radien, "
-            "Schatten, Trennlinien, Icon- und Button-Konsistenz sowie die Bildbehandlung. "
-            "Entferne alles, was billig oder KI-generiert wirkt — Ziel: hochwertig und handgemacht."
+            "Skill «design-taste-frontend» (taste) — Anti-Slop-Politur & Zurückhaltung. "
+            "Weniger, aber besser: jedes Element braucht einen Grund, im Zweifel weglassen. "
+            "Nichts darf templated/KI-generiert wirken. "
+            "Feinjustiere Spacing-Rhythmus, konsistente Border-Radien und Stroke-Breiten, WEICHE "
+            "mehrschichtige Schatten (kein harter Glow), Trennlinien, Icon- und Button-Konsistenz "
+            "(ein Icon-Set, eine Strichstärke — keine Emojis als UI-Icons, Inline-SVG nutzen) und "
+            "Bildbehandlung. Vervollständige alle Zustände (hover, focus-visible, active, disabled, "
+            "loading, empty). Entferne alles, was billig oder KI-generiert wirkt."
         ),
     },
     {
-        "key": "motion", "label": "Motion & Interaktion", "skill": "frontend-design",
+        "key": "motion", "label": "Motion & Interaktion", "skill": _PRO,
         "task": (
-            "Füge dezente Motion und Interaktion hinzu: sanfte Scroll-Reveal-Animationen, "
-            "Hover-Microinteractions und – falls passend – eine Zähler-Animation. Performant, "
-            "barrierearm (prefers-reduced-motion respektieren), nie verspielt oder kitschig."
+            "Facette: Animation (frontend-pro §5). Füge dezente, performante Motion hinzu: sanfte "
+            "Scroll-Reveal-Animationen, Hover-Microinteractions und – falls passend – eine "
+            "Zähler-Animation. NUR transform/opacity animieren, 150–500 ms, ease-out für Eintritte, "
+            "`will-change` gezielt. `prefers-reduced-motion: reduce` respektieren. Hover hebt dezent "
+            "an (1–2 px), springt nicht. Nie verspielt oder kitschig."
         ),
     },
     {
-        "key": "responsive", "label": "Responsive & QA", "skill": "design-pro",
+        "key": "responsive", "label": "Responsive & QA", "skill": _UIUX,
         "task": (
-            "Responsive- und QA-Durchgang: perfekte Darstellung auf Mobil (Mobile-First prüfen), "
-            "ein mobiler Sticky-Anruf/CTA, ausreichend große Touch-Targets, keine horizontalen "
-            "Überläufe. Abschließender Qualitätscheck — stelle sicher, dass `python manage.py check` "
-            "und das Rendering fehlerfrei sind."
+            "Facette: Mobile-first + Self-Check (frontend-pro §5). Perfekte Darstellung auf Mobil "
+            "(echte Breakpoints prüfen), ein mobiler Sticky-Anruf/CTA, Touch-Ziele ≥ 44 px, keine "
+            "horizontalen Überläufe, kein CLS. Abschließender Qualitätscheck: Konsole fehlerfrei, "
+            "Links/Buttons/Formulare funktionieren, SEO-Struktur intakt — und es MUSS "
+            "`python manage.py check` fehlerfrei sein und das Template ohne Fehler rendern."
         ),
     },
 ]

@@ -331,6 +331,24 @@ if _HAS_DISCORD:
         except Exception as ex:
             logger.warn("Discord", f"Startnachricht fehlgeschlagen: {type(ex).__name__}")
 
+    async def _post_announcement(title: str, description: str, color: int = 0x00d4ff):
+        """Postet eine einfache Status-/Abschlussnachricht in den Kanal (kein Review/Voting)."""
+        try:
+            cid = _channel_id()
+            ch  = _bot.get_channel(cid) if _bot else None
+            if ch is None and _bot is not None:
+                try:
+                    ch = await _bot.fetch_channel(cid)
+                except Exception:
+                    return
+            if ch is None:
+                return
+            e = discord.Embed(title=title, description=description or "", color=color)
+            e.set_footer(text="JARVIS LeadHunter")
+            await ch.send(embed=e)
+        except Exception as ex:
+            logger.warn("Discord", f"Announcement fehlgeschlagen: {type(ex).__name__}")
+
 
     class _Client(discord.Client):
         def __init__(self):
@@ -385,6 +403,20 @@ def submit_for_review(name: str, stadt: str, branche: str, link: str,
     except Exception as e:
         logger.warn("Discord", f"Review-Post nicht zustellbar: {type(e).__name__}")
     return review
+
+
+def notify(title: str, description: str = "", color: int = 0x00d4ff) -> bool:
+    """Postet eine einfache Status-/Abschlussnachricht in den Discord-Kanal (KEIN Voting-Review).
+    Für z.B. die Verabschiedung, wenn der Night-Builder alle Seiten fertig makeovert hat.
+    Gibt True zurück, wenn die Nachricht eingereiht wurde."""
+    if not enabled() or not _started or _loop is None:
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(_post_announcement(title, description, color), _loop)
+        return True
+    except Exception as e:
+        logger.warn("Discord", f"Notify nicht zustellbar: {type(e).__name__}")
+        return False
 
 
 def start() -> dict:

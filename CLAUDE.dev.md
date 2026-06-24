@@ -128,8 +128,13 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
 
 - **Mehrstufiges Skill-Makeover** (`overnight_makeover.py`): ersetzt das frühere flache
   „Verbessern". `run_makeover(folder, meta, say, stop)` fährt eine gebaute Seite durch
-  **7 Stufen** (Inhalt → Layout → Typografie → Farbe → Politur(taste) → Motion →
-  Responsive/QA), je mit einem echten Skill (design-pro/taste/frontend-design). Jede Stufe
+  **7 Stufen** (Inhalt → Layout → Typografie → Farbe → Politur → Motion →
+  Responsive/QA), je mit einem **echten Skill**: Inhalt/Layout/Typografie/Farbe/Responsive
+  = `ui-ux-pro-max`, Politur = `design-taste-frontend` (taste), Motion = `design-pro`.
+  Die Skills liegen versioniert im Repo unter `skills/<name>/SKILL.md` und werden von
+  `claude_skills.ensure_installed()` (App-Start + install.py) nach `~/.claude/skills/`
+  gespiegelt — nötig, weil der headless Makeover-Claude IM Webseiten-Ordner läuft und dort
+  nur user-globale Skills sieht. Jede Stufe
   läuft über **Headless Claude Code** (`claude_coder.run_prompt`, Snapshot + Render-Gate +
   Rollback), wird in `content.json["makeover_stages"]` markiert (**resume-fähig**),
   per **Git-Commit** als Rollback-Punkt gesichert und ins Kostentracking gebucht. Job-Wrapper
@@ -137,7 +142,10 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   einmal am Ende**, dann `finalize_review()` → Discord (**1× 👍 = Kunden-Mail / 1× 👎 =
   verwerfen**, `DISCORD_APPROVALS_NEEDED` Default jetzt 1) oder Vorschau-Mail-Fallback.
   Der Night-Builder fährt jede der 10 Seiten komplett durch; Phase 2 holt offene Stufen
-  bestehender Seiten nach (`_pick_improve_target` bevorzugt Seiten mit offenen Stufen).
+  bestehender Seiten nach (`_pick_improve_target` bevorzugt Seiten mit offenen Stufen),
+  bis ALLE Seiten auf 7/7 sind. Sind dann nichts mehr zu bauen/verbessern, postet
+  `auto_builder._farewell_if_done()` EINMAL eine Discord-Verabschiedung via
+  `discord_bot.notify()` (Latch `_farewell_sent`, reset bei Start/Tageswechsel/neuer Arbeit).
   Der „Webseiten verbessern"-Button (`/api/websites/<id>/improve`) löst denselben Lauf aus.
   Wichtig: `claude_coder` gibt `--append-system-prompt` mit, damit ein im Zielordner
   gefundenes CLAUDE.md (JARVIS-Persona) den Headless-Lauf nicht in einen Chat verwandelt.

@@ -15,13 +15,19 @@ gefahren — jede mit einem echten Skill, ausgeführt vom **Headless Claude Code
 
 | # | Stufe | Skill |
 |---|-------|-------|
-| 1 | Inhalt & Struktur | design-pro |
-| 2 | Layout & Hierarchie | design-pro |
-| 3 | Typografie | design-pro |
-| 4 | Farbe & Theming | design-pro |
-| 5 | Politur | taste |
-| 6 | Motion & Interaktion | frontend-design |
-| 7 | Responsive & QA | design-pro |
+| 1 | Inhalt & Struktur | ui-ux-pro-max |
+| 2 | Layout & Hierarchie | ui-ux-pro-max |
+| 3 | Typografie | ui-ux-pro-max |
+| 4 | Farbe & Theming | ui-ux-pro-max |
+| 5 | Politur | design-taste-frontend (taste) |
+| 6 | Motion & Interaktion | design-pro |
+| 7 | Responsive & QA | ui-ux-pro-max |
+
+**Skills:** Die echten Skills `ui-ux-pro-max` und `design-taste-frontend` (taste) liegen
+versioniert im Repo unter `skills/<name>/SKILL.md` und werden beim Start
+(`claude_skills.ensure_installed()`, auch in `install.py`) nach `~/.claude/skills/`
+gespiegelt — nötig, weil der headless Makeover-Claude im Webseiten-Ordner läuft und dort
+nur user-globale Skills sieht. So sind sie auf JEDEM PC nach `git pull` automatisch da.
 
 **Pro Stufe:** Standard-Kontextblock (Fakten zu genau diesem Lead/dieser Seite) + Master-Prompt +
 Skill → `claude -p` mit Snapshot + **Render-Gate + Rollback** → Stufe in
@@ -30,6 +36,12 @@ Activity-Feed + Kostentracking. Eine Stufe gilt nur als erledigt, wenn sich **Da
 ändern** (Schutz vor leeren Läufen, z.B. bei Session-Limit).
 
 **Deploy:** Commit nach jeder Stufe, **Railway-Deploy einmal am Ende**. Danach Discord-Freigabe.
+
+**Verabschiedung:** Der Night-Builder fährt nach der Bau-Phase ALLE bestehenden Seiten durch
+den 7-Stufen-Weg, bis jede auf 7/7 ist. Ist dann nichts mehr zu bauen/verbessern, postet
+`auto_builder._farewell_if_done()` EINMAL eine Discord-Abschlussnachricht via
+`discord_bot.notify()` (Latch `_farewell_sent`; reset bei Start, Tageswechsel und sobald wieder
+eine Seite offene Stufen hat).
 
 **Discord-Gate:** **1× 👍 = Kunden-Mail (12 Uhr) · 1× 👎 = verworfen**
 (`DISCORD_APPROVALS_NEEDED` Default jetzt `1`). Ohne Discord → Vorschau-Mail an

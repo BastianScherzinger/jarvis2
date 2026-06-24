@@ -148,6 +148,15 @@ def run(quiet: bool = False) -> bool:
     except Exception as _e:
         _warn("Site-Skills", str(_e)[:80])
 
+    # ── Claude-Code-Skills (taste / ui-ux-pro-max) global verfügbar machen ────
+    try:
+        import claude_skills
+        done = claude_skills.ensure_installed()
+        _ok("Claude-Skills", (", ".join(done) + " installiert") if done
+            else "taste + ui-ux-pro-max aktuell")
+    except Exception as _e:
+        _warn("Claude-Skills", str(_e)[:80])
+
     # ── Python-Version ───────────────────────────────────────────────
     v = sys.version_info
     if v >= (3, 10):

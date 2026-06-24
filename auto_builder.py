@@ -57,6 +57,10 @@ _lock = threading.Lock()
 # z.B. die claude-CLI fehlt oder alle Stufen schon erledigt sind.
 _makeover_stuck: set = set()
 
+# Latch für die Discord-Verabschiedung: einmal posten, wenn ALLE Seiten auf 7/7 sind.
+# Wird zurückgesetzt, sobald wieder eine Seite offene Stufen hat (neue Seite gebaut o.ä.).
+_farewell_sent: bool = False
+
 # Persistenter An/Aus-Schalter — überlebt einen Programm-Neustart. Steht hier "running":
 # true, nimmt der Night-Builder beim nächsten App-Start automatisch wieder auf (genau da
 # weiter, denn der Pro-Seite-Fortschritt liegt in content.json["makeover_stages"]).
@@ -100,6 +104,8 @@ def _set(**kw) -> None:
 
 
 def start(_resume: bool = False) -> dict:
+    global _farewell_sent
+    _farewell_sent = False
     with _lock:
         if _state["running"]:
             return {"ok": True, "already": True}
@@ -288,6 +294,56 @@ def _already_reviewed(name: str) -> bool:
                    for r in _rq.all(limit=100))
     except Exception:
         return False
+
+
+def _makeover_sites() -> list:
+    """Alle nicht-archivierten, fertig gebauten Seiten mit lokalem Ordner."""
+    try:
+        import db_websites
+        return [w for w in db_websites.get_all()
+                if (w.get("folder") and os.path.isdir(w["folder"])
+                    and w.get("status") == "done" and not w.get("archived"))]
+    except Exception:
+        return []
+
+
+def _all_sites_complete() -> bool:
+    """True, wenn es ≥1 gebaute Seite gibt und JEDE alle 7 Makeover-Stufen durch hat —
+    also alle Seiten auf demselben Niveau. Basis für die Discord-Verabschiedung."""
+    try:
+        import overnight_makeover
+        sites = _makeover_sites()
+        if not sites:
+            return False
+        return all(overnight_makeover.open_stages(w["folder"]) == 0 for w in sites)
+    except Exception:
+        return False
+
+
+def _farewell_if_done() -> None:
+    """Sind alle Seiten auf 7/7, postet JARVIS EINMAL eine Abschlussnachricht in Discord
+    (Verabschiedung). Der Latch wird zurückgesetzt, sobald wieder Arbeit anfällt."""
+    global _farewell_sent
+    if not _all_sites_complete():
+        _farewell_sent = False           # wieder offene Stufen → Latch lösen
+        return
+    if _farewell_sent:
+        return
+    sites = _makeover_sites()
+    n     = len(sites)
+    live  = sum(1 for w in sites if w.get("live"))
+    msg   = (f"Alle **{n} Webseiten** sind durch alle 7 Skill-Stufen makeovert — alle auf "
+             f"demselben Niveau, **{live} live**. Es ist nichts mehr zu tun.\n\n"
+             "JARVIS verabschiedet sich für heute, Sir. 🫡")
+    posted = False
+    try:
+        import discord_bot
+        posted = discord_bot.notify("✅ Makeover komplett — alle Seiten fertig", msg, 0x2ecc71)
+    except Exception as e:
+        logger.warn("AutoBuilder", f"Verabschiedung fehlgeschlagen: {type(e).__name__}")
+    _farewell_sent = True               # auch ohne Discord nur einmal versuchen/loggen
+    logger.success("AutoBuilder",
+                   f"Alle {n} Seiten auf 7/7 — Verabschiedung {'in Discord gepostet' if posted else 'lokal protokolliert'}")
 
 
 def _before_cutoff() -> bool:
@@ -487,6 +543,7 @@ def _loop() -> None:
             if _state["day"] != today:               # neuer Tag → Zähler/Phase zurück
                 _state["day"] = today
                 _makeover_stuck.clear()              # täglich zurücksetzen
+                globals()["_farewell_sent"] = False  # neuer Tag → wieder verabschiedbar
                 logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
 
         # ── Phase 1: bis Tageslimit neue Seiten bauen ────────────────────────
@@ -508,8 +565,10 @@ def _loop() -> None:
             if _improve_existing_once():
                 continue
 
-        # ── Phase 3: Pause bis zum nächsten Tag/Fenster ──────────────────────
+        # ── Phase 3: nichts mehr zu bauen/verbessern → ggf. verabschieden, dann Pause ─
+        _farewell_if_done()
+        done_note = "✓ alle Seiten auf 7/7 — fertig." if _all_sites_complete() else "Warte auf 0 Uhr…"
         _set(mode="idle",
-             phase=f"Pause — heute {_count_today()}/{_DAILY_LIMIT} gebaut. Warte auf 0 Uhr…",
+             phase=f"Pause — heute {_count_today()}/{_DAILY_LIMIT} gebaut. {done_note}",
              current="")
         _idle_sleep(120)
