@@ -181,6 +181,7 @@ def run(quiet: bool = False) -> bool:
     packages = [
         ("anthropic",          "anthropic"),
         ("flask",              "flask"),
+        ("httpx",              "httpx"),
         ("dotenv",             "python-dotenv"),
         ("speech_recognition", "SpeechRecognition"),
         ("edge_tts",           "edge-tts"),

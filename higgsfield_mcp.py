@@ -300,6 +300,53 @@ def login_status() -> dict:
                 "result": _login_state.get("result"), "authorized": is_authorized()}
 
 
+def _autologin_enabled() -> bool:
+    return os.environ.get("JARVIS_HF_MCP_AUTOLOGIN", "1").strip().lower() not in (
+        "0", "false", "no", "nein", "off")
+
+
+def ensure_ready(open_browser: bool = True) -> dict:
+    """Beim JARVIS-Start aufrufen. Macht die Higgsfield-Abo-Anbindung „ready":
+      - schon angemeldet  → Token still erneuern (headless, kein Browser) → state 'ready'
+      - nicht angemeldet  → wenn Autologin an (JARVIS_HF_MCP_AUTOLOGIN, Default an), den
+                            EINMALIGEN Browser-Login anstoßen + Login-URL prominent ausgeben.
+    So ist auf einem NEUEN PC nach einer Browser-Bestätigung alles bereit; danach läuft es
+    bei jedem Start automatisch (refresh_token). Gibt {state, url?}."""
+    if not _HAS_HTTPX:
+        _log("warn", "httpx fehlt — Higgsfield-MCP nicht nutzbar (pip install httpx).")
+        return {"state": "no_httpx"}
+
+    if is_authorized():
+        try:
+            _valid_token()                       # erneuert bei Bedarf via refresh_token
+            _log("success", "Higgsfield-MCP bereit — Abo-Credits nutzbar (Token gültig).")
+            return {"state": "ready"}
+        except Exception as e:
+            _log("warn", f"Higgsfield-MCP-Token nicht erneuerbar ({type(e).__name__}) — "
+                         "neuer Login nötig.")
+            # weiter unten wie 'nicht angemeldet' behandeln
+
+    if not _autologin_enabled():
+        _log("info", "Higgsfield-MCP nicht angemeldet (Autologin aus) — "
+                     "'python higgsfield_mcp.py login' oder Dashboard-Button.")
+        return {"state": "unauth_noauto"}
+
+    res = login_async(open_browser=open_browser)
+    url = res.get("url", "")
+    try:
+        bar = "=" * 66
+        print("\n" + bar)
+        print("  HIGGSFIELD-LOGIN (einmalig) — danach nutzt JARVIS deine Abo-Credits")
+        print("  fuer Hero-Bilder. Bitte im Browser mit dem Higgsfield-Konto bestaetigen.")
+        if url:
+            print("  Falls sich kein Browser oeffnet, diese URL aufrufen:")
+            print("   " + url)
+        print(bar + "\n", flush=True)
+    except Exception:
+        pass
+    return {"state": "login_started", "url": url}
+
+
 # ── Token gültig halten ──────────────────────────────────────────────────────
 
 def _valid_token() -> str:

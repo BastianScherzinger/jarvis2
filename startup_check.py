@@ -171,6 +171,18 @@ def _check_ffmpeg() -> bool:
 def _check_speech_recognition() -> bool:
     return _check_package("speech_recognition", "SpeechRecognition", "speech_recognition")
 
+def _check_higgsfield_mcp() -> None:
+    """Meldet, ob die Higgsfield-MCP-Anbindung (Abo-Credits) angemeldet ist. Löst KEINEN
+    Login aus (das macht der Startup-Cleanup in app.py) — reine Statusanzeige."""
+    try:
+        import higgsfield_mcp
+        if higgsfield_mcp.is_authorized():
+            _ok("Higgsfield (Abo via MCP)", "angemeldet")
+        else:
+            _warn("Higgsfield (Abo via MCP)", "Login beim Start (Browser bestaetigen)")
+    except Exception:
+        _warn("Higgsfield (Abo via MCP)", "Modul nicht ladbar")
+
 # ── Haupt-Check ──────────────────────────────────────────────────
 
 def run() -> dict[str, bool]:
@@ -194,6 +206,7 @@ def run() -> dict[str, bool]:
     _check_elevenlabs()
     results["playwright"]       = _check_playwright()
     results["workspace"]        = _check_workspace()
+    _check_higgsfield_mcp()
 
     # Zusammenfassung
     ok    = sum(1 for v in results.values() if v)

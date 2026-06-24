@@ -120,6 +120,14 @@ def _startup_cleanup():
     except Exception as e:
         _logger.warn("Startup", f"Builder-Resume fehlgeschlagen: {type(e).__name__}")
 
+    # Higgsfield-MCP bereitmachen: angemeldet → Token still erneuern; sonst (z.B. NEUER PC)
+    # den einmaligen Browser-Login anstoßen, damit JARVIS danach die Abo-Credits nutzt.
+    try:
+        import higgsfield_mcp
+        higgsfield_mcp.ensure_ready()
+    except Exception as e:
+        _logger.warn("Startup", f"Higgsfield-MCP-Setup übersprungen: {type(e).__name__}")
+
 _startup_t.Thread(target=_startup_cleanup, daemon=True).start()
 
 _MEDIA_DIR = Path(__file__).parent / "workspace" / "media"
