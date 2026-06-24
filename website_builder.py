@@ -1051,6 +1051,24 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
             pass
 
 
+# ── Globaler Makeover-Lock: es darf IMMER NUR EINE Seite gleichzeitig verbessert werden ──
+# (Claude-Code-Läufe sind teuer + teilen sich das Abo-Limit; zwei parallel würden das Limit
+# sofort leeren und um content.json/Git konkurrieren). Egal ob Auto-Builder oder manueller
+# „Verbessern"-Klick: der zweite wird abgewiesen, solange einer läuft.
+_makeover_gate  = threading.Lock()
+_makeover_name  = ""          # Name der gerade verbesserten Seite (für Status/Logging)
+
+
+def makeover_busy() -> bool:
+    """True, wenn gerade eine Seite verbessert wird (ein Makeover läuft)."""
+    return _makeover_gate.locked()
+
+
+def makeover_current() -> str:
+    """Name der aktuell verbesserten Seite ('' wenn keine läuft)."""
+    return _makeover_name
+
+
 def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
     """Mehrstufiges Skill-Makeover (7 Stufen, design-pro/taste/frontend-design) für eine
     bereits gebaute Seite: Commit je Stufe, Deploy am Ende, Discord-Freigabe wenn komplett.
@@ -1064,6 +1082,27 @@ def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
 
 
 def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
+    global _makeover_name
+    # Nur EINE Seite gleichzeitig verbessern: bekommt dieser Job den Lock nicht, läuft schon
+    # eine andere Verbesserung → sauber abweisen (keine zweite parallele Claude-Pipeline).
+    if not _makeover_gate.acquire(blocking=False):
+        laeuft = _makeover_name or "eine andere Seite"
+        _set(job_id, status="done")
+        _step(job_id, 100, f"Übersprungen — es wird gerade '{laeuft}' verbessert "
+                           f"(immer nur eine Seite gleichzeitig). Später erneut starten.")
+        try:
+            import logger
+            logger.warn("Makeover", f"'{name}' NICHT gestartet — es läuft bereits ein Makeover "
+                                    f"('{laeuft}'). Es wird immer nur eine Seite gleichzeitig verbessert.")
+        except Exception:
+            pass
+        return
+    _makeover_name = name
+    try:
+        import logger
+        logger.info("Makeover", f"🔒 Makeover-Slot belegt von '{name}' (nur 1 Seite gleichzeitig).")
+    except Exception:
+        pass
     try:
         target = Path(folder)
         if not target.is_dir():
@@ -1172,6 +1211,18 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
             import logger
             logger.error("Webseite", f"✕ Job '{name}' abgebrochen: {type(e).__name__}: {str(e)[:180]}")
             logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
+    finally:
+        # Makeover-Slot IMMER freigeben (auch bei frühem return/Fehler) → nächste Seite kann dran.
+        _makeover_name = ""
+        try:
+            _makeover_gate.release()
+        except Exception:
+            pass
+        try:
+            import logger
+            logger.info("Makeover", f"🔓 Makeover-Slot frei (war '{name}').")
         except Exception:
             pass
 

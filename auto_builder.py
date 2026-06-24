@@ -677,6 +677,13 @@ def _improve_existing_once() -> bool:
     z.B. wenn die claude-CLI fehlt oder ein Render fehlschlug)."""
     import website_builder
     import overnight_makeover
+    # Läuft bereits ein Makeover (z.B. manuell gestartet), NICHT parallel anfangen — nur eine
+    # Seite gleichzeitig. Kurz warten und diese Runde überspringen (NICHT als 'stuck' markieren).
+    if website_builder.makeover_busy():
+        logger.info("AutoBuilder", f"Makeover läuft bereits ('{website_builder.makeover_current()}') "
+                                   f"— warte (immer nur eine Seite gleichzeitig).")
+        _idle_sleep(5)
+        return True
     tgt = _pick_improve_target()
     if not tgt:
         return False
