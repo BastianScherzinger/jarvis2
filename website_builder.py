@@ -691,10 +691,10 @@ def _run(job_id: str) -> None:
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         _step(job_id, 56, f"Texte & Design erstellt: {content.get('headline','')[:40]}")
 
-        # 3b) Hero-Banner. Higgsfield-Cloud NUR wenn der Nutzer es bestätigt hat
-        # (use_higgsfield) UND die Hardware schwach ist UND Guthaben da ist; sonst lokal
-        # (GPU=SDXL/FLUX, CPU=SD-Turbo). Best-effort — jeder Fehler fällt auf die nächste
-        # Option zurück, der Build bricht NIE ab.
+        # 3b) Hero-Banner. STANDARD: Cloud-Engine über JARVIS_HERO_ENGINE (Default Higgsfield
+        # = Sirs Abo; OpenAI nur wenn explizit gewählt, kostet extra). Fällt auf lokal
+        # (GPU=SDXL/FLUX, CPU=SD-Turbo) und zuletzt auf einen Farbverlauf zurück. Best-effort —
+        # jeder Fehler fällt auf die nächste Option zurück, der Build bricht NIE ab.
         try:
             import media_engine  # lazy
             hero_path = target / "static" / "img" / "hero.png"
@@ -703,6 +703,13 @@ def _run(job_id: str) -> None:
             # Hero (von _apply_custom_assets bereits als hero.png abgelegt) existiert hier
             # schon → die Generierung wird automatisch übersprungen.
             custom_prompt = (lead.get("_custom") or {}).get("hero_prompt", "").strip()
+            # Ausführlicher, lead-angepasster Master-Prompt (für Cloud-Engines).
+            master_prompt = custom_prompt or media_engine.hero_master_prompt(
+                branche=branche, name=lead.get("name", ""), stadt=lead.get("stadt", ""),
+                beschreibung=(content.get("ueber_text") or content.get("beschreibung")
+                              or lead.get("beschreibung", "")),
+                akzent=content.get("akzent", ""))
+            # Knapper Prompt für die lokale Diffusers-Generierung (Fallback).
             prompt = custom_prompt or (
                 f"professional wide hero banner photograph for a German {branche} "
                 "business, modern, clean, bright daylight, high quality, no text, "
@@ -710,39 +717,18 @@ def _run(job_id: str) -> None:
             )
             schwach = media_engine.hardware_info()["device"] == "cpu"  # keine GPU → lokal langsam
 
-            # 0) OpenAI (ChatGPT, gpt-image-1) — STANDARD-Quelle für Hero-Bilder: hochwertig,
-            # hardware-unabhängig, mit Tageslimit (JARVIS_OPENAI_IMAGE_DAILY_MAX) als Kostendeckel.
-            if (not hero_path.exists() and media_engine.openai_available()
-                    and media_engine.openai_quota_left() > 0):
-                oai_prompt = custom_prompt or media_engine.hero_master_prompt(
-                    branche=branche, name=lead.get("name", ""), stadt=lead.get("stadt", ""),
-                    beschreibung=(content.get("ueber_text") or content.get("beschreibung")
-                                  or lead.get("beschreibung", "")),
-                    akzent=content.get("akzent", ""))
+            # 0) Cloud-Hero über die konfigurierte Engine (Default Higgsfield = Abo).
+            if not hero_path.exists():
                 try:
-                    _step(job_id, 60, "Hero-Banner wird über ChatGPT (OpenAI gpt-image-1) erzeugt…")
-                    media_engine.generate_image_openai(
-                        oai_prompt, output_dir=(target / "static" / "img"),
+                    _step(job_id, 60, f"Hero-Banner wird erzeugt ({media_engine.hero_engine()})…")
+                    res = media_engine.generate_hero_cloud(
+                        master_prompt, output_dir=(target / "static" / "img"),
                         filename="hero.png", width=1536, height=1024, name=lead.get("name", ""))
-                    content["hero_source"] = "openai"
+                    content["hero_source"] = res.get("engine", "")
                 except Exception as e:
-                    _step(job_id, 60, f"OpenAI-Hero nicht möglich ({type(e).__name__}) — Fallback…")
+                    _step(job_id, 60, f"Cloud-Hero nicht möglich ({type(e).__name__}) — Fallback lokal…")
 
-            # 1) Cloud (Higgsfield) — nur auf ausdrücklichen Wunsch + schwache Hardware + Credits
-            if use_hf and schwach and media_engine.higgsfield_available():
-                bal = media_engine.higgsfield_balance()
-                if bal is None or bal >= _HF_HERO_COST:
-                    try:
-                        _step(job_id, 60, "Hero-Banner wird über Higgsfield (Cloud) erzeugt…")
-                        media_engine.generate_image_higgsfield(
-                            prompt, output_dir=(target / "static" / "img"),
-                            filename="hero.png", width=1280, height=720)
-                    except Exception as e:
-                        _step(job_id, 60, f"Higgsfield nicht möglich ({type(e).__name__}) — wechsle auf lokal…")
-                else:
-                    _step(job_id, 60, f"Higgsfield-Guthaben zu niedrig ({bal}) — nutze lokal…")
-
-            # 2) Lokal (Standard, Fallback ODER starke Hardware), falls noch kein Hero da
+            # 2) Lokal (Fallback ODER starke Hardware), falls noch kein Hero da
             if not hero_path.exists() and media_engine.get_status().get("diffusers_ok"):
                 hp = media_engine.hero_image_params()
                 modell = hp.get("model_key", "lokal")

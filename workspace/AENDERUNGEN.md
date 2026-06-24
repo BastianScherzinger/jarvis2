@@ -5,6 +5,23 @@
 
 ---
 
+# Durchgang 24.06.2026 (6) — Higgsfield als Standard-Hero-Engine (Abo), OpenAI bleibt optional
+
+> Sir: OpenAI-API kostet extra, nicht nötig — drin lassen, aber Bilder standardmäßig über
+> Higgsfield (Abo). (Teil „viaSocket/Filora-MCP" offen — Rückfrage gestellt.)
+
+- `media_engine.hero_engine()` (`JARVIS_HERO_ENGINE`, Default **higgsfield** | openai | local | auto)
+  + `media_engine.generate_hero_cloud()` — zentrale Cloud-Hero-Quelle mit Fallback-Kette;
+  OpenAI nur, wenn ausdrücklich gewählt.
+- `website_builder.build`: Hero-Block nutzt jetzt `generate_hero_cloud` (Default Higgsfield) →
+  lokal → Farbverlauf. (Vorher war OpenAI Quelle 0.)
+- `overnight_makeover`: `_ensure_openai_hero` → `_ensure_hero` (Engine-agnostisch, Default
+  Higgsfield); `content["hero_source"]` = genutzte Engine; Skip, wenn schon `higgsfield`/`openai`.
+- `auto_builder`: Limit-Fallback `_openai_only_progress` → `_cloud_hero_progress` (Higgsfield-Default).
+- OpenAI bleibt vollständig erhalten: im Medien-Reiter manuell wählbar + als Engine-Option.
+
+---
+
 # Durchgang 24.06.2026 (5) — Medien-Studio (1 Reiter), ChatGPT-Bilder, Video-1010-Fix, Limit-Resilienz
 
 ## 1. Bilder + Video zu EINEM Reiter „Medien" zusammengefasst

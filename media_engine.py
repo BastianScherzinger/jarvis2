@@ -1119,6 +1119,45 @@ def generate_image_openai(prompt: str, output_dir: "Path | None" = None,
             "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
 
 
+def hero_engine() -> str:
+    """Welche Engine liefert Hero-Bilder? JARVIS_HERO_ENGINE: higgsfield (Default — Sirs Abo)
+    | openai (kostet extra) | local | auto. Steuert die Auto-Pipeline (Build + Makeover);
+    im Medien-Reiter bleibt jede Engine manuell wählbar."""
+    e = (_env("JARVIS_HERO_ENGINE", "higgsfield") or "higgsfield").strip().lower()
+    return e if e in ("higgsfield", "openai", "local", "auto") else "higgsfield"
+
+
+def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename: str = "hero.png",
+                        width: int = 1536, height: int = 1024, name: str = "") -> dict:
+    """Hero-Bild über eine CLOUD-Engine gemäß JARVIS_HERO_ENGINE (Default Higgsfield = Abo).
+    OpenAI wird NUR genutzt, wenn ausdrücklich gewählt (kostet extra). Gibt das Engine-Ergebnis
+    inkl. {'engine': ...}. Wirft, wenn keine Cloud-Engine ein Bild liefert (Aufrufer fällt dann
+    auf Lokal/Farbverlauf zurück)."""
+    order = {
+        "higgsfield": ["higgsfield"],
+        "openai":     ["openai", "higgsfield"],
+        "local":      [],                       # 'local' → keine Cloud (Aufrufer rendert lokal)
+        "auto":       ["higgsfield", "openai"],
+    }.get(hero_engine(), ["higgsfield"])
+    errs: list[str] = []
+    for e in order:
+        try:
+            if e == "higgsfield" and higgsfield_available():
+                r = generate_image_higgsfield(prompt, output_dir=output_dir,
+                                              filename=filename, width=width, height=height)
+                r["engine"] = "higgsfield"
+                return r
+            if e == "openai" and openai_available() and openai_quota_left() > 0:
+                r = generate_image_openai(prompt, output_dir=output_dir, filename=filename,
+                                          width=width, height=height, name=name)
+                r["engine"] = "openai"
+                return r
+        except Exception as ex:
+            errs.append(f"{e}:{type(ex).__name__}")
+            _mlog("warn", "Hero", f"{e}-Hero fehlgeschlagen: {str(ex)[:140]}")
+    raise RuntimeError("Keine Cloud-Hero-Engine erfolgreich: " + (", ".join(errs) or "nichts konfiguriert"))
+
+
 def get_status() -> dict:
     """Gibt Konfigurationsstatus zurück."""
     img_key = get_active_image_model()

@@ -337,37 +337,40 @@ def _note_job_limit(job) -> bool:
     return hit
 
 
-def _openai_can_help() -> bool:
+def _cloud_hero_can_help() -> bool:
+    """Kann die Cloud-Hero-Engine (Higgsfield-Default, sonst OpenAI) gerade Bilder liefern?"""
     try:
         import media_engine
+        if media_engine.higgsfield_available():
+            return True
         return media_engine.openai_available() and media_engine.openai_quota_left() > 0
     except Exception:
         return False
 
 
-def _openai_only_progress() -> bool:
-    """Claude-Limit aktiv → „ein bisschen ChatGPT": erneuert bei EINER Seite ohne ChatGPT-Hero
-    das Hero-Bild via OpenAI (echter Fortschritt ohne Claude). True, wenn etwas getan wurde."""
-    if not _openai_can_help():
+def _cloud_hero_progress() -> bool:
+    """Claude-Limit aktiv → echter Fortschritt OHNE Claude: erneuert bei EINER Seite ohne
+    Cloud-Hero das Hero-Bild über die konfigurierte Engine (Default Higgsfield = Abo).
+    True, wenn etwas getan wurde."""
+    if not _cloud_hero_can_help():
         return False
     try:
         import overnight_makeover as om
         for w in _makeover_sites():
             folder = Path(w["folder"])
-            if om._read_content(folder).get("hero_source") == "openai":
+            if om._read_content(folder).get("hero_source") in ("higgsfield", "openai"):
                 continue
             meta = {"name": w.get("name", ""), "branche": w.get("branche", ""),
                     "stadt": w.get("stadt", ""), "email": w.get("kontakt_email", ""),
                     "ansprechpartner": w.get("ansprechpartner", "")}
             _set(mode="improve", current=w.get("name", ""),
-                 phase=f"Claude-Limit → ChatGPT-Hero: {w.get('name','')}")
-            om._ensure_openai_hero(folder, meta, lambda p, t: _set(phase=t))
-            if om._read_content(folder).get("hero_source") == "openai":
-                logger.info("AutoBuilder", f"Claude-Limit → ChatGPT-Hero erneuert: {w.get('name','')}")
+                 phase=f"Claude-Limit → Hero erneuern: {w.get('name','')}")
+            if om._ensure_hero(folder, meta, lambda p, t: _set(phase=t)):
+                logger.info("AutoBuilder", f"Claude-Limit → Hero erneuert: {w.get('name','')}")
                 return True
         return False
     except Exception as e:
-        logger.warn("AutoBuilder", f"ChatGPT-Fallback fehlgeschlagen: {type(e).__name__}")
+        logger.warn("AutoBuilder", f"Cloud-Hero-Fallback fehlgeschlagen: {type(e).__name__}")
         return False
 
 
@@ -394,8 +397,8 @@ def _handle_exhaustion() -> None:
     """Claude-Limit erkannt: erst ein bisschen ChatGPT; sind beide leer → stop + Neustart-Timer."""
     global _claude_limited
     _claude_limited = False
-    if _openai_only_progress():
-        return                      # ChatGPT konnte helfen → normaler Loop läuft weiter
+    if _cloud_hero_progress():
+        return                      # Cloud-Hero (Higgsfield/OpenAI) half → normaler Loop weiter
     stop()
     _schedule_restart(_EXHAUST_WAIT)
 

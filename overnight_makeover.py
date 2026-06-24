@@ -384,22 +384,20 @@ def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: 
 
 # ── Hauptlauf ─────────────────────────────────────────────────────────────────────
 
-def _ensure_openai_hero(folder: Path, meta: dict, say) -> None:
-    """Ersetzt das Hero-Bild durch ein frisches, lead-angepasstes ChatGPT-Bild
-    (OpenAI gpt-image-1), sofern die Seite noch kein OpenAI-Hero hat und das Tageslimit
-    es zulässt. Läuft einmal je Seite zu Beginn des Makeovers — so bauen die Design-
-    Stufen danach auf dem hochwertigen Bild auf. Best-effort, kostengedeckelt."""
+def _ensure_hero(folder: Path, meta: dict, say) -> bool:
+    """Ersetzt das Hero-Bild EINMAL je Seite durch ein frisches, lead-angepasstes Bild über
+    die konfigurierte Cloud-Engine (JARVIS_HERO_ENGINE, Default Higgsfield = Sirs Abo; OpenAI
+    nur wenn explizit gewählt). So bauen die Design-Stufen auf dem hochwertigen Bild auf.
+    Best-effort. Gibt True, wenn ein Bild erzeugt wurde."""
     try:
         import media_engine
     except Exception:
-        return
+        return False
     content = _read_content(folder)
-    if content.get("hero_source") == "openai":
-        return                                   # schon ein ChatGPT-Hero — Quota schonen
+    if content.get("hero_source") in ("higgsfield", "openai"):
+        return False                             # schon ein Cloud-Hero — nicht erneut erzeugen
     if content.get("hero_custom"):
-        return                                   # vom Inhaber hochgeladenes Hero nie ersetzen
-    if not media_engine.openai_available() or media_engine.openai_quota_left() <= 0:
-        return
+        return False                             # vom Inhaber hochgeladenes Hero nie ersetzen
     d = _doc_details(folder, meta)
     branche = meta.get("branche") or content.get("branche") or d.get("branche", "")
     name    = meta.get("name") or content.get("site_name", "")
@@ -408,21 +406,24 @@ def _ensure_openai_hero(folder: Path, meta: dict, say) -> None:
     prompt  = media_engine.hero_master_prompt(branche=branche, name=name, stadt=stadt,
                                               beschreibung=beschr, akzent=content.get("akzent", ""))
     try:
-        say(6, "Hero-Bild wird durch ein frisches ChatGPT-Bild ersetzt (gpt-image-1)…")
-        media_engine.generate_image_openai(
+        say(6, f"Hero-Bild wird frisch erzeugt ({media_engine.hero_engine()})…")
+        res = media_engine.generate_hero_cloud(
             prompt, output_dir=(folder / "static" / "img"),
             filename="hero.png", width=1536, height=1024, name=name)
         content = _read_content(folder)          # frisch lesen (kann sich geändert haben)
         content["hero_image"] = "/static/img/hero.png"
-        content["hero_source"] = "openai"
+        content["hero_source"] = res.get("engine", "higgsfield")
         _write_content(folder, content)
-        _git_commit(folder, "Hero: frisches ChatGPT-Bild (gpt-image-1)")
+        _git_commit(folder, f"Hero: frisches Bild ({content['hero_source']})")
         try:
-            logger.activity("Makeover", "ChatGPT-Hero ersetzt", name or folder.name, "🖼", "image")
+            logger.activity("Makeover", f"Hero erneuert ({content['hero_source']})",
+                            name or folder.name, "🖼", "image")
         except Exception:
             pass
+        return True
     except Exception as e:
-        logger.warn("Makeover", f"ChatGPT-Hero übersprungen: {type(e).__name__}: {str(e)[:120]}")
+        logger.warn("Makeover", f"Hero-Refresh übersprungen: {type(e).__name__}: {str(e)[:120]}")
+        return False
 
 
 def _ensure_legal(folder: Path, meta: dict) -> None:
@@ -466,10 +467,10 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
     # Sauberer Resume: eine beim letzten Mal abgebrochene (uncommittete) Stufe verwerfen.
     _reset_dirty(folder)
 
-    # Hero-Bild zuerst durch ein frisches ChatGPT-Bild ersetzen (einmal je Seite), damit
-    # die folgenden Design-Stufen auf dem hochwertigen Bild aufbauen. Kostengedeckelt.
+    # Hero-Bild zuerst frisch erzeugen (einmal je Seite, Default Higgsfield), damit die
+    # folgenden Design-Stufen auf dem hochwertigen Bild aufbauen.
     if not (stop and stop()):
-        _ensure_openai_hero(folder, meta, say)
+        _ensure_hero(folder, meta, say)
     # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
     _ensure_legal(folder, meta)
 
