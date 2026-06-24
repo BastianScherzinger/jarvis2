@@ -2,9 +2,16 @@
 overnight_makeover.py — Mehrstufiges Skill-Makeover für gebaute Landing-Pages.
 
 Statt nur content.json-Texte zu ändern (das alte website_improve.enrich), fährt diese
-Pipeline eine Seite durch 7 aufeinanderfolgende Design-Stufen — jede mit einem echten
-Skill (design-pro / taste / frontend-design) — und lässt den HEADLESS Claude Code
-(`claude_coder`) wirklich templates/index.html + static/css/style.css umbauen.
+Pipeline eine Seite durch 7 aufeinanderfolgende, ABSCHNITTS-orientierte Stufen — Hero,
+Beschreibung & Dienstleistungen, Über uns, Kontakt-Bereich, Kontakt-Formular, Komplett-
+Design (taste) und QA + Recht (Datenschutz/AGB/Impressum) — jede mit dem passenden echten
+Skill (ui-ux-pro-max / design-taste-frontend / design-pro). Der HEADLESS Claude Code
+(`claude_coder`) baut dabei wirklich templates/index.html + static/css/style.css um.
+
+WICHTIG (Fix 24.06.2026): Der Stufen-Prompt wird claude_coder über STDIN übergeben, nicht
+als argv — sonst verstümmelt cmd.exe den langen Prompt (content.json-Dump mit " & < > |),
+Claude sieht nur einen Torso und fragt konversationell zurück statt zu editieren (das war
+die Ursache, warum jede Seite bei „Stufe 1" hing und nichts verbessert wurde).
 
 Pro Stufe:
   1. Standard-Kontextblock (Fakten zu genau diesem Lead/dieser Seite) + Master-Prompt + Skill
@@ -50,81 +57,98 @@ _PRO   = "design-pro"
 
 STAGES: list[dict] = [
     {
-        "key": "inhalt", "label": "Inhalt & Struktur", "skill": _UIUX,
+        "key": "hero", "label": "Hero-Bereich", "skill": _UIUX,
         "task": (
-            "Facette: UX & Conversion (ui-ux-pro-max). Schärfe Inhalt und Seitenstruktur. "
-            "Schreibe lead-genaue, glaubwürdige Texte: eine Hero-Headline mit klarem "
-            "Nutzenversprechen + Subline, Über-uns, 4–6 KONKRETE Leistungen, echte USPs, "
-            "4–5 branchenspezifische FAQ, konkrete CTAs («Kostenlose Anfrage» statt «Senden») "
-            "und sichtbare Vertrauenssignale (Bewertung, Erreichbarkeit, Garantien). In 5 "
-            "Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun. Bringe "
-            "die Sektionen in eine konversionsstarke Reihenfolge und entferne jede Floskel."
+            "Baue den HERO-BEREICH (Above-the-fold) zu einem echten Premium-Eyecatcher um. "
+            "In 5 Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun. "
+            "Enthalten: das vorhandene Hero-Bild stark in Szene gesetzt (hero_image NICHT "
+            "entfernen), eine kraftvolle, betriebsgenaue Headline mit konkretem Nutzenversprechen "
+            "+ Subline, EIN dominanter primärer CTA («Kostenlose Anfrage»/«Termin anfragen» statt "
+            "«Senden»), ein leiser sekundärer CTA (z. B. «Anrufen» mit der echten Telefonnummer) "
+            "und sichtbare Vertrauenssignale (Bewertung, Erreichbarkeit, Region, Jahre Erfahrung). "
+            "Starke visuelle Hierarchie, klares Spacing, lesbarer Text-Overlay-Kontrast. Bearbeite "
+            "den Hero-Block in templates/index.html und das zugehörige CSS wirklich."
         ),
     },
     {
-        "key": "layout", "label": "Layout & Hierarchie", "skill": _UIUX,
+        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _UIUX,
         "task": (
-            "Facette: Visuelle Hierarchie + Spacing (impeccable-design). Überarbeite Layout und "
-            "Hierarchie: ein starker Above-the-fold-Hero (Nutzenversprechen + EIN dominanter "
-            "primärer CTA + Vertrauenssignal), klar abgegrenzte Sektionen, konsistentes Grid, "
-            "F-/Z-Lesemuster. Nutze eine feste Spacing-Skala (4/8/12/16/24/32/48/72) statt "
-            "willkürlicher Werte und rhythmischen, großzügigen Weißraum. Sekundäre Aktionen "
-            "deutlich leiser als die primäre."
+            "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN aus. Schreibe einen glaubwürdigen, "
+            "betriebsgenauen Einleitungstext (was der Betrieb macht, für wen, warum gut) und "
+            "stelle 4–6 KONKRETE, branchenspezifische Leistungen als saubere Karten/Grid dar — "
+            "je mit klarem Titel, kurzem Nutzen-Text und einem konsistenten Inline-SVG-Icon "
+            "(keine Emojis). Nutze die dokumentierten Lead-Details (Beschreibung, Stärken, "
+            "Leistungen) — nichts erfinden, keine Floskeln. Ergänze 4–5 branchenspezifische FAQ. "
+            "Bearbeite templates/index.html + CSS wirklich; content.json-Felder konsistent halten."
         ),
     },
     {
-        "key": "typografie", "label": "Typografie", "skill": _UIUX,
+        "key": "ueber", "label": "Über uns & Vertrauen", "skill": _UIUX,
         "task": (
-            "Facette: Typografie (impeccable-design §6). Paare einen charakterstarken Display-Font "
-            "mit einem ruhigen, gut lesbaren Body-Font (passend zur Branche, Google Fonts korrekt "
-            "einbinden; generisches Arial/pures Inter meiden). Definiere eine fluide Typo-Skala mit "
-            "clamp(), Zeilenhöhe 1.5–1.7 im Body und eng (1.05–1.2) bei großen Headlines, leicht "
-            "negatives letter-spacing bei großen/fetten Headlines, optimale Zeilenlänge. Beste "
-            "Lesbarkeit auf Mobil und Desktop."
+            "Baue die Sektion ÜBER UNS überzeugend aus: eine glaubwürdige Geschichte/Positionierung "
+            "des Betriebs (Region, Erfahrung, Werte, Ansprechpartner falls dokumentiert), das "
+            "vorhandene about_image sinnvoll einsetzen (nicht entfernen). Ergänze echte "
+            "Vertrauenssignale: Bewertungen/Referenzen-Block, USP-Liste, Garantien, Mitgliedschaften/"
+            "Zertifikate falls passend zur Branche. Alles betriebsgenau aus den Lead-Details, kein "
+            "Geschwurbel. Bearbeite templates/index.html + CSS wirklich."
         ),
     },
     {
-        "key": "farbe", "label": "Farbe & Theming", "skill": _UIUX,
+        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _UIUX,
         "task": (
-            "Facette: Tokens & Theming (shadcn-Prinzipien). Entwickle eine stimmige Markenpalette "
-            "rund um die Akzentfarbe: EINE konsequent eingesetzte Akzentfarbe + leicht getönte "
-            "Neutrals (kein Grau-Einheitsbrei). Lege ALLE Farben als CSS-Custom-Properties/Tokens "
-            "an (--background --foreground --card --muted --border --primary --accent --ring), nutze "
-            "HSL/OKLCH für stimmige Abstufungen, sichere WCAG-AA-Kontraste (Text ≥ 4.5:1) und saubere "
-            "hover/focus-visible/active-States. Keine Effekt-Häufung (nicht Glow + Gradient + Schatten + Border zugleich)."
+            "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (als "
+            "klickbarer tel:-Link), E-Mail (mailto:), vollständige Adresse, Öffnungszeiten (falls "
+            "dokumentiert, sonst plausibel branchentypisch), Anfahrt/Region. Wenn eine Adresse "
+            "vorhanden ist, eine eingebettete Karte (OpenStreetMap-iframe, KEIN API-Key) ergänzen. "
+            "Klare CTAs zum Anrufen und Schreiben. Sauberes, gut lesbares Layout. Bearbeite "
+            "templates/index.html + CSS wirklich."
         ),
     },
     {
-        "key": "politur", "label": "Politur (taste)", "skill": _TASTE,
+        "key": "formular", "label": "Kontakt-Formular", "skill": _PRO,
         "task": (
-            "Skill «design-taste-frontend» (taste) — Anti-Slop-Politur & Zurückhaltung. "
-            "Weniger, aber besser: jedes Element braucht einen Grund, im Zweifel weglassen. "
-            "Nichts darf templated/KI-generiert wirken. "
-            "Feinjustiere Spacing-Rhythmus, konsistente Border-Radien und Stroke-Breiten, WEICHE "
-            "mehrschichtige Schatten (kein harter Glow), Trennlinien, Icon- und Button-Konsistenz "
-            "(ein Icon-Set, eine Strichstärke — keine Emojis als UI-Icons, Inline-SVG nutzen) und "
-            "Bildbehandlung. Vervollständige alle Zustände (hover, focus-visible, active, disabled, "
-            "loading, empty). Entferne alles, was billig oder KI-generiert wirkt."
+            "Baue ein funktionsfähiges, schön gestaltetes KONTAKT-FORMULAR (Name, E-Mail, Telefon, "
+            "Nachricht, Einwilligungs-Checkbox zur Datenschutzerklärung). Setze method=\"post\" auf "
+            "eine sinnvolle Action, ergänze {% csrf_token %} im Form, korrekte input-Typen, "
+            "required-Felder, name-Attribute, sichtbare Labels, focus-visible-States und eine klare "
+            "Erfolgs-/Fehlermeldungs-Stelle. Falls keine Backend-Route existiert, mailto-Fallback "
+            "ODER ein dezenter Hinweis — aber das Formular MUSS valide rendern und gut aussehen. "
+            "Touch-Ziele ≥ 44 px. Bearbeite templates/index.html + CSS wirklich."
         ),
     },
     {
-        "key": "motion", "label": "Motion & Interaktion", "skill": _PRO,
+        "key": "design", "label": "Komplett-Design (taste)", "skill": _TASTE,
         "task": (
-            "Facette: Animation (frontend-pro §5). Füge dezente, performante Motion hinzu: sanfte "
-            "Scroll-Reveal-Animationen, Hover-Microinteractions und – falls passend – eine "
-            "Zähler-Animation. NUR transform/opacity animieren, 150–500 ms, ease-out für Eintritte, "
-            "`will-change` gezielt. `prefers-reduced-motion: reduce` respektieren. Hover hebt dezent "
-            "an (1–2 px), springt nicht. Nie verspielt oder kitschig."
+            "Großer DESIGN-DURCHGANG über die GESAMTE Seite mit dem Skill «design-taste-frontend» "
+            "(taste) — plus ui-ux-pro-max-Prinzipien und design-pro. Ziel: sieht aus wie von einer "
+            "preisgekrönten Agentur, nicht templated/KI-generiert. Vereinheitliche das System: EINE "
+            "Akzentfarbe konsequent + leicht getönte Neutrals als CSS-Tokens (--background "
+            "--foreground --card --muted --border --primary --accent --ring), WCAG-AA-Kontraste. "
+            "Charakterstarker Display-Font + ruhiger Body-Font (Google Fonts), fluide Typo-Skala mit "
+            "clamp(). Feste Spacing-Skala (4/8/12/16/24/32/48/72), rhythmischer Weißraum, konsistente "
+            "Radien/Stroke-Breiten, WEICHE mehrschichtige Schatten (kein harter Glow), ein Icon-Set "
+            "(Inline-SVG, keine Emojis). Dezente, performante Motion (nur transform/opacity, "
+            "150–500 ms, ease-out; prefers-reduced-motion respektieren). Alle Zustände vollständig "
+            "(hover, focus-visible, active, disabled). Weniger, aber besser — entferne alles Billige/"
+            "KI-haft Wirkende. Bearbeite static/css/style.css + templates/index.html durchgreifend."
         ),
     },
     {
-        "key": "responsive", "label": "Responsive & QA", "skill": _UIUX,
+        "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _UIUX,
         "task": (
-            "Facette: Mobile-first + Self-Check (frontend-pro §5). Perfekte Darstellung auf Mobil "
-            "(echte Breakpoints prüfen), ein mobiler Sticky-Anruf/CTA, Touch-Ziele ≥ 44 px, keine "
-            "horizontalen Überläufe, kein CLS. Abschließender Qualitätscheck: Konsole fehlerfrei, "
-            "Links/Buttons/Formulare funktionieren, SEO-Struktur intakt — und es MUSS "
-            "`python manage.py check` fehlerfrei sein und das Template ohne Fehler rendern."
+            "ABSCHLUSS-DURCHGANG in zwei Teilen.\n"
+            "1) RECHTLICHES (für deutsche Betriebe Pflicht): Ergänze ein vollständiges IMPRESSUM "
+            "(§5 DDG: Name/Firma, vollständige Anschrift, Telefon, E-Mail; falls Daten fehlen, "
+            "klar als «[bitte ergänzen]»-Platzhalter kennzeichnen statt erfinden), eine "
+            "DATENSCHUTZERKLÄRUNG (DSGVO: Verantwortlicher, Zweck, Kontaktformular-Daten, Hosting, "
+            "Rechte der Betroffenen) und kurze AGB. Lege sie als eigene, sauber gestaltete "
+            "Abschnitte/Seiten an und verlinke sie gut sichtbar im Footer; das Kontaktformular "
+            "verweist auf die Datenschutzerklärung.\n"
+            "2) QA / RESPONSIVE: Perfekte Mobil-Darstellung (echte Breakpoints), ein mobiler "
+            "Sticky-Anruf/CTA, Touch-Ziele ≥ 44 px, keine horizontalen Überläufe, kein CLS, alle "
+            "Links/Buttons/Anker funktionieren, SEO-Grundstruktur (title, meta description, "
+            "Überschriften-Hierarchie, alt-Texte) intakt. Es MUSS `python manage.py check` "
+            "fehlerfrei sein und das Template ohne Fehler rendern."
         ),
     },
 ]

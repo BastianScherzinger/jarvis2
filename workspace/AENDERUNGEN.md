@@ -5,6 +5,54 @@
 
 ---
 
+# Durchgang 24.06.2026 (2) — Makeover-Hänger gefixt + Abschnitts-Stufen + Tages-Links
+
+> Detail-Referenz: `workspace/MAKEOVER_PIPELINE.md`. Auslöser: Seiten wurden gebaut, blieben
+> aber im Standard-Design; die Makeover-Prozesse „hingen bei Stufe 1" — keine Seite wurde je
+> verbessert (alle auf `makeover_stages=[]`).
+
+## 0. Root-Cause: Prompt-Verstümmelung über cmd.exe (KERN-FIX)
+Der Headless-Makeover gab `claude_coder.run_prompt` den langen Stufen-Prompt (~6300 Zeichen,
+mit content.json-Dump voller `"` `&` `<` `>` `|`) als **Kommandozeilen-Argument** mit. `claude`
+ist auf Windows `claude.cmd` (Batch) → der Prompt lief durch cmd.exe und wurde am ersten
+Sonderzeichen **abgeschnitten**. Claude sah nur einen Prompt-Torso (ohne die eigentliche
+Aufgabe) und antwortete **konversationell mit einem Menü** statt zu editieren → 0 Datei-
+Änderungen → Stufe nie als erledigt markiert → ewig „Stufe 1".
+**Fix:** `claude_coder.run_prompt` übergibt den Prompt jetzt über **STDIN** (`subprocess.run(...,
+input=prompt)`), nicht als argv. Diagnostisch bestätigt: via argv → vage Rückfrage, 0 Änderungen;
+via stdin → 32 Tool-Turns, Dateien geändert, Stufe sauber abgeschlossen.
+- `JARVIS_CLAUDE_TIMEOUT` Default 900 → **1200 s** (die schwere Design-Stufe braucht länger).
+- End-to-end verifiziert: `run_makeover` Stufe „Hero" ~320 s, content.json `makeover_stages=['hero']`,
+  Git-Commit gesetzt.
+
+## 1. Die 7 Stufen sind jetzt ABSCHNITTS-orientiert (`overnight_makeover.STAGES`)
+Statt Design-Facetten baut jede Stufe einen echten Seitenbereich aus — exakt nach Vorgabe:
+1. **Hero-Bereich** (ui-ux-pro-max) — Premium-Hero, Nutzenversprechen, 1 primärer CTA, Vertrauen.
+2. **Beschreibung & Dienstleistungen** (ui-ux-pro-max) — Leistungs-Grid, FAQ, betriebsgenau.
+3. **Über uns & Vertrauen** (ui-ux-pro-max) — Story, Referenzen, USPs, about_image.
+4. **Kontakt-Bereich** (ui-ux-pro-max) — tel/mailto, Adresse, Öffnungszeiten, OSM-Karte.
+5. **Kontakt-Formular** (design-pro) — funktionsfähiges Form (csrf, required, Einwilligung).
+6. **Komplett-Design (taste)** (design-taste-frontend) — großer Design-Durchgang über die
+   ganze Seite: Tokens/Farbe, Typo, Spacing, Schatten, Motion, Anti-Slop.
+7. **QA, Datenschutz, AGB & Impressum** (ui-ux-pro-max) — rechtliche Pflichtseiten (DSGVO/DDG,
+   fehlende Daten als `[bitte ergänzen]` statt erfunden) + Schluss-QA + Responsive.
+
+Alte Keys (`inhalt/layout/...`) entfallen; alle Seiten standen ohnehin auf `[]` (keine Migration nötig).
+
+## 2. Deploy + „erledigt" + nächste Seite
+Unverändert korrekt: `website_builder._run_makeover` deployt **einmal am Ende** (alle Stufen-
+Commits gepusht), setzt den Job auf `done`; `open_stages==0` markiert die Seite als fertig
+makeovert. Der Night-Builder zieht über `_pick_improve_target()` (meiste offene Stufen zuerst)
+Seite für Seite, bis alle auf 7/7 sind.
+
+## 3. Abschluss-Discord mit allen heutigen Links zum Bewerten (`auto_builder`)
+Neu `_today_links()` (aus `data/daily_builds.json`, dedupliziert). `_farewell_if_done()` postet
+jetzt EINE Discord-Nachricht mit **allen heute gebauten Seiten als klickbare Markdown-Links**
+(`[Name](url)` im Embed) zum Bewerten — sicher unter dem 4096-Zeichen-Embed-Limit. Die
+per-Seite-Freigabe (1× 👍 = Kunden-Mail) bleibt zusätzlich bestehen (Funktion vor Design).
+
+---
+
 # Durchgang 24.06.2026 — Eigene-Marke-Builder, echte Skills, robustes Makeover
 
 > Detail-Referenz: `workspace/MAKEOVER_PIPELINE.md` + `CLAUDE.dev.md`.

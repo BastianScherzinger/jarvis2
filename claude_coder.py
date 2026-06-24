@@ -18,7 +18,7 @@ from pathlib import Path
 # Sicherheitsmodus: erlaubt Datei-Edits ohne interaktive Rückfrage, aber keine
 # beliebigen Shell-Kommandos. Per .env überschreibbar.
 _PERMISSION = os.environ.get("JARVIS_CLAUDE_PERMISSION", "acceptEdits")
-_TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "900") or "900")
+_TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "1200") or "1200")
 
 # Wird als zusätzlicher System-Prompt mitgegeben. Schützt davor, dass ein im (oder über
 # dem) Zielordner gefundenes CLAUDE.md (z.B. die JARVIS-Persona mit „erst nach Guten
@@ -149,13 +149,19 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     except Exception:
         tools, snap = None, {}
 
-    args = [cmd, "-p", prompt,
+    # WICHTIG: Den Prompt über STDIN übergeben, NICHT als argv. claude.cmd ist ein
+    # Batch-Wrapper → der lange Prompt (mit content.json-Dump voller " & < > | %) würde
+    # beim Durchreichen durch cmd.exe an Sonderzeichen abgeschnitten/verstümmelt, sodass
+    # der Headless-Claude nur einen Prompt-Torso sieht und konversationell zurückfragt
+    # statt zu editieren. Über stdin gelangt der Prompt unversehrt an die CLI.
+    args = [cmd, "-p",
             "--output-format", "json", "--permission-mode", _PERMISSION,
             "--append-system-prompt", _SYS_APPEND]
     if model:
         args += ["--model", model]
     try:
-        proc = subprocess.run(args, cwd=folder, capture_output=True, text=True,
+        proc = subprocess.run(args, cwd=folder, input=prompt,
+                              capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
                               timeout=timeout or _TIMEOUT)
     except subprocess.TimeoutExpired:

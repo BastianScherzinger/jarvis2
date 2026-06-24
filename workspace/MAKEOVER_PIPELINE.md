@@ -15,13 +15,25 @@ gefahren — jede mit einem echten Skill, ausgeführt vom **Headless Claude Code
 
 | # | Stufe | Skill |
 |---|-------|-------|
-| 1 | Inhalt & Struktur | ui-ux-pro-max |
-| 2 | Layout & Hierarchie | ui-ux-pro-max |
-| 3 | Typografie | ui-ux-pro-max |
-| 4 | Farbe & Theming | ui-ux-pro-max |
-| 5 | Politur | design-taste-frontend (taste) |
-| 6 | Motion & Interaktion | design-pro |
-| 7 | Responsive & QA | ui-ux-pro-max |
+| 1 | Hero-Bereich | ui-ux-pro-max |
+| 2 | Beschreibung & Dienstleistungen | ui-ux-pro-max |
+| 3 | Über uns & Vertrauen | ui-ux-pro-max |
+| 4 | Kontakt-Bereich | ui-ux-pro-max |
+| 5 | Kontakt-Formular | design-pro |
+| 6 | Komplett-Design (taste) | design-taste-frontend (taste) |
+| 7 | QA, Datenschutz, AGB & Impressum | ui-ux-pro-max |
+
+> **Stufen seit 24.06.2026 abschnittsorientiert** (vorher Design-Facetten). Jede Stufe baut
+> einen echten Seitenbereich aus; Stufe 6 ist der große Design-Durchgang (taste + ui-ux-pro-max
+> + design-pro), Stufe 7 ergänzt die rechtlichen Pflichtseiten + Schluss-QA.
+
+> **Kern-Fix 24.06.2026 — Makeover hing bei „Stufe 1":** Der Stufen-Prompt wird `claude_coder`
+> jetzt über **STDIN** übergeben statt als Kommandozeilen-Argument. Über `claude.cmd` (Batch →
+> cmd.exe) wurde der lange Prompt (content.json-Dump mit `"` `&` `<` `>` `|`) an Sonderzeichen
+> abgeschnitten → der Headless-Claude sah nur einen Prompt-Torso und fragte konversationell
+> zurück, statt zu editieren. Folge: 0 Datei-Änderungen → Stufe nie als erledigt markiert →
+> jede Seite blieb auf `makeover_stages=[]`. Mit stdin laufen die Stufen real durch (verifiziert:
+> Hero-Stufe ~320 s, Dateien geändert, committet, markiert).
 
 **Skills:** Die echten Skills `ui-ux-pro-max` und `design-taste-frontend` (taste) liegen
 versioniert im Repo unter `skills/<name>/SKILL.md` und werden beim Start
@@ -37,11 +49,15 @@ Activity-Feed + Kostentracking. Eine Stufe gilt nur als erledigt, wenn sich **Da
 
 **Deploy:** Commit nach jeder Stufe, **Railway-Deploy einmal am Ende**. Danach Discord-Freigabe.
 
-**Verabschiedung:** Der Night-Builder fährt nach der Bau-Phase ALLE bestehenden Seiten durch
-den 7-Stufen-Weg, bis jede auf 7/7 ist. Ist dann nichts mehr zu bauen/verbessern, postet
-`auto_builder._farewell_if_done()` EINMAL eine Discord-Abschlussnachricht via
-`discord_bot.notify()` (Latch `_farewell_sent`; reset bei Start, Tageswechsel und sobald wieder
-eine Seite offene Stufen hat).
+**Verabschiedung + Tages-Übersicht (seit 24.06.2026):** Der Night-Builder fährt nach der
+Bau-Phase ALLE bestehenden Seiten durch den 7-Stufen-Weg, bis jede auf 7/7 ist. Ist dann
+nichts mehr zu bauen/verbessern, postet `auto_builder._farewell_if_done()` EINMAL eine
+Discord-Abschlussnachricht via `discord_bot.notify()` — **inklusive aller HEUTE gebauten
+Seiten als klickbare Markdown-Links zum Bewerten** (`_today_links()` aus
+`data/daily_builds.json`, dedupliziert, unter dem Embed-Limit von 4096 Zeichen). Latch
+`_farewell_sent`; reset bei Start, Tageswechsel und sobald wieder eine Seite offene Stufen hat.
+Die per-Seite-Freigabe (1× 👍 = Kunden-Mail) bleibt davon unberührt — die Übersicht kommt
+zusätzlich.
 
 **Discord-Gate:** **1× 👍 = Kunden-Mail (12 Uhr) · 1× 👎 = verworfen**
 (`DISCORD_APPROVALS_NEEDED` Default jetzt `1`). Ohne Discord → Vorschau-Mail an

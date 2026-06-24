@@ -321,9 +321,29 @@ def _all_sites_complete() -> bool:
         return False
 
 
+def _today_links() -> list:
+    """Alle heute gebauten Seiten mit Live-Link (dedupliziert nach Name, neueste zuerst) —
+    für die Abschluss-Übersicht mit klickbaren Links zum Bewerten."""
+    out: list = []
+    seen: set = set()
+    for e in reversed(_load_log().get(_today(), [])):
+        name = (e.get("name") or "").strip()
+        link = (e.get("link") or "").strip()
+        if not name or not link or not link.startswith("http"):
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "link": link, "branche": e.get("branche", ""),
+                    "stadt": e.get("stadt", "")})
+    return out
+
+
 def _farewell_if_done() -> None:
     """Sind alle Seiten auf 7/7, postet JARVIS EINMAL eine Abschlussnachricht in Discord
-    (Verabschiedung). Der Latch wird zurückgesetzt, sobald wieder Arbeit anfällt."""
+    (Verabschiedung) — inklusive aller HEUTE gebauten Seiten als klickbare Links zum
+    Bewerten. Der Latch wird zurückgesetzt, sobald wieder Arbeit anfällt."""
     global _farewell_sent
     if not _all_sites_complete():
         _farewell_sent = False           # wieder offene Stufen → Latch lösen
@@ -333,18 +353,40 @@ def _farewell_if_done() -> None:
     sites = _makeover_sites()
     n     = len(sites)
     live  = sum(1 for w in sites if w.get("live"))
-    msg   = (f"Alle **{n} Webseiten** sind durch alle 7 Skill-Stufen makeovert — alle auf "
-             f"demselben Niveau, **{live} live**. Es ist nichts mehr zu tun.\n\n"
-             "JARVIS verabschiedet sich für heute, Sir. 🫡")
+
+    head = (f"Alle **{n} Webseiten** sind durch alle 7 Skill-Stufen makeovert — alle auf "
+            f"demselben Niveau, **{live} live**, deployt und als erledigt markiert.")
+
+    # Alle heutigen Seiten als klickbare Links zum Bewerten auflisten.
+    links = _today_links()
+    if links:
+        lines = ["", "**Heutige Webseiten — zum Bewerten:**"]
+        for i, s in enumerate(links, 1):
+            extra = " · ".join(x for x in (s.get("branche"), s.get("stadt")) if x)
+            line = f"{i}. [{s['name']}]({s['link']})" + (f" — {extra}" if extra else "")
+            # Discord-Embed-Beschreibung max ~4096 Zeichen — sicher unter Limit bleiben.
+            if sum(len(x) + 1 for x in lines) + len(line) > 3800:
+                lines.append(f"… und {len(links) - i + 1} weitere.")
+                break
+            lines.append(line)
+        body = "\n".join(lines)
+    else:
+        body = ""
+
+    msg = f"{head}\n{body}\n\nJARVIS verabschiedet sich für heute, Sir. 🫡".strip()
+
     posted = False
     try:
         import discord_bot
-        posted = discord_bot.notify("✅ Makeover komplett — alle Seiten fertig", msg, 0x2ecc71)
+        posted = discord_bot.notify(
+            f"✅ Makeover komplett — {n} Seiten fertig", msg, 0x2ecc71)
     except Exception as e:
         logger.warn("AutoBuilder", f"Verabschiedung fehlgeschlagen: {type(e).__name__}")
     _farewell_sent = True               # auch ohne Discord nur einmal versuchen/loggen
     logger.success("AutoBuilder",
-                   f"Alle {n} Seiten auf 7/7 — Verabschiedung {'in Discord gepostet' if posted else 'lokal protokolliert'}")
+                   f"Alle {n} Seiten auf 7/7 — Verabschiedung "
+                   f"{'in Discord gepostet' if posted else 'lokal protokolliert'} "
+                   f"({len(links)} Links)")
 
 
 def _before_cutoff() -> bool:
