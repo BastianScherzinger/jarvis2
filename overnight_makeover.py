@@ -452,10 +452,13 @@ def _ensure_legal(folder: Path, meta: dict) -> None:
     _write_content(folder, content)
 
 
-def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
+def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
+                 on_stage_done=None) -> dict:
     """Fährt die Seite durch alle noch offenen Makeover-Stufen (resume-fähig).
     say(progress:int, text:str) meldet Fortschritt; stop() bricht sauber ab.
-    Gibt {ok, stages_done (neu in diesem Lauf), all_done, reason}."""
+    on_stage_done(key, label, n_done): wird nach JEDER fertig gebauten + committeten Stufe
+    aufgerufen — damit der Aufrufer die Stufe sofort live pushen kann („pushen jeweils"),
+    statt erst am Ende. Gibt {ok, stages_done (neu in diesem Lauf), all_done, reason}."""
     folder = Path(folder)
     say = say or (lambda p, t: None)
 
@@ -554,6 +557,13 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
             logger.activity("Makeover", stage["label"], name, "✨", "build")
         except Exception:
             pass
+        # Stufe sofort live pushen (token-arm: eine Stufe = ein Push). Selbst wenn eine
+        # spätere Stufe am Rate-Limit hängt, sind die fertigen Skills schon deployt.
+        if on_stage_done:
+            try:
+                on_stage_done(stage["key"], stage["label"], len(new_done))
+            except Exception as e:
+                logger.warn("Makeover", f"Per-Stufe-Push übersprungen: {type(e).__name__}")
 
     return {"ok": True, "stages_done": new_done, "all_done": all_done(folder)}
 

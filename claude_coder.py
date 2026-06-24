@@ -24,7 +24,7 @@ _TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "1200") or "1200")
 # Inaktivitäts-Watchdog: kommt aus dem headless-Lauf so lange KEIN Lebenszeichen (kein
 # Stream-Event), gilt er als hängend und wird abgebrochen → die Stufe rollt zurück und die
 # Pipeline läuft weiter, statt ewig bei „Stufe 1" zu stehen. Pro .env justierbar.
-_INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "300") or "300")
+_INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "600") or "600")
 # Harte Obergrenze an Agenten-Runden je Stufe (verhindert Endlosschleifen). 0 = aus.
 _MAX_TURNS  = int(os.environ.get("JARVIS_CLAUDE_MAX_TURNS", "80") or "80")
 

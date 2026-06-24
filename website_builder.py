@@ -498,14 +498,16 @@ def _url_live(url: str, on_tick=None, timeout: int = 180) -> bool:
 
 
 def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
-                   site_name: str, say, redeploy_url: str = "") -> dict:
+                   site_name: str, say, redeploy_url: str = "", wait_live: bool = True) -> dict:
     """Legt ein GitHub-Repo an, pusht den Ordner und deployt auf Railway.
     say(progress|None, text) meldet jeden Schritt. Gibt
     {repo_full, repo_url, live_url, live_ok, railway_note, railway_log}.
 
     redeploy_url: ist die Seite schon einmal deployt (Live-URL bekannt), wird NUR
     gepusht — Railway baut bei git-push automatisch neu. So entstehen bei
-    'verbessern'/'mit Claude' keine doppelten Railway-Services."""
+    'verbessern'/'mit Claude' keine doppelten Railway-Services.
+    wait_live: False = nach dem Push NICHT auf die Erreichbarkeit warten (für den
+    schnellen Per-Stufe-Push im Makeover — Railway rebuildet im Hintergrund)."""
     import agent_github
     import agent_railway
     repo_full = repo_url = live_url = railway_note = ""
@@ -543,6 +545,12 @@ def _deploy_folder(target: "Path", slug: str, name: str, secret: str,
     # Re-Deploy: Seite existiert schon → nur Push, Railway baut automatisch neu.
     if redeploy_url and repo_full:
         live_url = redeploy_url
+        if not wait_live:
+            # Schneller Per-Stufe-Push: nur pushen, Railway rebuildet im Hintergrund.
+            say(None, "Stufe live-gepusht — Railway rebuildet im Hintergrund.")
+            _deploy_activity(site_name or name, live_url, True)
+            return {"repo_full": repo_full, "repo_url": repo_url, "live_url": live_url,
+                    "live_ok": True, "railway_note": "", "railway_log": railway_log}
         say(90, "Push löst Railway-Rebuild aus — warte auf Erreichbarkeit (bis 3 Min)…")
         if _url_live(redeploy_url, lambda s: say(None, s), timeout=180):
             live_ok = True
@@ -1057,8 +1065,33 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
             pass
 
         import overnight_makeover
+
+        # Per-Stufe-Push: jede fertige Skill-Stufe sofort live deployen („pushen jeweils").
+        # So geht jeder Skill einzeln live; bremst eine spätere Stufe (Abo-Rate-Limit), sind
+        # die fertigen Stufen schon deployt — die Seite hängt nicht mehr unsichtbar bei „Stufe 1".
+        slug_ps = _slug(name)
+        secret_ps = _django_secret_key()
+        site_name_ps = overnight_makeover._read_content(target).get("site_name") or name
+
+        def _stage_push(key: str, label: str, n_done: int) -> None:
+            live = (get(job_id) or {}).get("live_url") or existing_live
+            if not live:
+                return                       # noch keine Live-URL (Repo/Deploy fehlt) → später
+            cur = (get(job_id) or {}).get("progress", 8)
+            _step(job_id, cur, f"Stufe '{label}' fertig → live pushen…")
+            dep = _deploy_folder(
+                target, slug_ps, name, secret_ps, site_name_ps,
+                lambda p, t: _step(job_id, p if p is not None else (get(job_id) or {}).get("progress", 8), t),
+                redeploy_url=live, wait_live=False)
+            if dep.get("repo_url"):
+                _set(job_id, repo_url=dep["repo_url"])
+            if dep.get("live_url"):
+                _set(job_id, live_url=dep["live_url"], live=1)
+            _sync_push(job_id)
+
         result = overnight_makeover.run_makeover(
-            target, meta, say=lambda p, t: _step(job_id, p, t), stop=stop)
+            target, meta, say=lambda p, t: _step(job_id, p, t), stop=stop,
+            on_stage_done=_stage_push)
 
         # Nichts Neues gebaut (alle Stufen bereits erledigt oder CLI fehlt) → kein Re-Deploy.
         if not result.get("stages_done"):
