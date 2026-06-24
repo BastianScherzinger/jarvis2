@@ -19,7 +19,8 @@ _worker_started = False
 _cloud_started = False
 
 # Cloud-Job-Typen brauchen KEINE lokale GPU → dürfen auf starkem Server parallel laufen.
-_CLOUD_KINDS = {"higgsfield", "higgsfield_image", "openai_image"}
+_CLOUD_KINDS = {"higgsfield", "higgsfield_image", "openai_image",
+                "higgsfield_mcp_image", "higgsfield_mcp_video"}
 
 _BASE = Path(__file__).parent
 _IMAGES_DIR = _BASE / "workspace" / "media" / "images"
@@ -281,6 +282,25 @@ def _worker(q: "queue.Queue") -> None:
                     width=int(params.get("width") or 1536),
                     height=int(params.get("height") or 1024),
                 )
+            elif kind == "higgsfield_mcp_image":
+                import higgsfield_mcp
+                ts  = time.strftime("%Y%m%d_%H%M%S")
+                out = _IMAGES_DIR / f"hfmcp_{ts}_{job_id}.png"
+                r = higgsfield_mcp.generate_image(
+                    params.get("prompt", ""), out,
+                    aspect_ratio=(params.get("aspect_ratio") or "16:9"),
+                    model=(params.get("model") or ""))
+                result = {"web_url": f"/workspace/media/images/{out.name}", **r}
+            elif kind == "higgsfield_mcp_video":
+                import higgsfield_mcp
+                ts  = time.strftime("%Y%m%d_%H%M%S")
+                out = _VIDEOS_DIR / f"hfmcp_{ts}_{job_id}.mp4"
+                r = higgsfield_mcp.generate_video(
+                    params.get("prompt", ""), out,
+                    aspect_ratio=(params.get("aspect_ratio") or "16:9"),
+                    duration=int(params.get("duration") or 0),
+                    model=(params.get("model") or ""))
+                result = {"web_url": f"/workspace/media/videos/{out.name}", **r}
             else:
                 raise ValueError(f"Unbekannter Job-Typ: '{kind}'")
 

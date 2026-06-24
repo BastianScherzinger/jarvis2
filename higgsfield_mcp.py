@@ -525,10 +525,68 @@ def generate_image(prompt: str, out_path: "str | Path", aspect_ratio: str = "16:
     return {"ok": True, "path": str(out_path), "url": url, "model": mdl, "engine": "higgsfield_mcp"}
 
 
+_VIDEO_MODEL_DEF = os.environ.get("JARVIS_HF_MCP_VIDEO_MODEL", "kling3_0_turbo")
+
+
+def generate_video(prompt: str, out_path: "str | Path", aspect_ratio: str = "16:9",
+                   duration: int = 0, model: str = "", poll_timeout: int = 360) -> dict:
+    """Erzeugt EIN Video über den Higgsfield-MCP (Abo-Credits) und speichert es nach out_path.
+    Gleicher Flow wie generate_image (generate_video → job_status → result_url), nur längeres
+    Polling. Gibt {ok, path, url, model, engine}. Wirft bei Fehler (Aufrufer fällt zurück)."""
+    if not _HAS_HTTPX:
+        raise RuntimeError("httpx fehlt (pip install httpx).")
+    if not is_authorized():
+        raise RuntimeError("Higgsfield-MCP nicht angemeldet — 'python higgsfield_mcp.py login'.")
+    mdl = model or _VIDEO_MODEL_DEF
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    args: dict = {"model": mdl, "prompt": prompt, "aspect_ratio": aspect_ratio, "count": 1}
+    if duration and int(duration) > 0:
+        args["duration"] = int(duration)
+    sub = call_tool("generate_video", {"params": args}, timeout=90)
+    results = sub.get("results") or []
+    job_id = (results[0].get("id") if results and isinstance(results[0], dict) else "") or sub.get("id")
+    if not job_id:
+        raise RuntimeError(f"Keine Job-ID in MCP-Antwort: {str(sub)[:200]}")
+
+    url = ""
+    end = time.time() + poll_timeout
+    while time.time() < end:
+        st = call_tool("job_status", {"jobId": job_id, "sync": True, "raw_data": True})
+        raw = st.get("raw_data") if isinstance(st.get("raw_data"), dict) else st
+        status_s = (raw.get("status") or "").lower()
+        if status_s in ("completed", "succeeded", "success", "done"):
+            url = raw.get("result_url") or raw.get("min_result_url") or ""
+            if not url:
+                outs = raw.get("results") or raw.get("outputs") or []
+                if outs and isinstance(outs[0], dict):
+                    url = outs[0].get("url") or outs[0].get("result_url") or ""
+            break
+        if status_s in ("failed", "error", "cancelled"):
+            raise RuntimeError(f"Higgsfield-MCP Video-Status: {status_s}")
+        if status_s == "ip_detected":
+            raise RuntimeError("Higgsfield-MCP: IP-Schutz ausgelöst (anderer Prompt nötig).")
+        time.sleep(float(raw.get("poll_after_seconds") or 5))
+    if not url:
+        raise TimeoutError("Higgsfield-MCP: kein Video-Ergebnis (Timeout).")
+
+    with httpx.Client(timeout=180, headers={"User-Agent": _UA}) as c:
+        data = c.get(url).content
+    out_path.write_bytes(data)
+    try:
+        import logger as _lg
+        _lg.activity("Higgsfield", "Video generiert (MCP/Abo)", f"{mdl} · {prompt[:50]}", "🎬", "video")
+    except Exception:
+        pass
+    return {"ok": True, "path": str(out_path), "url": url, "model": mdl, "engine": "higgsfield_mcp"}
+
+
 def status() -> dict:
     a = _load()
     return {"authorized": is_authorized(), "has_refresh": bool(a.get("refresh_token")),
-            "expires_at": a.get("expires_at"), "model": _MODEL_DEF, "httpx": _HAS_HTTPX}
+            "expires_at": a.get("expires_at"), "model": _MODEL_DEF,
+            "video_model": _VIDEO_MODEL_DEF, "httpx": _HAS_HTTPX}
 
 
 # ── CLI: einmaliger Login + Selbsttest ───────────────────────────────────────

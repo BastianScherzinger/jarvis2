@@ -624,6 +624,7 @@ function _pollMockup(jobId, out, btn){
 // Fragt EINMAL (nur wenn Higgsfield konfiguriert ist), ob der Hero über die Cloud
 // erzeugt werden soll. Lokal bleibt der bewährte Standard.
 let _hfConfigured = null;
+let _hfMcpConfigured = null;      // Higgsfield via MCP/Abo angemeldet? (nutzt Abo-Credits)
 let _openaiConfigured = null;     // ChatGPT-Bilder verfügbar? (OPENAI_API_KEY gesetzt)
 let _mediaMode = 'image';         // aktueller Medien-Modus: 'image' | 'video'
 
@@ -1083,6 +1084,7 @@ async function loadMediaModels(){
   try{
     const s = await(await fetch('/api/media/status')).json();
     _hfConfigured = !!s.higgsfield_api_key;
+    _hfMcpConfigured = !!s.higgsfield_mcp;
     _openaiConfigured = !!s.openai_image;
     // ChatGPT-Bilder nicht verfügbar → Option im Bild-Backend ausgrauen, Default auf lokal.
     const ib = document.getElementById('img-backend');
@@ -1090,6 +1092,20 @@ async function loadMediaModels(){
       const oaiOpt = ib.querySelector('option[value="openai"]');
       if(oaiOpt && !_openaiConfigured) oaiOpt.textContent = 'ChatGPT (OpenAI) — Key fehlt';
       if(!_openaiConfigured && ib.value === 'openai') ib.value = 'local';
+      const mcpOpt = ib.querySelector('option[value="higgsfield_mcp"]');
+      if(mcpOpt && !_hfMcpConfigured) mcpOpt.textContent = 'Higgsfield (Abo) — Login beim Start';
+      // Abo angemeldet → das ist die beste (kostendeckende) Quelle: als Standard wählen.
+      if(_hfMcpConfigured) ib.value = 'higgsfield_mcp';
+      else if(ib.value === 'higgsfield_mcp') ib.value = _openaiConfigured ? 'openai' : 'local';
+      if(typeof onImgBackend === 'function') onImgBackend();
+    }
+    // Gleiches Default fürs Werbe-Video bei angemeldetem Abo.
+    const vb0 = document.getElementById('vid-backend');
+    if(vb0){
+      const vmcp = vb0.querySelector('option[value="higgsfield_mcp"]');
+      if(vmcp && !_hfMcpConfigured) vmcp.textContent = 'Higgsfield (Abo) — Login beim Start';
+      if(_hfMcpConfigured){ vb0.value = 'higgsfield_mcp'; if(typeof onVidBackend==='function') onVidBackend(); }
+      else if(vb0.value === 'higgsfield_mcp'){ vb0.value = 'local'; if(typeof onVidBackend==='function') onVidBackend(); }
     }
     const info = document.getElementById('vid-engine-info');
     if(s.video_local_ok === false){
@@ -1102,7 +1118,9 @@ async function loadMediaModels(){
       if(vb){
         const loOpt = vb.querySelector('option[value="local"]');
         if(loOpt) loOpt.textContent = 'Lokal (Wan 2.1) — nur mit GPU';
-        if(_hfConfigured){ vb.value = 'higgsfield'; if(typeof onVidBackend==='function') onVidBackend(); }
+        // Ohne GPU: Abo-MCP bevorzugen (nutzt Abo-Credits), sonst API-Key-Higgsfield.
+        if(_hfMcpConfigured){ vb.value = 'higgsfield_mcp'; if(typeof onVidBackend==='function') onVidBackend(); }
+        else if(_hfConfigured){ vb.value = 'higgsfield'; if(typeof onVidBackend==='function') onVidBackend(); }
       }
     } else {
       if(info && s.empfehlung) info.textContent = s.empfehlung;
@@ -1117,6 +1135,10 @@ function onVidBackend(){
   if(backend === 'higgsfield'){
     local.style.display = 'none';
     hf.style.display    = '';
+  }else if(backend === 'higgsfield_mcp'){
+    // Abo via MCP: festes Modell (Kling 3 Turbo) → keine Modellwahl nötig.
+    local.style.display = 'none';
+    hf.style.display    = 'none';
   }else{
     local.style.display = '';
     hf.style.display    = 'none';
@@ -1134,8 +1156,11 @@ function onImgBackend(){
   if(model) model.style.display = showModel ? '' : 'none';
   if(note)  note.style.display  = showModel ? 'none' : '';
   if(!note) return;
-  if(backend === 'higgsfield'){
-    note.textContent = _hfConfigured ? 'Higgsfield Soul · 1080p'
+  if(backend === 'higgsfield_mcp'){
+    note.textContent = _hfMcpConfigured ? 'Higgsfield Soul V2 · Abo-Credits'
+                                        : '⚠ Higgsfield-Abo nicht angemeldet — Login beim Start';
+  } else if(backend === 'higgsfield'){
+    note.textContent = _hfConfigured ? 'Higgsfield Soul · 1080p (API-Key)'
                                      : '⚠ Higgsfield-API-Key fehlt in der .env';
   } else if(backend === 'openai'){
     note.textContent = _openaiConfigured ? 'ChatGPT · gpt-image-1 · 1536×1024'

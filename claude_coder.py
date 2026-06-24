@@ -13,12 +13,20 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 # Sicherheitsmodus: erlaubt Datei-Edits ohne interaktive Rückfrage, aber keine
 # beliebigen Shell-Kommandos. Per .env überschreibbar.
 _PERMISSION = os.environ.get("JARVIS_CLAUDE_PERMISSION", "acceptEdits")
 _TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "1200") or "1200")
+# Inaktivitäts-Watchdog: kommt aus dem headless-Lauf so lange KEIN Lebenszeichen (kein
+# Stream-Event), gilt er als hängend und wird abgebrochen → die Stufe rollt zurück und die
+# Pipeline läuft weiter, statt ewig bei „Stufe 1" zu stehen. Pro .env justierbar.
+_INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "300") or "300")
+# Harte Obergrenze an Agenten-Runden je Stufe (verhindert Endlosschleifen). 0 = aus.
+_MAX_TURNS  = int(os.environ.get("JARVIS_CLAUDE_MAX_TURNS", "80") or "80")
 
 # Wird als zusätzlicher System-Prompt mitgegeben. Schützt davor, dass ein im (oder über
 # dem) Zielordner gefundenes CLAUDE.md (z.B. die JARVIS-Persona mit „erst nach Guten
@@ -128,10 +136,36 @@ def _track_cost(data: dict, model: str, task: str, name: str) -> None:
         pass
 
 
+def _terminate(proc: "subprocess.Popen") -> None:
+    """Beendet den headless-Lauf samt Kind-Prozessen (claude.cmd → node)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=15)
+        else:
+            proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
-               model: str = "", task: str = "claude_code", name: str = "") -> dict:
+               model: str = "", task: str = "claude_code", name: str = "",
+               on_progress=None) -> dict:
     """Lässt Claude Code einen FERTIG formulierten Prompt im Ordner ausführen.
     Snapshot vorher, Render-Gate + Rollback bei Regression, Kosten-Tracking.
+
+    STREAMING (seit 24.06.2026): Der Lauf wird mit `--output-format stream-json` gestartet
+    und Event-für-Event gelesen. on_progress(text) bekommt Live-Schritte (Tool-Nutzung /
+    Zwischentexte) → das Dashboard zeigt echten Fortschritt statt einer eingefrorenen
+    „Stufe 1". Ein Inaktivitäts-Watchdog bricht ab, wenn KEIN Event mehr kommt (Hänger),
+    eine harte Obergrenze deckelt die Gesamtdauer. So kommt die Pipeline zuverlässig bis Stufe 7.
     Gibt {ok, summary, render_ok, reason}."""
     folder = str(Path(folder))
     if not Path(folder).is_dir():
@@ -150,40 +184,108 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
         tools, snap = None, {}
 
     # WICHTIG: Den Prompt über STDIN übergeben, NICHT als argv. claude.cmd ist ein
-    # Batch-Wrapper → der lange Prompt (mit content.json-Dump voller " & < > | %) würde
-    # beim Durchreichen durch cmd.exe an Sonderzeichen abgeschnitten/verstümmelt, sodass
-    # der Headless-Claude nur einen Prompt-Torso sieht und konversationell zurückfragt
-    # statt zu editieren. Über stdin gelangt der Prompt unversehrt an die CLI.
-    args = [cmd, "-p",
-            "--output-format", "json", "--permission-mode", _PERMISSION,
-            "--append-system-prompt", _SYS_APPEND]
+    # Batch-Wrapper → der lange Prompt (mit Sonderzeichen) würde via cmd.exe verstümmelt.
+    # stream-json + --verbose: zeilenweise JSON-Events (Liveness + Fortschritt + Abbruch).
+    args = [cmd, "-p", "--output-format", "stream-json", "--verbose",
+            "--permission-mode", _PERMISSION, "--append-system-prompt", _SYS_APPEND]
+    if _MAX_TURNS > 0:
+        args += ["--max-turns", str(_MAX_TURNS)]
     if model:
         args += ["--model", model]
+
+    hard_to = timeout or _TIMEOUT
     try:
-        proc = subprocess.run(args, cwd=folder, input=prompt,
-                              capture_output=True, text=True,
-                              encoding="utf-8", errors="replace",
-                              timeout=timeout or _TIMEOUT)
-    except subprocess.TimeoutExpired:
+        proc = subprocess.Popen(args, cwd=folder, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="replace", bufsize=1)
+    except Exception as e:
         if tools and snap:
             tools.restore(snap)
-        return {"ok": False, "reason": f"Timeout nach {timeout or _TIMEOUT}s — zurückgerollt"}
-    except Exception as e:
         return {"ok": False, "reason": f"{type(e).__name__}: {str(e)[:160]}"}
 
-    summary = ""
+    st = {"last": time.time(), "killed": ""}
+    start = time.time()
+    err_buf: list[str] = []
+
+    def _drain_err():
+        try:
+            for ln in proc.stderr:
+                err_buf.append(ln)
+        except Exception:
+            pass
+
+    def _watch():
+        while proc.poll() is None:
+            now = time.time()
+            if now - start > hard_to:
+                st["killed"] = "hard"; _terminate(proc); return
+            if now - st["last"] > _INACTIVITY:
+                st["killed"] = "inactivity"; _terminate(proc); return
+            time.sleep(2)
+
+    threading.Thread(target=_drain_err, name="cc-err", daemon=True).start()
+    threading.Thread(target=_watch, name="cc-watch", daemon=True).start()
+
+    # Prompt über stdin reinschreiben und schließen (signalisiert „Eingabe fertig").
     try:
-        data = json.loads(proc.stdout or "{}")
-        summary = (data.get("result") or data.get("summary") or "")[:600]
-        _track_cost(data, model, task, name)
+        if proc.stdin:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
     except Exception:
-        summary = (proc.stdout or "")[-400:]
+        pass
+
+    data: "dict | None" = None
+    summary = ""
+    last_text = ""
+    try:
+        for line in proc.stdout:                  # blockiert je Event; Watchdog killt bei Stille
+            line = line.strip()
+            if not line:
+                continue
+            st["last"] = time.time()
+            try:
+                ev = json.loads(line)
+            except Exception:
+                continue
+            etype = ev.get("type")
+            if etype == "assistant":
+                for blk in (ev.get("message", {}) or {}).get("content", []) or []:
+                    if blk.get("type") == "text" and (blk.get("text") or "").strip():
+                        last_text = blk["text"].strip()
+                        if on_progress:
+                            try: on_progress(last_text[:90])
+                            except Exception: pass
+                    elif blk.get("type") == "tool_use":
+                        if on_progress:
+                            try: on_progress(f"{blk.get('name','tool')} …")
+                            except Exception: pass
+            elif etype == "result":
+                data = ev
+                summary = (ev.get("result") or "")[:600]
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=15)
+    except Exception:
+        _terminate(proc)
+
+    if st["killed"]:
+        if tools and snap:
+            tools.restore(snap)
+        grund = ("Hänger (kein Lebenszeichen > %ds)" % _INACTIVITY if st["killed"] == "inactivity"
+                 else f"Zeitlimit {hard_to}s erreicht")
+        return {"ok": False, "reason": f"{grund} — abgebrochen & zurückgerollt", "summary": summary}
+
+    if data is not None:
+        _track_cost(data, model, task, name)
+    elif not summary:
+        summary = last_text[:600] or (("".join(err_buf))[-300:])
 
     ok, fehler = _render_ok(folder)
     if not ok and tools and snap:
         tools.restore(snap)               # Regression → zurückrollen
-        return {"ok": False, "render_ok": False, "reason": f"Render-Fehler, zurückgerollt: {fehler[:160]}",
-                "summary": summary}
+        return {"ok": False, "render_ok": False,
+                "reason": f"Render-Fehler, zurückgerollt: {fehler[:160]}", "summary": summary}
     return {"ok": True, "render_ok": ok, "summary": summary or "Schritt umgesetzt."}
 
 

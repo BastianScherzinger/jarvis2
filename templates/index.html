@@ -186,9 +186,10 @@
     <textarea id="img-prompt" placeholder="Beschreibe das Bild… (z.B. 'moderne Dachsanierung, Handwerker bei der Arbeit, sonniges Licht, fotorealistisch, 4K')"></textarea>
     <div class="composer-row">
       <select id="img-backend" class="flt" onchange="onImgBackend()">
+        <option value="higgsfield_mcp">Higgsfield (Abo · Soul V2)</option>
         <option value="openai">ChatGPT (OpenAI · gpt-image-1)</option>
         <option value="local">Lokal (Diffusers)</option>
-        <option value="higgsfield">Higgsfield Cloud (Soul)</option>
+        <option value="higgsfield">Higgsfield Cloud (API-Key · Soul)</option>
       </select>
       <select id="img-model" class="flt"></select>
       <span id="img-hf-note" class="flt-note" style="display:none">Higgsfield Soul · 1080p</span>
@@ -249,7 +250,7 @@
         <select id="set-backend" class="flt">
           <option value="openai">ChatGPT (OpenAI)</option>
           <option value="local">Lokal (Diffusers)</option>
-          <option value="higgsfield">Higgsfield Cloud</option>
+          <option value="higgsfield">Higgsfield Cloud (API-Key)</option>
         </select>
       </div>
     </div>
@@ -284,8 +285,9 @@
     <textarea id="vid-prompt" placeholder="Beschreibe das Video... (z.B. 'Drohnenflug über eine moderne Dachsanierung, cineastisch, 4K')"></textarea>
     <div class="composer-row">
       <select id="vid-backend" class="flt" onchange="onVidBackend()">
+        <option value="higgsfield_mcp">Higgsfield (Abo · Kling 3)</option>
         <option value="local">Lokal (Wan 2.1)</option>
-        <option value="higgsfield">Higgsfield Cloud</option>
+        <option value="higgsfield">Higgsfield Cloud (API-Key)</option>
       </select>
       <select id="vid-model" class="flt"></select>
       <select id="vid-hf-model" class="flt" style="display:none"></select>

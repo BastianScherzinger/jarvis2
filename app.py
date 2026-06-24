@@ -1193,7 +1193,11 @@ def api_media_generate_image():
         return jsonify({"ok": False, "reason": "no_prompt"}), 400
     if len(prompt) > 1000:
         return jsonify({"ok": False, "reason": "prompt_too_long"}), 400
-    if backend == "higgsfield":
+    if backend in ("higgsfield_mcp", "higgsfield_abo"):
+        params = {"prompt": prompt, "aspect_ratio": (body.get("aspect_ratio") or "16:9").strip(),
+                  "model": (body.get("hf_model") or "").strip()}
+        job_id = media_queue.submit("higgsfield_mcp_image", params)
+    elif backend == "higgsfield":
         params = {"prompt": prompt, "width": body.get("width"), "height": body.get("height")}
         job_id = media_queue.submit("higgsfield_image", params)
     elif backend == "openai":
@@ -1254,7 +1258,12 @@ def api_media_generate_video():
     if len(prompt) > 1000:
         return jsonify({"ok": False, "reason": "prompt_too_long"}), 400
 
-    if backend == "higgsfield":
+    if backend in ("higgsfield_mcp", "higgsfield_abo"):
+        params = {"prompt": prompt, "aspect_ratio": (body.get("aspect_ratio") or "16:9").strip(),
+                  "model": (body.get("hf_model") or "").strip(),
+                  "duration": body.get("duration") or 0}
+        job_id = media_queue.submit("higgsfield_mcp_video", params)
+    elif backend == "higgsfield":
         params = {"prompt": prompt, "hf_model": (body.get("hf_model") or "dop-lite").strip()}
         job_id = media_queue.submit("higgsfield", params)
     else:

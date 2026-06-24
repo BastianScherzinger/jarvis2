@@ -512,6 +512,8 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
             res = claude_coder.run_prompt(
                 str(folder), prompt, branche=meta.get("branche", ""),
                 model=_MODEL, task=f"makeover:{stage['key']}", name=name,
+                on_progress=lambda s, _p=pct, _l=stage["label"], _i=i + 1, _t=total:
+                    say(_p, f"Makeover {_i}/{_t} · {_l} · {s}"),
             )
             changed = _fingerprint(folder) != fp0
             if not _is_limit(res, changed):
