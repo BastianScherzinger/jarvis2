@@ -402,6 +402,47 @@ def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: 
 
 # ── Hauptlauf ─────────────────────────────────────────────────────────────────────
 
+def _ensure_openai_hero(folder: Path, meta: dict, say) -> None:
+    """Ersetzt das Hero-Bild durch ein frisches, lead-angepasstes ChatGPT-Bild
+    (OpenAI gpt-image-1), sofern die Seite noch kein OpenAI-Hero hat und das Tageslimit
+    es zulässt. Läuft einmal je Seite zu Beginn des Makeovers — so bauen die Design-
+    Stufen danach auf dem hochwertigen Bild auf. Best-effort, kostengedeckelt."""
+    try:
+        import media_engine
+    except Exception:
+        return
+    content = _read_content(folder)
+    if content.get("hero_source") == "openai":
+        return                                   # schon ein ChatGPT-Hero — Quota schonen
+    if content.get("hero_custom"):
+        return                                   # vom Inhaber hochgeladenes Hero nie ersetzen
+    if not media_engine.openai_available() or media_engine.openai_quota_left() <= 0:
+        return
+    d = _doc_details(folder, meta)
+    branche = meta.get("branche") or content.get("branche") or d.get("branche", "")
+    name    = meta.get("name") or content.get("site_name", "")
+    stadt   = meta.get("stadt") or content.get("stadt") or d.get("stadt", "")
+    beschr  = d.get("beschreibung") or content.get("ueber_text", "")
+    prompt  = media_engine.hero_master_prompt(branche=branche, name=name, stadt=stadt,
+                                              beschreibung=beschr, akzent=content.get("akzent", ""))
+    try:
+        say(6, "Hero-Bild wird durch ein frisches ChatGPT-Bild ersetzt (gpt-image-1)…")
+        media_engine.generate_image_openai(
+            prompt, output_dir=(folder / "static" / "img"),
+            filename="hero.png", width=1536, height=1024, name=name)
+        content = _read_content(folder)          # frisch lesen (kann sich geändert haben)
+        content["hero_image"] = "/static/img/hero.png"
+        content["hero_source"] = "openai"
+        _write_content(folder, content)
+        _git_commit(folder, "Hero: frisches ChatGPT-Bild (gpt-image-1)")
+        try:
+            logger.activity("Makeover", "ChatGPT-Hero ersetzt", name or folder.name, "🖼", "image")
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warn("Makeover", f"ChatGPT-Hero übersprungen: {type(e).__name__}: {str(e)[:120]}")
+
+
 def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
     """Fährt die Seite durch alle noch offenen Makeover-Stufen (resume-fähig).
     say(progress:int, text:str) meldet Fortschritt; stop() bricht sauber ab.
@@ -417,6 +458,11 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
 
     # Sauberer Resume: eine beim letzten Mal abgebrochene (uncommittete) Stufe verwerfen.
     _reset_dirty(folder)
+
+    # Hero-Bild zuerst durch ein frisches ChatGPT-Bild ersetzen (einmal je Seite), damit
+    # die folgenden Design-Stufen auf dem hochwertigen Bild aufbauen. Kostengedeckelt.
+    if not (stop and stop()):
+        _ensure_openai_hero(folder, meta, say)
 
     done = set(_read_content(folder).get("makeover_stages") or [])
     name = meta.get("name", "?")

@@ -898,6 +898,174 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
             "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
 
 
+# ── OpenAI (ChatGPT) Bildgenerierung — gpt-image-1 ───────────────────────────
+# Standard-Quelle für Hero-Bilder: hochwertige, fotorealistische Banner direkt aus
+# der OpenAI-Cloud, unabhängig von der lokalen Hardware. Mit hartem TAGESLIMIT, damit
+# die Kosten gedeckelt bleiben (JARVIS_OPENAI_IMAGE_DAILY_MAX).
+
+_OPENAI_BASE        = "https://api.openai.com/v1/images/generations"
+_OPENAI_USAGE_PATH  = _BASE / "data" / "openai_image_usage.json"
+
+
+def _openai_key() -> str:
+    """OpenAI-API-Key aus Umgebung oder .env (OPENAI_API_KEY, Fallback OPENAI_KEY)."""
+    return (_env("OPENAI_API_KEY") or _env("OPENAI_KEY")).strip()
+
+
+def openai_available() -> bool:
+    return bool(_openai_key())
+
+
+def _openai_quality() -> str:
+    q = (_env("JARVIS_OPENAI_IMAGE_QUALITY", "medium") or "medium").strip().lower()
+    return q if q in ("low", "medium", "high", "auto") else "medium"
+
+
+def openai_daily_max() -> int:
+    """Maximale OpenAI-Bilder pro Tag (Kostendeckel). 0 = deaktiviert."""
+    try:
+        return int(_env("JARVIS_OPENAI_IMAGE_DAILY_MAX", "30") or "30")
+    except Exception:
+        return 30
+
+
+def _openai_today() -> str:
+    return time.strftime("%Y-%m-%d")
+
+
+def _openai_used_today() -> int:
+    try:
+        import json
+        d = json.loads(_OPENAI_USAGE_PATH.read_text(encoding="utf-8"))
+        return int(d.get("count", 0)) if d.get("date") == _openai_today() else 0
+    except Exception:
+        return 0
+
+
+def _openai_bump() -> None:
+    """Erhöht den Tageszähler (rollt bei Tageswechsel auf 0 zurück)."""
+    try:
+        import json
+        used = _openai_used_today()
+        _OPENAI_USAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _OPENAI_USAGE_PATH.write_text(
+            json.dumps({"date": _openai_today(), "count": used + 1}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+
+
+def openai_quota_left() -> int:
+    """Verbleibende OpenAI-Bilder heute (>=0). max=0 → 0 (deaktiviert)."""
+    mx = openai_daily_max()
+    if mx <= 0:
+        return 0
+    return max(0, mx - _openai_used_today())
+
+
+def hero_master_prompt(branche: str = "", name: str = "", stadt: str = "",
+                       beschreibung: str = "", akzent: str = "") -> str:
+    """Ausführlicher, auf den Lead angepasster Master-Prompt für ein professionelles,
+    fotorealistisches Hero-Banner (kein Text, kein Logo) — als Vorlage für jede Branche."""
+    br   = (branche or "lokaler Betrieb").strip()
+    ort  = (stadt or "Deutschland").strip()
+    desc = (beschreibung or "").strip()
+    extra = f" Context about the business: {desc[:300]}." if desc else ""
+    acc  = f" Subtle brand accent color {akzent}." if akzent else ""
+    return (
+        "Ultra-realistic, professional wide-format hero banner photograph for the website "
+        f"of a German {br} business located in {ort}.{extra} "
+        "Editorial commercial photography, shot on a full-frame camera with a wide lens, "
+        "natural bright daylight, soft realistic shadows, shallow depth of field, "
+        "clean modern composition with intentional negative space on one side for headline "
+        "text overlay. Show an authentic, inviting real-world scene that immediately "
+        "communicates trust, competence and quality for this exact trade — real environment, "
+        "real tools/setting, tidy and premium. Cinematic color grading, high dynamic range, "
+        "crisp focus, magazine-grade quality, 16:9 landscape." + acc +
+        " Absolutely NO text, NO words, NO letters, NO logos, NO watermarks, NO UI, "
+        "no distorted hands, no extra limbs, no collage."
+    )
+
+
+def generate_image_openai(prompt: str, output_dir: "Path | None" = None,
+                          filename: str = "", width: int = 1536, height: int = 1024,
+                          quality: str = "", name: str = "") -> dict:
+    """Bild via OpenAI gpt-image-1 (Cloud). Respektiert das Tageslimit
+    (JARVIS_OPENAI_IMAGE_DAILY_MAX) und wirft sonst eine Exception — der Aufrufer
+    fällt dann auf die nächste Quelle (Higgsfield/lokal) zurück."""
+    import base64
+    import json
+    import urllib.request
+    import urllib.error
+
+    key = _openai_key()
+    if not key:
+        raise ValueError("OPENAI_API_KEY fehlt in .env.")
+    if openai_quota_left() <= 0:
+        raise RuntimeError(
+            f"OpenAI-Tageslimit erreicht ({_openai_used_today()}/{openai_daily_max()}) — "
+            "Kostendeckel. Morgen wieder, oder JARVIS_OPENAI_IMAGE_DAILY_MAX erhöhen.")
+
+    # Seitenverhältnis → von gpt-image-1 unterstützte Größe.
+    if width > height:
+        size = "1536x1024"
+    elif height > width:
+        size = "1024x1536"
+    else:
+        size = "1024x1024"
+    qual = (quality or _openai_quality())
+
+    payload = {"model": "gpt-image-1", "prompt": prompt, "size": size, "n": 1}
+    if qual in ("low", "medium", "high", "auto"):
+        payload["quality"] = qual
+
+    t0  = time.time()
+    req = urllib.request.Request(
+        _OPENAI_BASE, data=json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            d = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"OpenAI {e.code}: {body}")
+
+    try:
+        b64 = d["data"][0]["b64_json"]
+        data_bytes = base64.b64decode(b64)
+    except Exception:
+        # Manche Antworten liefern eine URL statt b64 → herunterladen.
+        url = (d.get("data") or [{}])[0].get("url", "")
+        if not url:
+            raise RuntimeError(f"OpenAI-Antwort ohne Bild: {str(d)[:200]}")
+        data_bytes = urllib.request.urlopen(
+            urllib.request.Request(url, headers={"User-Agent": "JARVIS/1.0"}),
+            timeout=120).read()
+
+    dest = output_dir if output_dir else WORKSPACE_IMAGES
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / (filename or f"openai_{time.strftime('%Y%m%d_%H%M%S')}.png")
+    out.write_bytes(data_bytes)
+
+    _openai_bump()   # Tageszähler erst NACH Erfolg erhöhen
+    try:
+        rel = out.relative_to(WORKSPACE_IMAGES)
+        web_url = f"/workspace/media/images/{rel.as_posix()}"
+    except ValueError:
+        web_url = ""
+    try:
+        import logger as _lg
+        _lg.activity("OpenAI", "Hero-Bild generiert",
+                     f"gpt-image-1 · {qual} · {prompt[:50]}", "🖼", "image")
+        import cost_tracker as _ct
+        _ct.track_openai_image(qual, "image_gen", name)
+    except Exception:
+        pass
+    return {"path": str(out), "web_url": web_url, "model": "OpenAI gpt-image-1",
+            "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
+
+
 def get_status() -> dict:
     """Gibt Konfigurationsstatus zurück."""
     img_key = get_active_image_model()
@@ -919,6 +1087,10 @@ def get_status() -> dict:
         "video_model_key":    vid_key,
         "diffusers_ok":       _check_diffusers(),
         "higgsfield_api_key": hf_key_set,
+        "openai_image":       openai_available(),
+        "openai_quota_left":  openai_quota_left(),
+        "openai_daily_max":   openai_daily_max(),
+        "openai_used_today":  _openai_used_today(),
         # Hardware + hardware-gewähltes Modell für Hero/Mockup (System-Auto-Wahl)
         "device":             hw["device"],
         "gpu_name":           hw["gpu_name"],

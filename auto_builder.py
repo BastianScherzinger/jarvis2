@@ -227,10 +227,11 @@ def _pick_next_lead():
 
 
 def _pick_improve_target():
-    """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst
-    (danach älteste 'updated'). Seiten, die alle 7 Stufen durch haben, werden
-    übersprungen. Seiten, bei denen in dieser Session kein Fortschritt möglich war
-    (_makeover_stuck), werden bis zum nächsten Tag ausgelassen."""
+    """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst, bei
+    Gleichstand die NEUESTE ('updated' absteigend) — so werden die neusten Seiten zuerst
+    durch alle neuen Skill-Stufen + ChatGPT-Hero gezogen. Seiten, die alle 7 Stufen durch
+    haben, werden übersprungen. Seiten ohne Fortschritt in dieser Session (_makeover_stuck)
+    werden bis zum nächsten Tag ausgelassen."""
     try:
         import db_websites
         import overnight_makeover
@@ -248,7 +249,7 @@ def _pick_improve_target():
             except Exception:
                 return 0
 
-        sites.sort(key=lambda w: (-_open(w), w.get("updated") or 0))
+        sites.sort(key=lambda w: (-_open(w), -(w.get("updated") or 0)))
         top = sites[0]
         if _open(top) == 0:          # alle Seiten komplett makeovert → nichts zu tun
             return None

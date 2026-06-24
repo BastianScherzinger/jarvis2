@@ -137,6 +137,32 @@ def track_higgsfield(credits: int, task: str = "", name: str = "") -> float:
         return 0.0
 
 
+def track_openai_image(quality: str = "medium", task: str = "image_gen",
+                       name: str = "") -> float:
+    """Trackt ein OpenAI-Bild (gpt-image-1). Kosten je Bild geschätzt nach Qualität
+    (Landscape ~1536×1024). Gibt EUR zurück. Thread-safe, silent."""
+    try:
+        usd = {"low": 0.02, "medium": 0.07, "high": 0.25}.get(
+            (quality or "medium").lower(), 0.07)
+        cost = round(usd * _USD_EUR, 4)
+        ev = {
+            "ts": datetime.now().strftime("%H:%M:%S"),
+            "type": "openai_image", "quality": (quality or "medium")[:10],
+            "eur": cost, "task": task, "name": name[:60],
+        }
+        with _lock:
+            data = _load()
+            d    = _day_entry(data, _today())
+            d["events"].append(ev)
+            d["totals"]["api_eur"] = round(d["totals"]["api_eur"] + cost, 6)
+            d["totals"]["images_generated"] = d["totals"].get("images_generated", 0) + 1
+            _recalc_total(d)
+            _save(data)
+        return cost
+    except Exception:
+        return 0.0
+
+
 def track_compute(seconds: float, use_gpu: bool = False,
                   task: str = "", name: str = "") -> float:
     """Trackt CPU/GPU-Rechenzeit (Stromkosten). Gibt Kosten in EUR zurück."""

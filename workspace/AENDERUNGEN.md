@@ -5,6 +5,47 @@
 
 ---
 
+# Durchgang 24.06.2026 (3) — ChatGPT-Hero-Bilder (gpt-image-1) mit Tageslimit
+
+> Hero-Bilder kommen jetzt standardmäßig von **OpenAI gpt-image-1** (ChatGPT) — hochwertig,
+> fotorealistisch, lead-angepasst, hardware-unabhängig. Kostengedeckelt über ein Tageslimit.
+
+## Was Sir tun muss (Setup)
+1. OpenAI-API-Key erstellen: https://platform.openai.com/api-keys (Billing/Guthaben aktiv).
+2. In die `.env` eintragen: `OPENAI_API_KEY=sk-...`
+3. Optional: `JARVIS_OPENAI_IMAGE_DAILY_MAX=30` (Kostendeckel/Tag, 0 = aus),
+   `JARVIS_OPENAI_IMAGE_QUALITY=medium` (low|medium|high).
+4. Auf dem Bau-PC `git pull` + Programm neu starten.
+Ohne Key passiert nichts Schlimmes — es wird automatisch auf Higgsfield/lokal/Farbverlauf
+zurückgefallen.
+
+## Implementierung
+- **`media_engine.py`** — neuer OpenAI-Backend: `openai_available()`, `generate_image_openai()`
+  (gpt-image-1, Landscape 1536×1024, b64→PNG), `hero_master_prompt()` (ausführlicher,
+  branchen-/lead-angepasster Master-Prompt, kein Text/Logo), Tageszähler in
+  `data/openai_image_usage.json` (`openai_quota_left()`, `openai_daily_max()`), Status-Felder
+  in `get_status()`.
+- **`cost_tracker.py`** — `track_openai_image(quality)` bucht die Bildkosten (Schätzung nach
+  Qualität) ins Tages-Tracking (api_eur + images_generated).
+- **`website_builder.py`** — beim Bau ist OpenAI jetzt **Quelle 0** (vor Higgsfield/lokal):
+  Master-Prompt aus Lead-Daten, `content["hero_source"]="openai"`. Custom-Hero-Prompt schlägt
+  weiterhin den Standard; ein hochgeladenes Hero wird nie überschrieben.
+- **`overnight_makeover.py`** — `_ensure_openai_hero()` ersetzt das Hero-Bild zu Beginn des
+  Makeovers EINMAL durch ein frisches ChatGPT-Bild (nur wenn noch nicht `hero_source=openai`
+  und Tageslimit frei) → die Design-Stufen bauen darauf auf. So werden bestehende Seiten beim
+  Night-Build auf aktuelle ChatGPT-Bilder gehoben.
+- **`auto_builder.py`** — `_pick_improve_target` zieht bei Gleichstand jetzt die **neueste**
+  Seite zuerst (statt der ältesten), damit die neusten Seiten zuerst aufgewertet werden.
+
+## „Es hat sich nichts geändert" — Erklärung
+Die bestehenden Seiten standen alle auf `makeover_stages=[]` und wurden vom alten (kaputten)
+Makeover nie verbessert (siehe Durchgang 2, Prompt-Verstümmelung). Mit dem stdin-Fix laufen
+die Stufen jetzt real (verifiziert). Da die Stufen-Keys neu sind, zeigen alle Seiten mit
+lokalem Ordner `open=7` → der Night-Build zieht sie automatisch komplett neu durch (neue
+Skills + ChatGPT-Hero). **Wirksam wird das erst nach `git pull` + Neustart auf dem Bau-PC.**
+
+---
+
 # Durchgang 24.06.2026 (2) — Makeover-Hänger gefixt + Abschnitts-Stufen + Tages-Links
 
 > Detail-Referenz: `workspace/MAKEOVER_PIPELINE.md`. Auslöser: Seiten wurden gebaut, blieben

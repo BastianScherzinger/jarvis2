@@ -652,6 +652,24 @@ def _run(job_id: str) -> None:
             )
             schwach = media_engine.hardware_info()["device"] == "cpu"  # keine GPU → lokal langsam
 
+            # 0) OpenAI (ChatGPT, gpt-image-1) — STANDARD-Quelle für Hero-Bilder: hochwertig,
+            # hardware-unabhängig, mit Tageslimit (JARVIS_OPENAI_IMAGE_DAILY_MAX) als Kostendeckel.
+            if (not hero_path.exists() and media_engine.openai_available()
+                    and media_engine.openai_quota_left() > 0):
+                oai_prompt = custom_prompt or media_engine.hero_master_prompt(
+                    branche=branche, name=lead.get("name", ""), stadt=lead.get("stadt", ""),
+                    beschreibung=(content.get("ueber_text") or content.get("beschreibung")
+                                  or lead.get("beschreibung", "")),
+                    akzent=content.get("akzent", ""))
+                try:
+                    _step(job_id, 60, "Hero-Banner wird über ChatGPT (OpenAI gpt-image-1) erzeugt…")
+                    media_engine.generate_image_openai(
+                        oai_prompt, output_dir=(target / "static" / "img"),
+                        filename="hero.png", width=1536, height=1024, name=lead.get("name", ""))
+                    content["hero_source"] = "openai"
+                except Exception as e:
+                    _step(job_id, 60, f"OpenAI-Hero nicht möglich ({type(e).__name__}) — Fallback…")
+
             # 1) Cloud (Higgsfield) — nur auf ausdrücklichen Wunsch + schwache Hardware + Credits
             if use_hf and schwach and media_engine.higgsfield_available():
                 bal = media_engine.higgsfield_balance()
