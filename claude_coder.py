@@ -17,6 +17,21 @@ import threading
 import time
 from pathlib import Path
 
+try:
+    import logger
+except Exception:                       # Logger ist best-effort — nie ein harter Import-Fehler
+    logger = None
+
+
+def _lg(level: str, msg: str) -> None:
+    """Schlanker Logger-Wrapper (Console + Ringpuffer + Frontend-Konsole). Silent, wenn der
+    Logger fehlt. Worker-Tag 'Makeover' → taucht im Webseiten-Verbessern-Log auf."""
+    try:
+        if logger:
+            getattr(logger, level, logger.info)("Makeover", msg)
+    except Exception:
+        pass
+
 # Sicherheitsmodus: erlaubt Datei-Edits ohne interaktive Rückfrage, aber keine
 # beliebigen Shell-Kommandos. Per .env überschreibbar.
 _PERMISSION = os.environ.get("JARVIS_CLAUDE_PERMISSION", "acceptEdits")
@@ -174,12 +189,18 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     eine harte Obergrenze deckelt die Gesamtdauer. So kommt die Pipeline zuverlässig bis Stufe 7.
     Gibt {ok, summary, render_ok, reason}."""
     folder = str(Path(folder))
+    fname  = Path(folder).name
     if not Path(folder).is_dir():
+        _lg("error", f"Ordner nicht gefunden: {folder}")
         return {"ok": False, "reason": "Ordner nicht gefunden"}
     cmd = _claude_cmd()
     if not cmd:
+        _lg("error", "claude-CLI nicht gefunden — Makeover nicht möglich "
+                     "(npm i -g @anthropic-ai/claude-code).")
         return {"ok": False, "reason": "claude-CLI nicht gefunden "
                 "(npm i -g @anthropic-ai/claude-code) — Tiefen-Modus 'local' nutzen."}
+    _lg("info", f"▶ Claude-Code startet · {task} · Modell {model or 'default'} · "
+                f"{fname} · Prompt {len(prompt)} Zeichen")
 
     # Sicherheitsnetz: Snapshot vor dem Edit.
     try:
@@ -207,9 +228,10 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     except Exception as e:
         if tools and snap:
             tools.restore(snap)
+        _lg("error", f"Claude-Code-Start fehlgeschlagen: {type(e).__name__}: {str(e)[:160]}")
         return {"ok": False, "reason": f"{type(e).__name__}: {str(e)[:160]}"}
 
-    st = {"last": time.time(), "killed": ""}
+    st = {"last": time.time(), "killed": "", "tools": 0, "edits": 0}
     start = time.time()
     err_buf: list[str] = []
 
@@ -262,36 +284,57 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
                             try: on_progress(last_text[:90])
                             except Exception: pass
                     elif blk.get("type") == "tool_use":
+                        tname = blk.get("name", "tool")
+                        st["tools"] += 1
+                        if tname in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+                            st["edits"] += 1
+                        # Jeden Tool-Einsatz in die CMD loggen → Sir sieht live, was Claude tut.
+                        _lg("debug", f"  {fname} · {tname}")
                         if on_progress:
-                            try: on_progress(f"{blk.get('name','tool')} …")
+                            try: on_progress(f"{tname} …")
                             except Exception: pass
             elif etype == "result":
                 data = ev
                 summary = (ev.get("result") or "")[:600]
-    except Exception:
-        pass
+                if ev.get("is_error") or ev.get("subtype") not in (None, "success"):
+                    _lg("warn", f"{fname} · Claude meldet: "
+                                f"{ev.get('subtype', '')} {str(ev.get('result',''))[:120]}")
+    except Exception as e:
+        _lg("warn", f"{fname} · Stream-Lesefehler: {type(e).__name__}: {str(e)[:120]}")
     try:
         proc.wait(timeout=15)
     except Exception:
         _terminate(proc)
+
+    dur = round(time.time() - start, 1)
 
     if st["killed"]:
         if tools and snap:
             tools.restore(snap)
         grund = ("Hänger (kein Lebenszeichen > %ds)" % _INACTIVITY if st["killed"] == "inactivity"
                  else f"Zeitlimit {hard_to}s erreicht")
+        tail = ("".join(err_buf))[-300:].strip()
+        _lg("error", f"✕ {fname} · {grund} nach {dur}s — abgebrochen & zurückgerollt "
+                     f"({st['tools']} Tools, {st['edits']} Edits)"
+                     + (f" · stderr: {tail[-160:]}" if tail else ""))
         return {"ok": False, "reason": f"{grund} — abgebrochen & zurückgerollt", "summary": summary}
 
     if data is not None:
         _track_cost(data, model, task, name)
     elif not summary:
         summary = last_text[:600] or (("".join(err_buf))[-300:])
+        tail = ("".join(err_buf))[-300:].strip()
+        if tail:
+            _lg("warn", f"{fname} · kein Result-Event — stderr: {tail[-200:]}")
 
     ok, fehler = _render_ok(folder)
     if not ok and tools and snap:
         tools.restore(snap)               # Regression → zurückrollen
+        _lg("error", f"✕ {fname} · Render-Fehler nach {dur}s → zurückgerollt: {fehler[:160]}")
         return {"ok": False, "render_ok": False,
                 "reason": f"Render-Fehler, zurückgerollt: {fehler[:160]}", "summary": summary}
+    _lg("success", f"✓ {fname} · fertig in {dur}s · {st['tools']} Tools, {st['edits']} Edits · "
+                   f"{(summary or 'Schritt umgesetzt.')[:80]}")
     return {"ok": True, "render_ok": ok, "summary": summary or "Schritt umgesetzt."}
 
 

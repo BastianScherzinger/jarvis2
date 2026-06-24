@@ -30,6 +30,24 @@ db_raw.init_db()
 db_evaluated.init_db()
 db_websites.init_db()
 
+
+# Globaler Fehler-Handler: jede unbehandelte Exception in einer Route landet mit vollem
+# Traceback in der CMD (logger.error) + im Frontend-Konsolen-Ringpuffer — damit Sir
+# Fehler wirklich SIEHT, statt dass sie still als 500 verschwinden.
+@app.errorhandler(Exception)
+def _handle_uncaught(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e                                  # 404/405 etc. normal durchreichen
+    import traceback
+    try:
+        _logger.error("HTTP", f"Unbehandelter Fehler in {request.method} {request.path}: "
+                              f"{type(e).__name__}: {str(e)[:200]}")
+        _logger.error("HTTP", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+    except Exception:
+        pass
+    return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}), 500
+
 # Die Bewertung startet bewusst NICHT automatisch beim Boot — erst wenn Sir den
 # Start-Button drückt (/api/start → controller.start()). So bleibt der Programmstart
 # leicht und es laufen anfangs keine Scraper/Evaluator/Ollama-Last.

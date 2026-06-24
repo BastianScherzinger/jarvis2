@@ -809,8 +809,15 @@ def _run(job_id: str) -> None:
         _enrich_contact(job_id, lead)        # Kontaktadresse aktiv suchen (best-effort)
         _sync_push(job_id)
     except Exception as e:
+        import traceback
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+        try:
+            import logger
+            logger.error("Webseite", f"✕ Bau abgebrochen: {type(e).__name__}: {str(e)[:180]}")
+            logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
 
 
 # ── Bereits gebaute Seiten finden + nachträglich deployen ─────────────────────
@@ -897,8 +904,15 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
         _step(job_id, 100, final)
         _sync_push(job_id)
     except Exception as e:
+        import traceback
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+        try:
+            import logger
+            logger.error("Webseite", f"✕ Job '{name}' abgebrochen: {type(e).__name__}: {str(e)[:180]}")
+            logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
 
 
 def _folder_name(folder: Path, name: "str | None") -> str:
@@ -1026,8 +1040,15 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
         _step(job_id, 100, final)
         _sync_push(job_id)
     except Exception as e:
+        import traceback
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+        try:
+            import logger
+            logger.error("Webseite", f"✕ Job '{name}' abgebrochen: {type(e).__name__}: {str(e)[:180]}")
+            logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
 
 
 def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
@@ -1144,8 +1165,15 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
         _step(job_id, 100, final)
         _sync_push(job_id)
     except Exception as e:
+        import traceback
         _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+        try:
+            import logger
+            logger.error("Webseite", f"✕ Job '{name}' abgebrochen: {type(e).__name__}: {str(e)[:180]}")
+            logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
 
 
 # ── Deploy-Bereitschaft (Diagnose für 'klappt nicht'-Fälle) ───────────────────

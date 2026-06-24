@@ -5,6 +5,7 @@ Wird automatisch von app.py ausgefuehrt.
 """
 import importlib
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -183,6 +184,130 @@ def _check_higgsfield_mcp() -> None:
     except Exception:
         _warn("Higgsfield (Abo via MCP)", "Modul nicht ladbar")
 
+
+# ── Pipeline-Checks (Webseiten bauen + verbessern + deployen) ────────────────
+
+def _check_node() -> bool:
+    """Node.js/npm — Voraussetzung, um die claude-CLI (Makeover) zu installieren."""
+    node = shutil.which("node") or shutil.which("node.exe")
+    npm  = shutil.which("npm") or shutil.which("npm.cmd")
+    if node and npm:
+        try:
+            r = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=5)
+            _ok("Node.js / npm", (r.stdout or "").strip() or "vorhanden")
+        except Exception:
+            _ok("Node.js / npm", "vorhanden")
+        return True
+    _warn("Node.js / npm", "fehlt — claude-CLI nicht installierbar (Makeover aus)")
+    return False
+
+
+def _check_claude_cli() -> bool:
+    """Claude Code CLI — Herzstueck des 7-Stufen-Makeovers. Ohne sie kann keine Seite
+    verbessert werden."""
+    cmd = shutil.which("claude.cmd") or shutil.which("claude.exe") or shutil.which("claude")
+    if not cmd:
+        _fail("Claude Code CLI (Makeover)", "npm i -g @anthropic-ai/claude-code")
+        return False
+    try:
+        r = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=20)
+        ver = (r.stdout or "").strip().splitlines()[0][:40] if r.stdout else "installiert"
+        _ok("Claude Code CLI (Makeover)", ver or "installiert")
+        return True
+    except Exception:
+        _warn("Claude Code CLI (Makeover)", "vorhanden, Version nicht lesbar")
+        return True
+
+
+def _check_git() -> bool:
+    """git — noetig fuer den Webseiten-Deploy (GitHub/Railway)."""
+    try:
+        r = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            _ok("git (Deploy)", r.stdout.strip().replace("git version ", ""))
+            return True
+    except Exception:
+        pass
+    _fail("git (Deploy)", "https://git-scm.com/download/win")
+    return False
+
+
+def _check_ollama() -> bool:
+    """Ollama — lokale KI (Lead-Bewertung, Build-Texte, Hero-Prompts). Zeigt Modelle."""
+    import json as _json
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
+            data = _json.loads(r.read().decode("utf-8"))
+        models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+        if models:
+            extra = ", ".join(models[:3]) + ("…" if len(models) > 3 else "")
+            _ok("Ollama (lokale KI)", f"{len(models)} Modelle: {extra}")
+        else:
+            _warn("Ollama (lokale KI)", "laeuft, aber keine Modelle (ollama pull qwen2.5:7b)")
+        return True
+    except Exception:
+        _warn("Ollama (lokale KI)", "nicht erreichbar — 'ollama serve' starten")
+        return False
+
+
+def _check_skills() -> None:
+    """Makeover-Skills (design-pro/taste) im user-globalen ~/.claude/skills/-Ordner —
+    der headless Makeover-Claude laeuft im Seiten-Ordner und sieht nur diese."""
+    base = Path.home() / ".claude" / "skills"
+    want = ["design-pro", "design-taste-frontend"]
+    have = [w for w in want if (base / w).is_dir()]
+    if len(have) == len(want):
+        _ok("Makeover-Skills", ", ".join(have))
+    elif have:
+        _warn("Makeover-Skills", f"{len(have)}/{len(want)} da — fehlt: {', '.join(set(want) - set(have))}")
+    else:
+        _warn("Makeover-Skills", "nicht installiert (wird beim Start gespiegelt)")
+
+
+def _check_deploy() -> None:
+    """Deploy-Bereitschaft: GitHub + Railway + git zusammen (best-effort, kann kurz dauern)."""
+    try:
+        import website_builder
+        s = website_builder.deploy_status()
+        if s.get("ready"):
+            _ok("Deploy (GitHub + Railway)", "bereit")
+        else:
+            offen = []
+            if not (s.get("github") or {}).get("ok"):  offen.append("GitHub")
+            if not (s.get("railway") or {}).get("ok"): offen.append("Railway")
+            if not s.get("git"):                        offen.append("git")
+            _warn("Deploy-Bereitschaft", "offen: " + (", ".join(offen) or "unklar"))
+    except Exception as e:
+        _warn("Deploy-Bereitschaft", f"nicht pruefbar: {type(e).__name__}")
+
+
+def _check_data_writable() -> bool:
+    """data/ muss beschreibbar sein (Kosten, Budget, Limit-State, Logs)."""
+    d = Path(__file__).parent / "data"
+    try:
+        d.mkdir(exist_ok=True)
+        t = d / ".write_test"
+        t.write_text("ok", encoding="utf-8")
+        t.unlink()
+        _ok("Daten-Verzeichnis schreibbar", str(d))
+        return True
+    except Exception as e:
+        _fail("Daten-Verzeichnis", f"nicht schreibbar: {type(e).__name__}")
+        return False
+
+
+def _check_databases() -> bool:
+    """Kern-Datenbanken initialisierbar (Leads roh/bewertet, Webseiten)."""
+    try:
+        import db_raw, db_evaluated, db_websites
+        db_raw.init_db(); db_evaluated.init_db(); db_websites.init_db()
+        _ok("Datenbanken", "raw · evaluated · websites")
+        return True
+    except Exception as e:
+        _fail("Datenbanken", f"{type(e).__name__}: {str(e)[:40]}")
+        return False
+
 # ── Haupt-Check ──────────────────────────────────────────────────
 
 def run() -> dict[str, bool]:
@@ -198,15 +323,33 @@ def run() -> dict[str, bool]:
 
     results = {}
 
+    print(f"  {_GY}— Grundsystem —{_R}")
     results["python"]           = _check_python()
+    results["data_writable"]    = _check_data_writable()
+    results["databases"]        = _check_databases()
+
+    print()
+    print(f"  {_GY}— Webseiten-Pipeline (bauen · verbessern · deployen) —{_R}")
+    results["node"]             = _check_node()
+    results["claude_cli"]       = _check_claude_cli()
+    _check_skills()
+    results["git"]              = _check_git()
+    results["ollama"]           = _check_ollama()
+    _check_deploy()
+    _check_higgsfield_mcp()
+
+    print()
+    print(f"  {_GY}— KI-Schluessel & Medien —{_R}")
     results["anthropic_key"]    = _check_anthropic_key()
+
+    print()
+    print(f"  {_GY}— Sprache & Browser —{_R}")
     results["speech_rec"]       = _check_speech_recognition()
     results["ffmpeg"]           = _check_ffmpeg()
     results["edge_tts"]         = _check_edge_tts()
     _check_elevenlabs()
     results["playwright"]       = _check_playwright()
     results["workspace"]        = _check_workspace()
-    _check_higgsfield_mcp()
 
     # Zusammenfassung
     ok    = sum(1 for v in results.values() if v)

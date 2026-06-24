@@ -507,14 +507,21 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     name = meta.get("name", "?")
     new_done: list[str] = []
     total = len(STAGES)
+    run_start = time.time()
+    offen = [s["label"] for s in STAGES if s["key"] not in done]
+    logger.info("Makeover", f"━━ Start: {name} · {len(done)}/{total} bereits fertig · "
+                            f"{len(offen)} offen: {', '.join(offen) or '—'}")
 
     for i, stage in enumerate(STAGES):
         if stop and stop():
+            logger.info("Makeover", f"{name} — gestoppt vor Stufe {stage['label']}.")
             break
         if stage["key"] in done:
             continue
         pct = 8 + int(i / total * 82)
-        logger.info("Makeover", f"{name} — Stufe {stage['label']}")
+        st_start = time.time()
+        logger.info("Makeover", f"→ {name} · Stufe {i+1}/{total}: {stage['label']} "
+                                f"(Skill {stage['skill']}, Modell {stage.get('model') or _MODEL})")
         prompt = _build_stage_prompt(folder, meta, stage, i + 1, total)
 
         # Stufe ausführen — bei Claude-Session-Limit bis zu _LIMIT_RETRIES× je _LIMIT_WAIT
@@ -556,21 +563,26 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         if stop and stop():
             break
 
+        st_dur = round(time.time() - st_start, 1)
         if not res.get("ok"):
-            logger.warn("Makeover", f"Stufe '{stage['label']}' übersprungen: {str(res.get('reason', ''))[:140]}")
+            logger.error("Makeover", f"✕ {name} · Stufe '{stage['label']}' fehlgeschlagen nach "
+                                     f"{st_dur}s: {str(res.get('reason', ''))[:160]}")
             continue
 
         summ = res.get("summary") or ""
         # Eine Stufe gilt NUR als erledigt, wenn sie wirklich Dateien geändert hat (kein Limit
         # mehr — das ist oben abgefangen; hier bleibt nur eine echte Rückfrage/Leerlauf).
         if not changed:
-            logger.warn("Makeover", f"Stufe '{stage['label']}' ohne Datei-Änderung — nicht markiert: {summ[:90]}")
+            logger.warn("Makeover", f"⊘ {name} · Stufe '{stage['label']}' ohne Datei-Änderung "
+                                    f"nach {st_dur}s — nicht markiert: {summ[:90]}")
             continue
 
         _mark_done(folder, stage["key"])
         claude_limit.clear()                 # eine Stufe lief durch → Limit-Zeichen weg
         _git_commit(folder, f"Makeover: {stage['label']} — {summ[:80]}")
         new_done.append(stage["key"])
+        logger.success("Makeover", f"✓ {name} · Stufe {i+1}/{total} {stage['label']} fertig "
+                                   f"({st_dur}s) · {len(done)+len(new_done)}/{total} gesamt")
         try:
             logger.activity("Makeover", stage["label"], name, "✨", "build")
         except Exception:
@@ -583,7 +595,16 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             except Exception as e:
                 logger.warn("Makeover", f"Per-Stufe-Push übersprungen: {type(e).__name__}")
 
-    return {"ok": True, "stages_done": new_done, "all_done": all_done(folder)}
+    fertig = all_done(folder)
+    total_dur = round(time.time() - run_start, 1)
+    if fertig:
+        logger.success("Makeover", f"━━ {name}: KOMPLETT — alle {total} Stufen fertig "
+                                   f"(+{len(new_done)} in diesem Lauf, {total_dur}s).")
+    else:
+        rest = [s["label"] for s in STAGES if s["key"] not in set(_read_content(folder).get("makeover_stages") or [])]
+        logger.info("Makeover", f"━━ {name}: Lauf-Ende +{len(new_done)} Stufen in {total_dur}s · "
+                                f"noch offen: {', '.join(rest) or '—'}")
+    return {"ok": True, "stages_done": new_done, "all_done": fertig}
 
 
 # ── Freigabe (Discord 1× 👍, sonst Vorschau-Mail) ──────────────────────────────────
