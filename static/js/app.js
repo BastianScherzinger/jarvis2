@@ -792,7 +792,36 @@ async function _autoPoll(){
   setInterval(loadTop, 30000);
   _initPageFromHash();
   _autoPoll();
+  _limitPoll();
 })();
+
+// ── Claude-Limit-Banner: alle 15 s prüfen, bei vollem Limit direkt anzeigen ────
+let _claudeLimit = null;
+async function _limitPoll(){
+  try{
+    const d = await(await fetch('/api/status')).json();
+    _claudeLimit = (d && d.claude_limit) || null;
+    _renderLimitBanner(_claudeLimit);
+  }catch{}
+  setTimeout(_limitPoll, 15000);
+}
+function _renderLimitBanner(lim){
+  const el = document.getElementById('claude-limit-banner');
+  if(!el) return;
+  if(lim && lim.limited){
+    const txt = document.getElementById('claude-limit-text');
+    if(txt){
+      const stage = lim.stage ? ` (Stufe „${lim.stage}")` : '';
+      const wait  = lim.minutes_left ? ` — nächster Versuch in ~${lim.minutes_left} Min` : '';
+      txt.textContent = `Claude-Session-Limit erreicht${stage} — Webseiten-Verbesserung pausiert, läuft automatisch weiter${wait}.`;
+    }
+    el.style.display = 'flex';
+    document.body.classList.add('limit-on');
+  }else{
+    el.style.display = 'none';
+    document.body.classList.remove('limit-on');
+  }
+}
 
 // Generiertes Hintergrundbild (static/img/bg_custom.png) anwenden, falls vorhanden.
 function _applyCustomBg(){
@@ -1648,6 +1677,8 @@ function _renderHomeGrid(sites) {
           ${s.stadt   ? `<span class="site-stadt">📍 ${_e(s.stadt)}</span>` : ''}
         </div>
         <div class="site-status ${statusCls}">${statusLbl}</div>
+        ${(_claudeLimit && _claudeLimit.limited && _claudeLimit.site && s.name === _claudeLimit.site)
+          ? `<div class="site-limit-badge">⏳ Limit voll · pausiert</div>` : ''}
         ${s.status === 'building' ? `<div class="site-progress-bar"><div class="site-progress-fill" style="width:${prog}%"></div></div>` : ''}
         ${created ? `<div style="font-size:10px;color:var(--tx3)">${created}</div>` : ''}
         <div class="site-actions">

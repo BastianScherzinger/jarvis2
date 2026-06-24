@@ -180,10 +180,16 @@ def api_stop():
 
 @app.route("/api/status")
 def api_status():
+    try:
+        import claude_limit
+        limit = claude_limit.state()
+    except Exception:
+        limit = {"limited": False}
     return jsonify({
         "running": controller.is_running(),
         "stats":   _stats(),
         "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
+        "claude_limit": limit,                    # „Limit voll"-Zeichen fürs Dashboard
     })
 
 

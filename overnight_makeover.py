@@ -32,11 +32,16 @@ import time
 from pathlib import Path
 
 import claude_coder
+import claude_limit
 import logger
 
 # Modell für die Stufen — headless-Claude-Alias ('sonnet'/'opus') oder volle ID.
 # Sonnet = starkes Design bei moderaten Kosten; per .env auf 'opus' anhebbar.
 _MODEL = os.environ.get("JARVIS_MAKEOVER_MODEL", "sonnet").strip()
+# Günstigeres Modell für rein MECHANISCHE Stufen ohne kreative Design-Tiefe (Token-Sparen
+# ohne Qualitätsverlust): die qa_recht-Stufe rendert nur bereits fertige Rechtstexte +
+# macht Responsive-/Link-QA. Haiku reicht dafür. Per .env auf '' = wie _MODEL setzbar.
+_MODEL_LITE = (os.environ.get("JARVIS_MAKEOVER_MODEL_LITE", "haiku").strip() or _MODEL)
 
 # Bei erschöpftem Claude-Session-Limit meldet der Makeover das Limit jetzt SCHNELL zurück
 # (Default 0 interne Wartezyklen) — der Auto-Builder orchestriert dann: erst ein bisschen
@@ -140,6 +145,7 @@ STAGES: list[dict] = [
     },
     {
         "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _PRO,
+        "model": _MODEL_LITE,        # mechanisch (Rechtstexte rendern + QA) → günstiges Modell
         "task": (
             "ABSCHLUSS-DURCHGANG in zwei Teilen.\n"
             "1) RECHTLICHES: In content.json stehen bereits FERTIGE Texte in den Feldern "
@@ -514,13 +520,15 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             fp0 = _fingerprint(folder)
             res = claude_coder.run_prompt(
                 str(folder), prompt, branche=meta.get("branche", ""),
-                model=_MODEL, task=f"makeover:{stage['key']}", name=name,
+                model=stage.get("model") or _MODEL, task=f"makeover:{stage['key']}", name=name,
                 on_progress=lambda s, _p=pct, _l=stage["label"], _i=i + 1, _t=total:
                     say(_p, f"Makeover {_i}/{_t} · {_l} · {s}"),
             )
             changed = _fingerprint(folder) != fp0
             if not _is_limit(res, changed):
                 break
+            # Session-Limit erkannt → Zeichen fürs Dashboard setzen, warten, erneut versuchen.
+            claude_limit.mark(stage["label"], _LIMIT_WAIT, site=name)
             # Session-Limit erkannt → warten und erneut versuchen.
             if attempt >= _LIMIT_RETRIES:
                 say(pct, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
@@ -551,6 +559,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             continue
 
         _mark_done(folder, stage["key"])
+        claude_limit.clear()                 # eine Stufe lief durch → Limit-Zeichen weg
         _git_commit(folder, f"Makeover: {stage['label']} — {summ[:80]}")
         new_done.append(stage["key"])
         try:
