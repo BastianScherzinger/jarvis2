@@ -440,7 +440,7 @@
 <main class="custom-page page" data-page="custom">
   <div class="media-head">
     <div class="media-title">Eigene Marke</div>
-    <div class="media-sub">Name, Logo, Hero-Hintergrund und Beschreibung selbst vorgeben — JARVIS &amp; die lokalen KIs bauen die Seite, verbessern sie über Nacht und schicken sie nach Discord-Freigabe an alle Empfänger.</div>
+    <div class="media-sub">Name, Logo, Hero-Hintergrund und Beschreibung selbst vorgeben — oder per KI-Vorschlag füllen. <b>Schritt 1:</b> Webseite bauen &amp; live stellen. <b>Schritt 2:</b> mit dem Skill-Makeover verbessern (beliebig oft). Eingaben &amp; Fortschritt bleiben beim Neuladen erhalten.</div>
   </div>
 
   <div class="cb-grid">
@@ -455,8 +455,17 @@
         <label class="cb-field"><span>Stadt</span>
           <input id="cb-stadt" type="text" placeholder="z.B. Freiburg"></label>
       </div>
+
+      <div class="cb-suggest-row">
+        <button type="button" class="cb-suggest" id="cb-suggest" onclick="cbSuggest()">
+          <span class="cb-suggest-ic">✦</span> KI-Vorschläge
+        </button>
+        <span class="cb-suggest-hint">füllt Branche, Beschreibung &amp; Hero-Prompt aus dem Namen</span>
+      </div>
+      <span class="cb-suggest-out" id="cb-suggest-out" style="display:none"></span>
+
       <label class="cb-field"><span>Beschreibung (wird verbindlich genutzt)</span>
-        <textarea id="cb-beschreibung" rows="4" placeholder="Worum geht es? Stärken, Leistungen, Tonalität, Besonderheiten…"></textarea></label>
+        <textarea id="cb-beschreibung" rows="4" placeholder="Worum geht es? Stärken, Leistungen, Tonalität, Besonderheiten… — oder „KI-Vorschläge“ drücken."></textarea></label>
 
       <div class="cb-sec">Kontakt (optional, erscheint auf der Seite)</div>
       <div class="cb-row">
@@ -485,8 +494,8 @@
       <label class="cb-field"><span>An wen geht das Angebot?</span>
         <textarea id="cb-recipients" rows="5" placeholder="kunde1@firma.de&#10;kunde2@firma.de&#10;…"></textarea></label>
 
-      <button class="cb-submit" id="cb-submit" onclick="startCustomBuild()">Bauen &amp; zur Freigabe schicken</button>
-      <div class="cb-note">Nach dem Bau wird die Seite über Nacht verbessert. Erst nach 2× 👍 in Discord geht das Angebot um 12 Uhr an die Empfänger.</div>
+      <button class="cb-submit" id="cb-submit" onclick="startCustomBuild()">Webseite bauen</button>
+      <div class="cb-note">Schritt 1: bauen &amp; live stellen. Danach im Status-Panel mit dem Skill-Makeover verbessern — beliebig oft. Eingaben &amp; Fortschritt bleiben beim Neuladen erhalten.</div>
     </form>
 
     <!-- Live-Status -->
@@ -494,13 +503,26 @@
       <div class="cb-status-empty" id="cb-status-empty">
         <div class="empty-icon">◎</div>
         <div class="empty-title">Bereit</div>
-        <div class="empty-sub">Marke ausfüllen und „Bauen“ drücken — der Fortschritt erscheint hier live.</div>
+        <div class="empty-sub">Marke ausfüllen und „Webseite bauen“ drücken — der Fortschritt erscheint hier live.</div>
       </div>
       <div class="cb-prog" id="cb-prog" style="display:none">
         <div class="cb-prog-name" id="cb-prog-name">—</div>
         <div class="cb-prog-bar"><div class="cb-prog-fill" id="cb-prog-fill"></div></div>
         <div class="cb-prog-step" id="cb-prog-step">…</div>
+
+        <div class="cb-stages" id="cb-stages" style="display:none">
+          <div class="cb-stages-lbl">Skill-Makeover · <span id="cb-stages-cnt">0/7</span> Stufen</div>
+          <div class="cb-stages-track"><div class="cb-stages-fill" id="cb-stages-fill"></div></div>
+        </div>
+
         <a class="cb-prog-link" id="cb-prog-link" href="#" target="_blank" rel="noopener" style="display:none">Live ansehen →</a>
+
+        <div class="cb-actions" id="cb-actions" style="display:none">
+          <button type="button" class="cb-improve" id="cb-improve" onclick="cbImprove()">
+            <span class="cb-improve-ic">✦</span> Mit Skill verbessern
+          </button>
+          <button type="button" class="cb-reset" id="cb-reset" onclick="cbReset()">Neue Marke</button>
+        </div>
       </div>
     </aside>
   </div>

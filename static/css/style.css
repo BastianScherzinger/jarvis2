@@ -1745,7 +1745,9 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 .ws-card, .job-card, .rt-card{ transition:transform .18s ease-out, box-shadow .22s ease-out; }
 
 /* ══════════════════════ EIGENE MARKE (Custom-Build) ══════════════════════ */
-.custom-page{ padding:22px clamp(16px,3vw,34px) 40px; }
+.custom-page{ height:calc(100vh - 52px); margin-top:52px; overflow-y:auto;
+  max-width:1180px; margin-left:auto; margin-right:auto;
+  padding:22px clamp(16px,3vw,34px) 64px; }
 .cb-grid{ display:grid; grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr); gap:22px; align-items:start; }
 @media (max-width:920px){ .cb-grid{ grid-template-columns:1fr; } }
 .cb-form{ background:rgba(10,22,38,.55); border:1px solid rgba(80,200,255,.16); border-radius:18px;
@@ -1783,6 +1785,40 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 .cb-prog-step{ font-size:13px; color:#9fb4c9; line-height:1.5; }
 .cb-prog-link{ display:inline-block; margin-top:14px; color:#6fd3ff; font-weight:600; text-decoration:none; }
 .cb-prog-link:hover{ text-decoration:underline; }
+
+/* KI-Vorschläge — sekundäre Aktion, bewusst leiser als der primäre Bauen-CTA */
+.cb-suggest-row{ display:flex; align-items:center; gap:11px; flex-wrap:wrap; margin:2px 0 13px; }
+.cb-suggest{ display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:10px;
+  background:rgba(80,200,255,.08); color:#9fe0ff; border:1px solid rgba(80,200,255,.32);
+  font-family:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  transition:background .16s, border-color .16s, transform .14s ease-out; }
+.cb-suggest:hover:not(:disabled){ background:rgba(80,200,255,.14); border-color:rgba(80,200,255,.55); transform:translateY(-1px); }
+.cb-suggest:disabled{ opacity:.6; cursor:default; }
+.cb-suggest-ic{ font-size:13px; line-height:1; }
+.cb-suggest-hint{ font-size:12px; color:#7d93ab; }
+.cb-suggest-out{ display:block; font-size:12px; color:#6fd3ff; margin:0 0 12px; line-height:1.5; }
+.cb-suggest-out.err{ color:#ff9a9a; }
+
+/* Makeover-Stufen-Anzeige im Status-Panel */
+.cb-stages{ margin-top:16px; }
+.cb-stages-lbl{ font-size:12px; letter-spacing:.04em; color:#9fb4c9; margin-bottom:6px; }
+.cb-stages-lbl span{ color:#6fd3ff; font-weight:700; }
+.cb-stages-track{ height:6px; background:rgba(6,14,26,.8); border-radius:99px; overflow:hidden; }
+.cb-stages-fill{ height:100%; width:0; border-radius:99px;
+  background:linear-gradient(90deg,#3ad29f,#6fd3ff); transition:width .5s ease-out; }
+
+/* Aktionen nach dem Bau — primär „verbessern", sekundär „neue Marke" */
+.cb-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+.cb-improve{ flex:1; min-width:160px; display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:13px 18px; border:none; border-radius:11px; cursor:pointer;
+  background:linear-gradient(135deg,#1e8eff,#0b6ad1); color:#fff; font-family:inherit; font-size:14px; font-weight:700;
+  box-shadow:0 9px 22px rgba(30,142,255,.36); transition:transform .14s ease-out, box-shadow .2s, filter .2s; }
+.cb-improve:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 13px 28px rgba(30,142,255,.46); }
+.cb-improve:disabled{ filter:saturate(.5) brightness(.8); cursor:default; }
+.cb-improve-ic{ font-size:13px; line-height:1; }
+.cb-reset{ padding:13px 16px; border-radius:11px; cursor:pointer; font-family:inherit; font-size:13px; font-weight:600;
+  background:transparent; color:#9fb4c9; border:1px solid rgba(80,200,255,.22); transition:border-color .16s, color .16s; }
+.cb-reset:hover{ border-color:rgba(80,200,255,.45); color:#cfe6f6; }
 .ws-card:hover{ transform:translateY(-2px); box-shadow:0 16px 40px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.18); }
 /* Sanfter Seiten-Einblendeffekt beim Tab-Wechsel */
 .page.active{ animation: pgFade .32s ease-out both; }

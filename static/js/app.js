@@ -810,6 +810,7 @@ function showPage(name){
   if(name === 'graph' && typeof initGlobe === 'function') initGlobe();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
   if(name === 'websites' && typeof initWebsites === 'function') initWebsites();
+  if(name === 'custom' && typeof cbInit === 'function') cbInit();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
   // Stop costs polling when leaving that tab
   if(name !== 'costs') _stopCostsPoll();
@@ -827,17 +828,93 @@ window.addEventListener('hashchange', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  EIGENE MARKE — Custom-Build
+//  EIGENE MARKE — Custom-Build (Schritt 1 bauen · Schritt 2 verbessern)
+//  Eingaben + aktiver Job überleben das Neuladen (localStorage).
 // ════════════════════════════════════════════════════════════════════════════
+const _CB_FORM_KEY = 'jarvis.cb.form';
+const _CB_JOB_KEY  = 'jarvis.cb.job';
+const _CB_FIELDS   = ['cb-name','cb-branche','cb-stadt','cb-beschreibung','cb-telefon',
+                      'cb-email','cb-adresse','cb-hero-mode','cb-hero-prompt','cb-recipients'];
+let _cbPoll = null;
+let _cbInited = false;
+
 function cbHeroMode(){
   const m = (document.getElementById('cb-hero-mode')||{}).value;
   const pw = document.getElementById('cb-hero-prompt-wrap');
   const fw = document.getElementById('cb-hero-file-wrap');
   if(pw) pw.style.display = (m==='generate') ? '' : 'none';
   if(fw) fw.style.display = (m==='upload')   ? '' : 'none';
+  _cbSaveForm();
 }
 
-let _cbPoll = null;
+// ── Persistenz ────────────────────────────────────────────────────────────────
+function _cbSaveForm(){
+  const o = {};
+  _CB_FIELDS.forEach(id => { const el = document.getElementById(id); if(el) o[id] = el.value; });
+  try{ localStorage.setItem(_CB_FORM_KEY, JSON.stringify(o)); }catch(e){}
+}
+function _cbRestoreForm(){
+  let o; try{ o = JSON.parse(localStorage.getItem(_CB_FORM_KEY)||'{}'); }catch(e){ o = {}; }
+  _CB_FIELDS.forEach(id => { const el = document.getElementById(id); if(el && o[id]!=null) el.value = o[id]; });
+  cbHeroMode();
+}
+function _cbSaveJob(job){
+  try{ job ? localStorage.setItem(_CB_JOB_KEY, JSON.stringify(job))
+          : localStorage.removeItem(_CB_JOB_KEY); }catch(e){}
+}
+function _cbLoadJob(){ try{ return JSON.parse(localStorage.getItem(_CB_JOB_KEY)||'null'); }catch(e){ return null; } }
+
+// ── Init (beim Tab-Öffnen + beim Laden) ─────────────────────────────────────────
+function cbInit(){
+  if(!document.getElementById('cb-form')) return;
+  _cbRestoreForm();
+  if(!_cbInited){
+    _CB_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.addEventListener('input', _cbSaveForm);
+    });
+    _cbInited = true;
+  }
+  const job = _cbLoadJob();
+  if(job && job.job_id){
+    document.getElementById('cb-status-empty').style.display='none';
+    document.getElementById('cb-prog').style.display='';
+    document.getElementById('cb-prog-name').textContent = job.name || '—';
+    _cbWatch(job.job_id);   // setzt Polling fort, egal ob bauen oder verbessern läuft
+  }
+}
+
+// ── KI-Vorschläge ───────────────────────────────────────────────────────────────
+async function cbSuggest(){
+  const g = id => (document.getElementById(id)||{}).value || '';
+  const name = g('cb-name').trim();
+  const out  = document.getElementById('cb-suggest-out');
+  const btn  = document.getElementById('cb-suggest');
+  if(!name){ alert('Bitte zuerst einen Firmennamen eingeben, Sir.'); return; }
+  btn.disabled = true; btn.querySelector('.cb-suggest-ic').textContent = '…';
+  if(out){ out.style.display=''; out.className='cb-suggest-out'; out.textContent='JARVIS denkt nach…'; }
+  let r;
+  try{ r = await(await fetch('/api/custom-build/suggest',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, branche:g('cb-branche'), stadt:g('cb-stadt'), beschreibung:g('cb-beschreibung')})})).json(); }
+  catch{ r = {ok:false, reason:'Netzwerkfehler'}; }
+  btn.disabled = false; btn.querySelector('.cb-suggest-ic').textContent = '✦';
+  if(!r.ok){ if(out){ out.className='cb-suggest-out err'; out.textContent='Vorschlag fehlgeschlagen: '+(r.reason||'unbekannt'); } return; }
+  const s = r.suggestion || {};
+  const set = (id,v) => { const el=document.getElementById(id); if(el && v){ el.value=v; } };
+  if(s.branche && !g('cb-branche').trim()) set('cb-branche', s.branche);
+  set('cb-beschreibung', s.beschreibung);
+  if(s.hero_prompt && (g('cb-hero-mode')==='generate')) set('cb-hero-prompt', s.hero_prompt);
+  _cbSaveForm();
+  if(out){
+    const leist = (s.leistungen||[]).slice(0,6).join(' · ');
+    out.className='cb-suggest-out';
+    out.textContent = (r.source==='ollama' ? '✓ KI-Vorschlag übernommen' : '✓ Vorschlag übernommen')
+      + (s.tagline ? ' — „'+s.tagline+'"' : '') + (leist ? ' · '+leist : '');
+  }
+}
+
+// ── Schritt 1: Bauen ──────────────────────────────────────────────────────────
 async function startCustomBuild(){
   const name = (document.getElementById('cb-name').value||'').trim();
   if(!name){ alert('Bitte einen Firmennamen eingeben, Sir.'); return; }
@@ -856,32 +933,92 @@ async function startCustomBuild(){
   let res;
   try{ res = await(await fetch('/api/custom-build',{method:'POST',body:fd})).json(); }
   catch{ res = {ok:false, reason:'Netzwerkfehler'}; }
-  if(!res.ok){ alert('Fehler: '+(res.reason||'unbekannt')); btn.disabled=false; btn.textContent='Bauen & zur Freigabe schicken'; return; }
+  if(!res.ok){ alert('Fehler: '+(res.reason||'unbekannt')); btn.disabled=false; btn.textContent='Webseite bauen'; return; }
 
+  _cbSaveJob({job_id:res.job_id, name});
   document.getElementById('cb-status-empty').style.display='none';
   document.getElementById('cb-prog').style.display='';
   document.getElementById('cb-prog-name').textContent = name;
-  _cbWatch(res.job_id, btn);
+  document.getElementById('cb-actions').style.display='none';
+  _cbWatch(res.job_id);
 }
 
-function _cbWatch(jobId, btn){
+// ── Schritt 2: Verbessern (Skill-Makeover, wiederholbar) ────────────────────────
+async function cbImprove(){
+  const job = _cbLoadJob();
+  if(!job || !job.job_id){ alert('Keine gebaute Seite gefunden, Sir.'); return; }
+  const ib = document.getElementById('cb-improve');
+  ib.disabled = true; ib.querySelector('.cb-improve-ic').textContent='…';
+  let r;
+  try{ r = await(await fetch('/api/custom-build/improve',{method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({job_id:job.job_id})})).json(); }
+  catch{ r = {ok:false, reason:'Netzwerkfehler'}; }
+  ib.querySelector('.cb-improve-ic').textContent='✦';
+  if(!r.ok){ alert('Verbessern fehlgeschlagen: '+(r.reason||'unbekannt')); ib.disabled=false; return; }
+  document.getElementById('cb-actions').style.display='none';
+  document.getElementById('cb-stages').style.display='';
+  _cbWatch(job.job_id);
+}
+
+function cbReset(){
+  if(_cbPoll){ clearInterval(_cbPoll); _cbPoll=null; }
+  _cbSaveJob(null);
+  document.getElementById('cb-prog').style.display='none';
+  document.getElementById('cb-status-empty').style.display='';
+  document.getElementById('cb-actions').style.display='none';
+  document.getElementById('cb-stages').style.display='none';
+  const sub = document.getElementById('cb-submit'); if(sub){ sub.disabled=false; sub.textContent='Webseite bauen'; }
+}
+
+// ── Live-Status-Polling (bauen ODER verbessern) ─────────────────────────────────
+function _cbWatch(jobId){
   if(_cbPoll) clearInterval(_cbPoll);
-  _cbPoll = setInterval(async ()=>{
+  const tick = async ()=>{
     let d; try{ d = await(await fetch('/api/custom-build/status/'+jobId)).json(); }catch{ return; }
     const b = d.build||{}, c = d.custom||{};
+    // Nach einem Server-Neustart ist der In-Memory-Job weg (custom leer + kein Build-Status):
+    // Polling sauber beenden, Panel zurücksetzen, statt ewig „…" anzuzeigen.
+    if(!c.job_id && !b.status && !b.step){
+      clearInterval(_cbPoll); _cbPoll=null; _cbSaveJob(null);
+      const empty=document.getElementById('cb-status-empty'), prog=document.getElementById('cb-prog');
+      if(empty) empty.style.display=''; if(prog) prog.style.display='none';
+      const sub=document.getElementById('cb-submit'); if(sub){ sub.disabled=false; sub.textContent='Webseite bauen'; }
+      return;
+    }
     const fill = document.getElementById('cb-prog-fill');
     const step = document.getElementById('cb-prog-step');
     const link = document.getElementById('cb-prog-link');
+    const sub  = document.getElementById('cb-submit');
     if(fill) fill.style.width = (b.progress||0)+'%';
     if(step) step.textContent = c.phase || b.step || '…';
-    if(b.live_url && link){ link.style.display=''; link.href = b.live_url; }
+    if((b.live_url||c.live_url) && link){ link.style.display=''; link.href = b.live_url||c.live_url; }
+
+    // Makeover-Stufenbalken, sobald verbessert wird oder Stufen vorhanden sind
+    const stagesWrap = document.getElementById('cb-stages');
+    const sd = c.stages_done||0, stt = c.stages_total||7;
+    if(c.improving || sd>0){
+      if(stagesWrap) stagesWrap.style.display='';
+      const sc = document.getElementById('cb-stages-cnt'); if(sc) sc.textContent = sd+'/'+stt;
+      const sf = document.getElementById('cb-stages-fill'); if(sf) sf.style.width = Math.round(sd/stt*100)+'%';
+    }
+
+    if(c.improving){ if(sub){ sub.disabled=true; } return; }   // läuft noch
+
     if(c.done){
       clearInterval(_cbPoll); _cbPoll=null;
-      if(fill) fill.style.width='100%';
       if(step) step.textContent = c.phase || 'Fertig';
-      if(btn){ btn.disabled=false; btn.textContent='Bauen & zur Freigabe schicken'; }
+      if(sub){ sub.disabled=false; sub.textContent='Webseite bauen'; }
+      // Nach erfolgreichem Bau → Verbessern + Neue-Marke anbieten
+      if(c.built){
+        document.getElementById('cb-actions').style.display='';
+        const ib = document.getElementById('cb-improve');
+        if(ib){ ib.disabled=false; ib.querySelector('.cb-improve-ic').textContent='✦';
+          ib.lastChild.textContent = sd>0 ? ' Weiter verbessern' : ' Mit Skill verbessern'; }
+      }
     }
-  }, 2500);
+  };
+  tick();
+  _cbPoll = setInterval(tick, 2500);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

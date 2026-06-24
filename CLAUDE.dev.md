@@ -143,10 +143,19 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   gefundenes CLAUDE.md (JARVIS-Persona) den Headless-Lauf nicht in einen Chat verwandelt.
   Modell via `JARVIS_MAKEOVER_MODEL` (Default `sonnet`).
 
-- **Eigene-Marke-Modus** (`custom_build.py`): Manueller Build — Name, Logo, Hero und
-  Beschreibung von Sir vorgegeben. Nutzt dieselbe `website_builder`-Engine + 7-Pass-
-  Improve + Discord-Freigabe-Gate → Versand an 11+ Empfänger. Uploads landen in
-  `workspace/custom_uploads/<slug>/`. Routes `/api/custom-build` + `/api/custom-build/status/<id>`.
+- **Eigene-Marke-Modus** (`custom_build.py`, Tab „Eigene Marke"): nutzergesteuerter
+  **Zwei-Schritt-Fluss** (kein Auto-Pilot). Schritt 1 `start(data)` = nur bauen + deployen
+  (`website_builder.build`). Schritt 2 `improve(job_id)` = 7-Stufen-Skill-Makeover
+  (`makeover_existing`), beliebig oft wiederholbar; Discord-Freigabe erst wenn alle 7 Stufen
+  durch. `suggest(data)` liefert KI-Vorschläge (Ollama via `scrapers._http.ask_ollama`,
+  deterministischer Fallback) für Branche/Beschreibung/Tagline/Hero-Prompt/Leistungen.
+  Formular-Empfänger werden in `content.json["custom_recipients"]` gesichert und von
+  `overnight_makeover.finalize_review` an `discord_bot.submit_for_review` weitergereicht.
+  Frontend (`app.js`, `cb*`): Formular + aktiver Job in `localStorage` (überleben Reload);
+  unbekannter Job nach Server-Neustart wird im Poll erkannt und das Panel zurückgesetzt.
+  `.custom-page` ist scrollbar. Uploads in `workspace/custom_uploads/<slug>/`. Routes:
+  `/api/custom-build`, `/api/custom-build/improve`, `/api/custom-build/suggest`,
+  `/api/custom-build/status/<id>`.
 
 - **Logo-Generator** (`website_improve._make_logo`): Deterministisches SVG-Monogramm
   (Initialen + Akzentfarbe) als Fallback wenn kein Logo hochgeladen. `_initials()`

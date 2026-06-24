@@ -990,6 +990,30 @@ def api_custom_build_status(job_id):
     return jsonify(custom_build.status(job_id))
 
 
+@app.route("/api/custom-build/improve", methods=["POST"])
+def api_custom_build_improve():
+    """Schritt 2: 7-Stufen-Skill-Makeover für die bereits gebaute Eigene-Marke-Seite
+    (wiederholbar)."""
+    import custom_build
+    body = request.get_json(silent=True) or {}
+    job_id = (body.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"ok": False, "reason": "job_id fehlt"}), 400
+    return jsonify(custom_build.improve(job_id))
+
+
+@app.route("/api/custom-build/suggest", methods=["POST"])
+def api_custom_build_suggest():
+    """KI-Vorschläge (Beschreibung, Branche, Tagline, Hero-Prompt, Leistungen) für die
+    Marke — lokal via Ollama, mit deterministischem Fallback."""
+    import custom_build
+    body = request.get_json(silent=True) or {}
+    return jsonify(custom_build.suggest({
+        "name": body.get("name", ""), "branche": body.get("branche", ""),
+        "stadt": body.get("stadt", ""), "beschreibung": body.get("beschreibung", ""),
+    }))
+
+
 # ── Discord-Freigabe (Voting-Gate) ───────────────────────────────────────────
 
 @app.route("/api/discord/status")

@@ -337,6 +337,8 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     branche = meta.get("branche", "")
     email   = meta.get("email", "")
     ap      = meta.get("ansprechpartner", "")
+    # Eigene-Marke-Empfänger (vom Nutzer im Formular eingegeben) aus content.json holen.
+    recipients = meta.get("recipients") or _read_content(Path(folder)).get("custom_recipients") or None
 
     # Angebots-Mail-Text vorbauen (für Discord-Vorschau + Fallback-Mail)
     betreff = text = html_mail = ""
@@ -351,7 +353,7 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
         if discord_bot.enabled():
             r = discord_bot.submit_for_review(
                 name, stadt, branche, live_url, email, ap, str(folder),
-                email_text=text, email_subject=betreff)
+                recipients=recipients, email_text=text, email_subject=betreff)
             if r:
                 logger.info("Makeover", f"Zur Discord-Freigabe gepostet: {name}")
                 return {"review": True}
