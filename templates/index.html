@@ -25,8 +25,7 @@
   <nav class="topnav">
     <button class="topnav-btn"        data-page="home"    onclick="showPage('home')">⌂ Home</button>
     <button class="topnav-btn active" data-page="leads"   onclick="showPage('leads')">Leads</button>
-    <button class="topnav-btn"        data-page="images"  onclick="showPage('images')">Bilder</button>
-    <button class="topnav-btn"        data-page="videos"  onclick="showPage('videos')">Videos</button>
+    <button class="topnav-btn"        data-page="media"   onclick="showPage('media')">Medien</button>
     <button class="topnav-btn"        data-page="graph"   onclick="showPage('graph')">Graph</button>
     <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
     <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
@@ -167,17 +166,27 @@
 </main>
 
 <!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
-<main class="media-page page" data-page="images">
+<main class="media-page page" data-page="media">
   <div class="media-head">
-    <div class="media-title">Bilder generieren</div>
-    <div class="media-sub">Einzelbild aus Prompt · oder ein 5er-Werbe-Set — jeweils <b>lokal</b> oder <b>Higgsfield Cloud</b></div>
+    <div class="media-title">Medien-Studio</div>
+    <div class="media-sub">Bilder &amp; Videos — wähle den Modus, dann die Engine (lokal · Higgsfield Cloud · ChatGPT)</div>
   </div>
 
-  <!-- Einzelbild aus freiem Prompt (Lokal / Higgsfield) -->
+  <!-- Modus-Umschalter: Bild ⇄ Video -->
+  <div class="media-mode-switch">
+    <button class="mode-btn active" data-mode="image" onclick="setMediaMode('image')">🖼 Bild</button>
+    <button class="mode-btn"        data-mode="video" onclick="setMediaMode('video')">🎬 Video</button>
+  </div>
+
+  <!-- ───────────────── MODUS: BILD ───────────────── -->
+  <div id="media-mode-image">
+
+  <!-- Einzelbild aus freiem Prompt (Lokal / Higgsfield / ChatGPT) -->
   <div class="composer">
     <textarea id="img-prompt" placeholder="Beschreibe das Bild… (z.B. 'moderne Dachsanierung, Handwerker bei der Arbeit, sonniges Licht, fotorealistisch, 4K')"></textarea>
     <div class="composer-row">
       <select id="img-backend" class="flt" onchange="onImgBackend()">
+        <option value="openai">ChatGPT (OpenAI · gpt-image-1)</option>
         <option value="local">Lokal (Diffusers)</option>
         <option value="higgsfield">Higgsfield Cloud (Soul)</option>
       </select>
@@ -238,6 +247,7 @@
       <div class="af-field">
         <label class="af-lbl">Modus</label>
         <select id="set-backend" class="flt">
+          <option value="openai">ChatGPT (OpenAI)</option>
           <option value="local">Lokal (Diffusers)</option>
           <option value="higgsfield">Higgsfield Cloud</option>
         </select>
@@ -262,12 +272,12 @@
 
   <div class="media-gallery-head">Galerie · alle generierten Bilder</div>
   <div class="media-grid" id="img-gallery"></div>
-</main>
 
-<!-- ══════════════════════════ VIDEO-SEITE ══════════════════════════════════ -->
-<main class="media-page page" data-page="videos">
-  <div class="media-head">
-    <div class="media-title">Video-Generierung</div>
+  </div><!-- /media-mode-image -->
+
+  <!-- ───────────────── MODUS: VIDEO ───────────────── -->
+  <div id="media-mode-video" style="display:none">
+  <div class="media-head" style="border:0;padding-top:0">
     <div class="media-sub" id="vid-engine-info">Lokal (Wan 2.1) oder Higgsfield Cloud</div>
   </div>
   <div class="composer">
@@ -293,6 +303,7 @@
   </div>
   <div id="vid-job-status" class="job-card" style="display:none"></div>
   <div class="media-grid" id="vid-gallery"></div>
+  </div><!-- /media-mode-video -->
 </main>
 
 <!-- ══════════════════════════ GRAPH-SEITE ══════════════════════════════════ -->

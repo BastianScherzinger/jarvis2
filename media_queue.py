@@ -19,7 +19,7 @@ _worker_started = False
 _cloud_started = False
 
 # Cloud-Job-Typen brauchen KEINE lokale GPU → dürfen auf starkem Server parallel laufen.
-_CLOUD_KINDS = {"higgsfield", "higgsfield_image"}
+_CLOUD_KINDS = {"higgsfield", "higgsfield_image", "openai_image"}
 
 _BASE = Path(__file__).parent
 _IMAGES_DIR = _BASE / "workspace" / "media" / "images"
@@ -158,6 +158,10 @@ def _worker(q: "queue.Queue") -> None:
                         res = media_engine.generate_image_higgsfield(
                             a.get("prompt", ""), output_dir=set_dir, filename=asset_fn,
                             width=a.get("width") or 1280, height=a.get("height") or 720)
+                    elif backend == "openai":
+                        res = media_engine.generate_image_openai(
+                            a.get("prompt", ""), output_dir=set_dir, filename=asset_fn,
+                            width=a.get("width") or 1536, height=a.get("height") or 1024)
                     else:
                         res = media_engine.generate_image(
                             a.get("prompt", ""),
@@ -270,6 +274,12 @@ def _worker(q: "queue.Queue") -> None:
                     params.get("prompt", ""),
                     width=int(params.get("width") or 1280),
                     height=int(params.get("height") or 720),
+                )
+            elif kind == "openai_image":
+                result = media_engine.generate_image_openai(
+                    params.get("prompt", ""),
+                    width=int(params.get("width") or 1536),
+                    height=int(params.get("height") or 1024),
                 )
             else:
                 raise ValueError(f"Unbekannter Job-Typ: '{kind}'")

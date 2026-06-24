@@ -624,6 +624,21 @@ function _pollMockup(jobId, out, btn){
 // Fragt EINMAL (nur wenn Higgsfield konfiguriert ist), ob der Hero über die Cloud
 // erzeugt werden soll. Lokal bleibt der bewährte Standard.
 let _hfConfigured = null;
+let _openaiConfigured = null;     // ChatGPT-Bilder verfügbar? (OPENAI_API_KEY gesetzt)
+let _mediaMode = 'image';         // aktueller Medien-Modus: 'image' | 'video'
+
+// Medien-Studio: zwischen Bild- und Video-Modus umschalten.
+function setMediaMode(mode){
+  _mediaMode = (mode === 'video') ? 'video' : 'image';
+  const img = document.getElementById('media-mode-image');
+  const vid = document.getElementById('media-mode-video');
+  if(img) img.style.display = (_mediaMode === 'image') ? '' : 'none';
+  if(vid) vid.style.display = (_mediaMode === 'video') ? '' : 'none';
+  document.querySelectorAll('.media-mode-switch .mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === _mediaMode));
+  if(_mediaMode === 'image' && typeof onImgBackend === 'function') onImgBackend();
+  if(_mediaMode === 'video' && typeof onVidBackend === 'function') onVidBackend();
+}
 async function _websiteHiggsfieldChoice(){
   if(_hfConfigured === null){
     try{ const s = await(await fetch('/api/media/status')).json(); _hfConfigured = !!s.higgsfield_api_key; }
@@ -794,7 +809,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['home', 'leads', 'images', 'videos', 'graph', 'ranking', 'websites', 'custom', 'claude', 'costs'];
+const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'costs'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -803,9 +818,12 @@ function showPage(name){
   document.querySelectorAll('.topnav-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.page === name));
   location.hash = name;
-  if(name === 'images' || name === 'videos'){ loadGallery(); loadImageLeads(); }
-  if(name === 'images'){ _restoreActiveJob(); if(typeof onImgBackend==='function') onImgBackend(); }
-  if(name === 'videos' && typeof onVidBackend==='function') onVidBackend();
+  if(name === 'media'){
+    loadGallery(); loadImageLeads(); _restoreActiveJob();
+    if(typeof loadMediaModels === 'function') loadMediaModels();
+    if(typeof onImgBackend === 'function') onImgBackend();
+    if(typeof onVidBackend === 'function') onVidBackend();
+  }
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'graph' && typeof initGlobe === 'function') initGlobe();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
@@ -1065,6 +1083,14 @@ async function loadMediaModels(){
   try{
     const s = await(await fetch('/api/media/status')).json();
     _hfConfigured = !!s.higgsfield_api_key;
+    _openaiConfigured = !!s.openai_image;
+    // ChatGPT-Bilder nicht verfügbar → Option im Bild-Backend ausgrauen, Default auf lokal.
+    const ib = document.getElementById('img-backend');
+    if(ib){
+      const oaiOpt = ib.querySelector('option[value="openai"]');
+      if(oaiOpt && !_openaiConfigured) oaiOpt.textContent = 'ChatGPT (OpenAI) — Key fehlt';
+      if(!_openaiConfigured && ib.value === 'openai') ib.value = 'local';
+    }
     const info = document.getElementById('vid-engine-info');
     if(s.video_local_ok === false){
       if(_hfConfigured){
@@ -1098,15 +1124,23 @@ function onVidBackend(){
 }
 
 function onImgBackend(){
-  const backend = document.getElementById('img-backend').value;
+  const sel     = document.getElementById('img-backend');
+  if(!sel) return;
+  const backend = sel.value;
   const model   = document.getElementById('img-model');
   const note    = document.getElementById('img-hf-note');
-  const hf = backend === 'higgsfield';
-  if(model) model.style.display = hf ? 'none' : '';
-  if(note)  note.style.display  = hf ? '' : 'none';
-  if(hf && !_hfConfigured){
-    note.textContent = 'Higgsfield-API-Key fehlt in der .env';
-  }else if(note){ note.textContent = 'Higgsfield Soul · 1080p'; }
+  // Modell-Dropdown nur beim lokalen Backend zeigen (Higgsfield/OpenAI haben feste Modelle).
+  const showModel = (backend === 'local');
+  if(model) model.style.display = showModel ? '' : 'none';
+  if(note)  note.style.display  = showModel ? 'none' : '';
+  if(!note) return;
+  if(backend === 'higgsfield'){
+    note.textContent = _hfConfigured ? 'Higgsfield Soul · 1080p'
+                                     : '⚠ Higgsfield-API-Key fehlt in der .env';
+  } else if(backend === 'openai'){
+    note.textContent = _openaiConfigured ? 'ChatGPT · gpt-image-1 · 1536×1024'
+                                          : '⚠ OPENAI_API_KEY fehlt in der .env';
+  }
 }
 
 async function generateImage(){

@@ -1157,6 +1157,10 @@ def api_media_generate_image():
     if backend == "higgsfield":
         params = {"prompt": prompt, "width": body.get("width"), "height": body.get("height")}
         job_id = media_queue.submit("higgsfield_image", params)
+    elif backend == "openai":
+        params = {"prompt": prompt,
+                  "width": body.get("width") or 1536, "height": body.get("height") or 1024}
+        job_id = media_queue.submit("openai_image", params)
     else:
         params = {
             "prompt":    prompt,

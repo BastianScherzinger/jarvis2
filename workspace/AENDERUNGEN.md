@@ -5,6 +5,47 @@
 
 ---
 
+# Durchgang 24.06.2026 (5) — Medien-Studio (1 Reiter), ChatGPT-Bilder, Video-1010-Fix, Limit-Resilienz
+
+## 1. Bilder + Video zu EINEM Reiter „Medien" zusammengefasst
+- Navigation: statt „Bilder" + „Videos" jetzt **ein** Button „Medien" (`data-page="media"`).
+- `templates/index.html`: ein `<main data-page="media">` mit **Modus-Umschalter** (🖼 Bild / 🎬 Video),
+  zwei Panels `#media-mode-image` / `#media-mode-video` (alte Inhalte + IDs übernommen).
+- `app.js`: `setMediaMode()`, `_PAGES` (images/videos → media), `showPage('media')` lädt Modelle/
+  Galerien/Leads + beide Backends. CSS: `.media-mode-switch`/`.mode-btn` (segmentierter Toggle).
+- Verifiziert (Playwright): Umschalten Bild⇄Video, beide Galerien, keine relevanten Konsolenfehler.
+
+## 2. ChatGPT (OpenAI) als wählbare Bild-Engine
+- Bild- UND Werbe-Set-Backend-Dropdown haben jetzt **ChatGPT (OpenAI · gpt-image-1)**.
+- `app.py` Route `/api/media/generate/image` → Backend `openai` → `media_queue.submit("openai_image")`.
+- `media_queue`: `openai_image` als Cloud-Kind + Worker-Zweig → `media_engine.generate_image_openai`;
+  Asset-Set unterstützt `backend=openai`. `onImgBackend()` blendet Modellwahl aus + zeigt Hinweis;
+  ohne Key wird die Option ausgegraut und auf „lokal" zurückgestellt.
+- Verifiziert: Job-Typ `openai_image` läuft, Billing-Fehler sauber als Job-Error.
+
+## 3. Video-Fehler „Higgsfield 1010" behoben (Cloudflare-Block)
+- Ursache: Cloudflare-Error **1010** („browser signature banned") — die urllib-Requests hatten
+  keinen Browser-User-Agent. Trifft auch „lokal", weil das auf CPU automatisch auf Higgsfield
+  umschaltet.
+- Fix in `media_engine`: konstanter **Browser-User-Agent** + Origin/Referer/Accept in `_hf_headers`,
+  Browser-UA bei allen Poll-/Download-Requests (Bild + Video). Neuer `_hf_error_hint()` erklärt
+  1010 / 401-403 / 402-credits / 404 in Klartext. Logging via `_mlog` (`JARVIS_MEDIA_DEBUG=1`).
+- Lokales Video: klares Log, dass auf CPU automatisch die Higgsfield-Cloud genutzt wird.
+- **Caveat:** die LIVE-Higgsfield-Calls brauchen gültigen Key + Credits zur Endbestätigung — der
+  1010/Header-Fix ist eingebaut, der eigentliche Generierungslauf ist mit Sirs Key zu prüfen.
+
+## 4. Claude-/ChatGPT-Limit-Resilienz im Night-Builder
+- Makeover meldet ein Claude-Session-Limit jetzt SCHNELL zurück (`JARVIS_MAKEOVER_LIMIT_RETRIES`
+  Default **0** statt 7) — `auto_builder` orchestriert:
+  - **Claude-Limit erkannt** (`_note_job_limit`) → `_handle_exhaustion()`:
+    erst „ein bisschen ChatGPT" (`_openai_only_progress` erneuert Hero-Bilder via OpenAI = echter
+    Fortschritt ohne Claude).
+  - **Beide leer** (Claude-Limit + kein/erschöpftes OpenAI) → `stop()` + `_schedule_restart()`
+    (Timer): nach `JARVIS_EXHAUST_WAIT` (Default 1 h) automatischer Neustart/Re-Test.
+  - Bei Limit wird die Seite NICHT als „stuck" markiert (nach Neustart wieder dran).
+
+---
+
 # Durchgang 24.06.2026 (4) — Token-Sparmaßnahmen: Makeover lief Session-Limit leer
 
 > Symptom: „die meisten Seiten hängen bei ~100 % nach dem ersten Schritt, Token-Limit zu

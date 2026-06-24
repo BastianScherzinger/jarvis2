@@ -105,8 +105,9 @@ def _set(**kw) -> None:
 
 
 def start(_resume: bool = False) -> dict:
-    global _farewell_sent
+    global _farewell_sent, _claude_limited
     _farewell_sent = False
+    _claude_limited = False
     with _lock:
         if _state["running"]:
             return {"ok": True, "already": True}
@@ -309,6 +310,96 @@ def _makeover_sites() -> list:
         return []
 
 
+# ── Claude-/ChatGPT-Erschöpfung: Fallback + Auto-Neustart ──────────────────────
+# Ist das Claude-Code-Limit leer, nutzt der Builder „ein bisschen ChatGPT" (OpenAI-Hero-
+# Bilder = echter Fortschritt ohne Claude). Sind BEIDE leer, schaltet er ab und startet
+# nach _EXHAUST_WAIT automatisch neu (teste & starte neu).
+_EXHAUST_WAIT  = int(os.environ.get("JARVIS_EXHAUST_WAIT", "3600") or "3600")
+_restart_timer = None
+_claude_limited = False
+
+
+def _note_job_limit(job) -> bool:
+    """Hat der Makeover-Job ein Claude-Session-Limit gemeldet? Setzt das Flag."""
+    global _claude_limited
+    if not job:
+        return False
+    txt = (str(job.get("step", "")) + " " + str(job.get("error", ""))).lower()
+    hit = "session_limit" in txt
+    if not hit:
+        try:
+            import overnight_makeover as om
+            hit = om._looks_limited(txt)
+        except Exception:
+            pass
+    if hit:
+        _claude_limited = True
+    return hit
+
+
+def _openai_can_help() -> bool:
+    try:
+        import media_engine
+        return media_engine.openai_available() and media_engine.openai_quota_left() > 0
+    except Exception:
+        return False
+
+
+def _openai_only_progress() -> bool:
+    """Claude-Limit aktiv → „ein bisschen ChatGPT": erneuert bei EINER Seite ohne ChatGPT-Hero
+    das Hero-Bild via OpenAI (echter Fortschritt ohne Claude). True, wenn etwas getan wurde."""
+    if not _openai_can_help():
+        return False
+    try:
+        import overnight_makeover as om
+        for w in _makeover_sites():
+            folder = Path(w["folder"])
+            if om._read_content(folder).get("hero_source") == "openai":
+                continue
+            meta = {"name": w.get("name", ""), "branche": w.get("branche", ""),
+                    "stadt": w.get("stadt", ""), "email": w.get("kontakt_email", ""),
+                    "ansprechpartner": w.get("ansprechpartner", "")}
+            _set(mode="improve", current=w.get("name", ""),
+                 phase=f"Claude-Limit → ChatGPT-Hero: {w.get('name','')}")
+            om._ensure_openai_hero(folder, meta, lambda p, t: _set(phase=t))
+            if om._read_content(folder).get("hero_source") == "openai":
+                logger.info("AutoBuilder", f"Claude-Limit → ChatGPT-Hero erneuert: {w.get('name','')}")
+                return True
+        return False
+    except Exception as e:
+        logger.warn("AutoBuilder", f"ChatGPT-Fallback fehlgeschlagen: {type(e).__name__}")
+        return False
+
+
+def _schedule_restart(seconds: int) -> None:
+    """Beide Limits leer → nach `seconds` automatisch erneut testen & starten."""
+    global _restart_timer
+    if _restart_timer is not None:
+        return
+
+    def _restart():
+        global _restart_timer
+        _restart_timer = None
+        logger.info("AutoBuilder", "Wartezeit vorbei — teste & starte Night-Builder erneut.")
+        start(_resume=True)
+
+    _restart_timer = threading.Timer(seconds, _restart)
+    _restart_timer.daemon = True
+    _restart_timer.start()
+    logger.warn("AutoBuilder", f"Claude- UND ChatGPT-Limit erschöpft — Builder pausiert "
+                               f"{seconds // 60} Min, dann automatischer Neustart.")
+
+
+def _handle_exhaustion() -> None:
+    """Claude-Limit erkannt: erst ein bisschen ChatGPT; sind beide leer → stop + Neustart-Timer."""
+    global _claude_limited
+    _claude_limited = False
+    if _openai_only_progress():
+        return                      # ChatGPT konnte helfen → normaler Loop läuft weiter
+    stop()
+    _schedule_restart(_EXHAUST_WAIT)
+
+
 def _all_sites_complete() -> bool:
     """True, wenn es ≥1 gebaute Seite gibt und JEDE alle 7 Makeover-Stufen durch hat —
     also alle Seiten auf demselben Niveau. Basis für die Discord-Verabschiedung."""
@@ -440,8 +531,10 @@ def _build_and_email(lead: dict) -> None:
     # Bastian erfolgt am Ende INNERHALB der Makeover-Pipeline (finalize_review).
     if folder:
         _set(phase="Makeover (7 Skill-Stufen)…")
-        mj  = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
-        job = _wait_job(mj, timeout=_MAKEOVER_WAIT) or job
+        mj   = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
+        mjob = _wait_job(mj, timeout=_MAKEOVER_WAIT)
+        _note_job_limit(mjob)
+        job  = mjob or job
     if not is_running():
         return
     link = (job or {}).get("live_url") or ""
@@ -554,9 +647,11 @@ def _improve_existing_once() -> bool:
     _set(mode="improve", current=name,
          phase=f"Makeover ({7 - open_before + 1}/7)… {name}")
     logger.info("AutoBuilder", f"Makeover: {name} ({open_before} Stufen offen)")
+    limited = False
     try:
         mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
-        _wait_job(mj, timeout=_MAKEOVER_WAIT)
+        mjob = _wait_job(mj, timeout=_MAKEOVER_WAIT)
+        limited = _note_job_limit(mjob)
     except Exception as e:
         logger.warn("AutoBuilder", f"Makeover fehlgeschlagen: {type(e).__name__}")
         _makeover_stuck.add(folder)
@@ -566,10 +661,12 @@ def _improve_existing_once() -> bool:
     try:
         open_after = overnight_makeover.open_stages(folder)
         if open_after >= open_before:
-            # Keine Verbesserung — heute nicht mehr versuchen
-            logger.warn("AutoBuilder",
-                        f"Kein Makeover-Fortschritt für '{name}' — überspringe heute")
-            _makeover_stuck.add(folder)
+            # Kein Fortschritt. Bei einem Claude-LIMIT NICHT als „stuck" markieren — das ist
+            # nur temporär; nach dem Auto-Neustart soll die Seite wieder dran sein.
+            if not limited:
+                logger.warn("AutoBuilder",
+                            f"Kein Makeover-Fortschritt für '{name}' — überspringe heute")
+                _makeover_stuck.add(folder)
         else:
             logger.success("AutoBuilder",
                            f"Makeover: {name} — {open_before - open_after} Stufe(n) erledigt, "
@@ -589,6 +686,14 @@ def _loop() -> None:
                 _makeover_stuck.clear()              # täglich zurücksetzen
                 globals()["_farewell_sent"] = False  # neuer Tag → wieder verabschiedbar
                 logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
+
+        # ── Erschöpfung zuerst: Claude-Limit → ein bisschen ChatGPT; beide leer → aus+Neustart ─
+        if _claude_limited:
+            _handle_exhaustion()
+            if not is_running():
+                break
+            _idle_sleep(3)
+            continue
 
         # ── Phase 1: bis Tageslimit neue Seiten bauen ────────────────────────
         if _count_today() < _DAILY_LIMIT:

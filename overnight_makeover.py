@@ -38,9 +38,12 @@ import logger
 # Sonnet = starkes Design bei moderaten Kosten; per .env auf 'opus' anhebbar.
 _MODEL = os.environ.get("JARVIS_MAKEOVER_MODEL", "sonnet").strip()
 
-# Bei erschöpftem Claude-Session-Limit: warten und dieselbe Stufe erneut versuchen — für den
-# unbeaufsichtigten Nacht-Lauf. Default: 7 Versuche × je 1 Stunde Wartezeit.
-_LIMIT_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_RETRIES", "7") or "7")
+# Bei erschöpftem Claude-Session-Limit meldet der Makeover das Limit jetzt SCHNELL zurück
+# (Default 0 interne Wartezyklen) — der Auto-Builder orchestriert dann: erst ein bisschen
+# ChatGPT (Hero-Bilder), und sind BEIDE leer, schaltet er ab und startet nach einer Wartezeit
+# automatisch neu (auto_builder._handle_exhaustion). Wer den alten Weg will (Makeover wartet
+# selbst), setzt JARVIS_MAKEOVER_LIMIT_RETRIES>0.
+_LIMIT_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_RETRIES", "0") or "0")
 _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "3600")
 
 

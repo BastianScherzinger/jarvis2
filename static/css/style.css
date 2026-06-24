@@ -633,6 +633,23 @@ body::after{
 .media-title{ font-family:var(--fh); font-size:18px; font-weight:900; letter-spacing:.06em; color:var(--c); }
 .media-sub{ font-size:11px; color:var(--tx2); }
 
+/* Modus-Umschalter Bild ⇄ Video (segmentierter Toggle) */
+.media-mode-switch{
+  display:inline-flex; gap:4px; padding:4px;
+  background:rgba(13,20,32,.7); border:1px solid var(--bdr2); border-radius:12px;
+  align-self:flex-start;
+}
+.media-mode-switch .mode-btn{
+  font-family:var(--fh); font-size:13px; font-weight:800; letter-spacing:.04em;
+  color:var(--tx2); background:transparent; border:0; cursor:pointer;
+  padding:8px 20px; border-radius:9px; transition:background .15s, color .15s;
+}
+.media-mode-switch .mode-btn:hover{ color:var(--tx); }
+.media-mode-switch .mode-btn.active{
+  color:#04121b; background:var(--c);
+  box-shadow:0 2px 12px rgba(0,212,255,.28);
+}
+
 /* Composer (Glassmorphism-Karte) */
 .composer{
   background:rgba(13,20,32,.7); border:1px solid var(--bdr2); border-radius:14px;

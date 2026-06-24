@@ -490,8 +490,12 @@ def generate_video(
     backend = (os.environ.get("JARVIS_VIDEO_BACKEND") or "auto").strip().lower()
     hw      = hardware_info()
     on_cpu  = hw["device"] == "cpu"
+    _mlog("debug", "Video", f"Backend={backend} device={hw['device']} → "
+          + ("Higgsfield Cloud" if (backend == 'higgsfield' or (backend != 'local' and on_cpu)) else "lokal (Wan)"))
     if backend == "higgsfield" or (backend != "local" and on_cpu):
         hf_key = _hf_key()
+        if on_cpu and backend != "higgsfield":
+            _mlog("info", "Video", "Kein GPU erkannt → Video läuft automatisch über Higgsfield Cloud.")
         if hf_key:
             # Automatischer Cloud-Weg — kein Fehler mehr, das Video entsteht via Higgsfield.
             hf_model = os.environ.get("JARVIS_HIGGSFIELD_VIDEO_MODEL", "dop-lite")
@@ -571,6 +575,28 @@ def generate_video(
 
 _HIGGSFIELD_BASE = "https://platform.higgsfield.ai"
 
+# Cloudflare blockt „nackte" Python-urllib-Requests mit Error 1010 (Access denied — owner has
+# banned your browser's signature). Darum bei JEDEM Higgsfield-Request einen echten
+# Browser-User-Agent + Standard-Browser-Header mitschicken.
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
+def _media_debug() -> bool:
+    return (os.environ.get("JARVIS_MEDIA_DEBUG", "0").strip().lower() in ("1", "true", "yes", "ja"))
+
+
+def _mlog(level: str, where: str, msg: str) -> None:
+    """Einheitliches Media-Logging (best-effort). level: info|warn|success|debug."""
+    try:
+        import logger as _lg
+        if level == "debug" and not _media_debug():
+            return
+        getattr(_lg, {"warn": "warn", "success": "success", "debug": "info"}.get(level, "info"),
+                _lg.info)(where, msg)
+    except Exception:
+        pass
+
 # Credits je Higgsfield-Soul-Bild (Schätzung, via .env feinjustierbar). Wird für das
 # Kostentracking genutzt — Videos lesen ihre Credits aus HIGGSFIELD_MODELS.
 _HF_IMAGE_CREDITS = int(os.environ.get("JARVIS_HF_IMAGE_CREDITS", "1") or "1")
@@ -627,10 +653,11 @@ def generate_video_higgsfield(
             "API-Key unter https://cloud.higgsfield.ai/api-keys erstellen."
         )
 
-    headers_json = _hf_headers(api_key)                      # 'Key id:secret' oder 'Bearer key'
-    headers_get  = {"Authorization": headers_json["Authorization"]}
+    headers_json = _hf_headers(api_key)                      # inkl. Browser-UA (gegen Cloudflare 1010)
+    headers_get  = {k: v for k, v in headers_json.items() if k != "Content-Type"}
 
     model = model if model in HIGGSFIELD_MODELS else "dop-lite"
+    _mlog("info", "Higgsfield", f"Video-Auftrag · Modell {model} · {prompt[:60]}")
 
     payload: dict = {
         "model":            model,
@@ -656,7 +683,11 @@ def generate_video_higgsfield(
             create_data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Higgsfield API Fehler {e.code}: {body[:300]}")
+        _mlog("warn", "Higgsfield", f"Video-POST {e.code}: {body[:200]}")
+        raise RuntimeError(_hf_error_hint(e.code, body))
+    except urllib.error.URLError as e:
+        _mlog("warn", "Higgsfield", f"Video-POST Netzwerkfehler: {e}")
+        raise RuntimeError(f"Higgsfield nicht erreichbar: {getattr(e, 'reason', e)}")
 
     gen_id = (
         create_data.get("id")
@@ -707,9 +738,10 @@ def generate_video_higgsfield(
         raise RuntimeError(f"Kein Video-URL in Higgsfield-Antwort: {poll_data}")
 
     # ── Video herunterladen ──────────────────────────────────────────
-    dl_req = urllib.request.Request(video_url, headers={"User-Agent": "JARVIS/1.0"})
+    dl_req = urllib.request.Request(video_url, headers={"User-Agent": _BROWSER_UA})
     with urllib.request.urlopen(dl_req, timeout=120) as resp:
         video_bytes = resp.read()
+    _mlog("success", "Higgsfield", f"Video fertig ({round(time.time() - t0, 1)}s)")
 
     ts  = time.strftime("%Y%m%d_%H%M%S")
     out = WORKSPACE_VIDEOS / f"higgsfield_{ts}.mp4"
@@ -760,7 +792,26 @@ def _hf_headers(api_key: str) -> dict:
         else:
             hid = _hf_id()
             auth = f"Key {hid}:{key}" if hid else f"Bearer {key}"
-    return {"Authorization": auth, "Content-Type": "application/json"}
+    return {"Authorization": auth, "Content-Type": "application/json",
+            "User-Agent": _BROWSER_UA, "Accept": "application/json",
+            "Origin": "https://higgsfield.ai", "Referer": "https://higgsfield.ai/"}
+
+
+def _hf_error_hint(code: int, body: str) -> str:
+    """Verständliche Fehlermeldung aus Higgsfield-HTTP-Code + Body. Erkennt insbesondere
+    Cloudflare-1010 (gebannte Browser-Signatur) und Guthaben-Probleme."""
+    b = (body or "").lower()
+    if "1010" in b or "error 1010" in b or ("cloudflare" in b and "denied" in b):
+        return ("Higgsfield/Cloudflare-Fehler 1010 (Zugriff blockiert). Behoben durch echten "
+                "Browser-User-Agent — falls weiter: Higgsfield-Endpunkt/Key prüfen.")
+    if code in (401, 403):
+        return (f"Higgsfield {code}: Auth fehlgeschlagen — HIGGSFIELD_API_KEY (Format ID:SECRET) "
+                "in der .env prüfen.")
+    if code == 402 or "credit" in b or "insufficient" in b:
+        return f"Higgsfield {code}: Guthaben/Credits zu niedrig — bitte aufladen."
+    if code == 404:
+        return f"Higgsfield {code}: Endpunkt nicht gefunden — API-Pfad veraltet."
+    return f"Higgsfield-API-Fehler {code}: {body[:200]}"
 
 
 def higgsfield_available() -> bool:
@@ -843,12 +894,14 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
         f"{_HIGGSFIELD_BASE}/v1/text2image/soul",
         data=json.dumps(payload).encode(), headers=_hf_headers(key), method="POST",
     )
+    _mlog("info", "Higgsfield", f"Bild-Auftrag (Soul) · {prompt[:60]}")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             d = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:300]
-        raise RuntimeError(f"Higgsfield {e.code}: {body}")   # z.B. 402/insufficient credits
+        body = e.read().decode("utf-8", errors="replace")
+        _mlog("warn", "Higgsfield", f"Bild-POST {e.code}: {body[:200]}")
+        raise RuntimeError(_hf_error_hint(e.code, body))   # z.B. 1010 / 402 insufficient credits
 
     rid = (d.get("id") or d.get("request_id") or d.get("request_set_id")
            or ((d.get("jobs") or [{}])[0].get("id") if d.get("jobs") else None))
@@ -875,7 +928,7 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
         raise TimeoutError("Higgsfield Bild-Timeout (2 Min ohne Ergebnis).")
 
     data = urllib.request.urlopen(
-        urllib.request.Request(img_url, headers={"User-Agent": "JARVIS/1.0"}), timeout=120
+        urllib.request.Request(img_url, headers={"User-Agent": _BROWSER_UA}), timeout=120
     ).read()
     dest = output_dir if output_dir else WORKSPACE_IMAGES
     dest.mkdir(parents=True, exist_ok=True)
