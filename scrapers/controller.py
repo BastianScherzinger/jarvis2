@@ -75,7 +75,10 @@ def _spawn_evaluator() -> None:
     threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
     db_raw.init_db()
     db_raw.reset_stale()
-    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", "4"))
+    # Max Threads = CPU-Kerne des PCs (so parallelisiert die Bewertung maximal; die
+    # eigentlichen Ollama-Calls bleiben durch JARVIS_OLLAMA_PARALLEL geschützt).
+    _default_eval = min(32, max(4, (os.cpu_count() or 4)))
+    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", str(_default_eval)) or _default_eval)
     threading.Thread(
         target=evaluator_pipeline.run_continuous,
         args=(_on_lead, _stop_event, n_eval),

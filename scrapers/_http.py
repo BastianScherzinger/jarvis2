@@ -12,10 +12,11 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
-# Ollama serialisiert Anfragen intern auf einer GPU. Bei 6+ parallelen Threads
-# (Evaluator + Verifier) stauen sich die Requests und laufen in den Timeout.
-# Die Semaphore begrenzt gleichzeitige Ollama-Calls → kein Timeout-Kaskade.
-_OLLAMA_SEM = threading.Semaphore(2)
+# Ollama serialisiert Anfragen intern auf einer GPU. Bei vielen parallelen Evaluator-
+# Threads stauen sich die Requests und laufen in den Timeout. Die Semaphore begrenzt
+# gleichzeitige Ollama-Calls → kein Timeout-Kaskade. Auf einer starken Maschine (viel RAM/
+# GPU) per JARVIS_OLLAMA_PARALLEL erhöhbar; Default 2 (sicher auch auf CPU).
+_OLLAMA_SEM = threading.Semaphore(max(1, int(os.environ.get("JARVIS_OLLAMA_PARALLEL", "2") or "2")))
 _OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 # Großzügiger Timeout: Kaltstart eines 7B-Modells (Laden von Platte) kann
 # 30-120s dauern. keep_alive hält das Modell danach im Speicher.

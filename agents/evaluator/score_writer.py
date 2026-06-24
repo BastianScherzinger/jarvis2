@@ -75,11 +75,14 @@ def _clamp(v: int) -> int:
 
 def _preis_tier(has_web: int, veraltet: int, firmengroesse: str,
                 branche: str, rev: int, score_100: int,
-                ollama_tier: int = None) -> int:
-    """Weist einen realistischen Paketpreis zu (PREIS_TIERS).
+                ollama_tier: int = None, rating: float = 0.0) -> int:
+    """Weist einen REALISTISCHEN Paketpreis zu (PREIS_TIERS).
 
-    Ollama-Tier hat Vorrang wenn er in PREIS_TIERS liegt. Sonst greift
-    die deterministische Heuristik basierend auf Branche + Score + Größe."""
+    Ollama-Tier hat Vorrang wenn er in PREIS_TIERS liegt. Sonst greift eine
+    mehrfaktorielle Heuristik aus echten Signalen — Branchen-Zahlkraft, Bedarf (Score),
+    Etabliertheit (Bewertungen/Rating), Firmengröße und Upgrade-Motiv (veraltete Website).
+    So spiegelt der Preis die tatsächliche Zahlkraft + den Projektumfang wider, statt nur
+    grob an einer Score-Schwelle zu hängen."""
     b = (branche or "").lower()
 
     # Gute, aktuelle Website vorhanden → kein Bedarf für uns
@@ -93,31 +96,33 @@ def _preis_tier(has_web: int, veraltet: int, firmengroesse: str,
     if ollama_tier in PREIS_TIERS:
         return ollama_tier
 
-    # Deterministische Heuristik
     high_val   = any(x in b for x in ["zahnarzt", "physiotherapeut", "rechtsanwalt",
-                                       "steuerberater", "notar", "facharzt"])
+                                       "steuerberater", "notar", "facharzt", "arzt", "kanzlei"])
     medium_val = any(x in b for x in ["elektriker", "dachdecker", "heizung",
                                        "klempner", "kfz", "sanitär", "bauunternehmen",
-                                       "umzug", "reinigung"])
+                                       "umzug", "reinigung", "tischler", "maler", "garten"])
     big_betrieb = firmengroesse in ("3-10", "11-50")
 
-    if score_100 >= 72:
-        if high_val:
-            return 850
-        if medium_val or big_betrieb:
-            return 550
+    # ── Mehrfaktorieller Wert-Index ──────────────────────────────────────────
+    val  = 3 if high_val else (2 if medium_val else 1)        # Branchen-Zahlkraft
+    val += 2 if score_100 >= 70 else (1 if score_100 >= 45 else 0)   # Bedarf/Dringlichkeit
+    val += 1 if rev >= 20 else 0                              # etablierter Betrieb
+    val += 1 if rev >= 80 else 0                              # sehr stark frequentiert
+    val += 1 if big_betrieb else 0                            # mehrere Mitarbeiter
+    val += 1 if (has_web and veraltet) else 0                 # klares Upgrade-Motiv
+    if rating >= 4.5 and rev >= 10:
+        val += 1                                             # gut bewertet → investitionsbereit
+
+    # Wert-Index → realistischer Tier
+    if val >= 8:
+        return 1200
+    if val >= 6:
+        return 850
+    if val >= 4:
+        return 550
+    if val >= 2:
         return 350
-    if score_100 >= 50:
-        if high_val:
-            return 550
-        if medium_val:
-            return 350
-        return 350
-    if score_100 >= 30:
-        if high_val or medium_val:
-            return 350
-        return 200
-    return 200  # Mindest-Einstiegspreis wenn Lead überhaupt in der Pipeline ist
+    return 200  # Mindest-Einstiegspreis, solange der Lead überhaupt Bedarf hat
 
 
 def evaluate(lead: dict, web: dict, social: dict) -> dict:
@@ -266,7 +271,7 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     )
 
     # ── Paketpreis (ersetzt den alten potenzial × abschluss Wert) ───────────
-    preis = _preis_tier(has_web, veraltet, firmengroesse, branche, rev, score, ollama_tier)
+    preis = _preis_tier(has_web, veraltet, firmengroesse, branche, rev, score, ollama_tier, rating)
 
     # Für Stats/CSV: potenzial_euro = Branchenbasis (intern), erwartungswert = Paketpreis
     basis_potenzial = _potenzial_fuer_branche(branche)

@@ -5,6 +5,39 @@
 
 ---
 
+# Durchgang 24.06.2026 (7) — Lead-Generierung: kostenlos bestätigt, max Threads, echtere Preise
+
+> Sir: Lead-Gen kostenlos + parallel (max Threads), erst Daten sammeln/speichern, dann lokale
+> KI bewertet, realistischere Preise — sauber & günstig.
+
+## Kostenlos — bestätigt (keine Änderung nötig)
+Die gesamte Lead-Pipeline ist bereits **gratis**: Stufe 1 Scraper (`scrapers/maps.py` via
+Playwright-Browser — NICHT die bezahlte Places-API; gelbe_seiten/dasoertliche/elfacht/golocal
+= Verzeichnis-Scraper) → `leads_raw.db`. Stufe 2 Evaluator (`web_analyst` via DuckDuckGo+urllib,
+`social_researcher`, `score_writer` + `name_clean` via **Ollama**) → `leads_evaluated.db`.
+Claude/OpenAI werden NUR im Chat-Agenten genutzt, nicht in der Lead-Gen. (`agent_maps.py` mit
+Google-Places-API ist nur das Claude-Tool, nicht die Pipeline.)
+
+## Zwei-Stufen-Fluss (bestätigt)
+Genau wie gewünscht: Scraper findet Adresse/Bilder/URL/Daten und **speichert** sie (db_raw,
+Status pending) → Evaluator-Thread holt den nächsten Lead, lokale KI findet Website/Bilder +
+**bewertet + Beschreibung/Pitch** → schreibt db_evaluated → nächster Lead.
+
+## Maximale Threads
+`scrapers/controller.py`: Evaluator-Threads default = **CPU-Kerne** des PCs
+(`min(32, max(4, os.cpu_count()))`, vorher fix 4); per `JARVIS_EVAL_THREADS` überschreibbar.
+Die Ollama-Parallelität ist jetzt per `JARVIS_OLLAMA_PARALLEL` (Default 2, schützt das Modell)
+konfigurierbar — so parallelisiert die Bewertung maximal, ohne das Modell zu überlasten.
+
+## Realistischere Preisbewertung (`score_writer._preis_tier`)
+Statt nur an einer Score-Schwelle zu hängen, bildet die Heuristik (Fallback, wenn Ollama keinen
+Tier liefert) jetzt einen **mehrfaktoriellen Wert-Index**: Branchen-Zahlkraft + Bedarf (Score) +
+Etabliertheit (Bewertungen ≥20/≥80) + Firmengröße + Upgrade-Motiv (veraltete Website) + gutes
+Rating → realistischer Tier (0/200/350/550/850/1200 €). Beispiele: Zahnarzt o. Website/40 Bew.→
+850 €, Mini-Kiosk→200 €, alter Dachdecker-Betrieb m. 50 Bew.→850 €, gute aktuelle Website→0 €.
+
+---
+
 # Durchgang 24.06.2026 (6) — Higgsfield als Standard-Hero-Engine (Abo), OpenAI bleibt optional
 
 > Sir: OpenAI-API kostet extra, nicht nötig — drin lassen, aber Bilder standardmäßig über
