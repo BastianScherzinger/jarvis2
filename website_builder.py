@@ -308,9 +308,67 @@ def _extract_json(text: str) -> "dict | None":
     return None
 
 
+def _ollama_content(lead: dict, base: dict) -> bool:
+    """Erzeugt die Landing-Page-Texte LOKAL via Ollama (qwen2.5) — spart Claude-API-Kosten,
+    nutzt die 32-GB-Maschine. Merged direkt in `base`. Gibt True bei Erfolg (Kernfelder
+    gesetzt), sonst False → Aufrufer nutzt Claude-API/Deterministik."""
+    try:
+        from scrapers._http import ask_ollama
+    except Exception:
+        return False
+    beschr = (lead.get("beschreibung") or "").strip()
+    beschr_block = f"- Beschreibung vom Inhaber (verbindlich): {beschr}\n" if beschr else ""
+    sys = ("Du bist Senior-Webdesigner & Texter (design-pro). Seriöse, conversion-starke "
+           "Landing-Page-Texte für einen lokalen Betrieb — deutsch, konkret, kein Fülltext. "
+           "Antworte AUSSCHLIESSLICH mit einem JSON-Objekt.")
+    prompt = (
+        f"Betrieb:\n- Name: {lead.get('name','')}\n- Branche: {lead.get('branche','')}\n"
+        f"- Stadt: {lead.get('stadt','')}\n- Bewertung: {lead.get('bewertung','')}\n{beschr_block}\n"
+        "Erzeuge JSON mit GENAU diesen Feldern:\n{\n"
+        '  "headline": "starke Hero-Headline (max 7 Wörter)",\n'
+        '  "subline": "1 Satz Nutzenversprechen",\n'
+        '  "ueber_titel": "kurze Überschrift",\n'
+        '  "ueber_text": "2-3 Sätze über den Betrieb, vertrauenswürdig",\n'
+        '  "leistungen": [{"titel":"…","text":"…"} (3-4 zur Branche passende)],\n'
+        '  "cta_text": "konkreter Call-to-Action",\n'
+        '  "akzent": "#RRGGBB passend zur Branche",\n'
+        '  "seo_title": "Titel-Tag", "seo_desc": "Meta-Description (max 150 Zeichen)"\n}\n'
+        "Nur das JSON."
+    )
+    try:
+        text = ask_ollama(prompt, system=sys, timeout=120)
+    except Exception:
+        return False
+    data = _extract_json(text or "")
+    if not isinstance(data, dict):
+        return False
+    for k in ("headline", "subline", "ueber_titel", "ueber_text", "cta_text",
+              "akzent", "seo_title", "seo_desc"):
+        if isinstance(data.get(k), str) and data[k].strip():
+            base[k] = data[k].strip()
+    if isinstance(data.get("leistungen"), list) and data["leistungen"]:
+        clean = [{"titel": str(x.get("titel", "")).strip(), "text": str(x.get("text", "")).strip()}
+                 for x in data["leistungen"][:4] if isinstance(x, dict) and x.get("titel")]
+        if clean:
+            base["leistungen"] = clean
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", base.get("akzent", "")) is None:
+        base["akzent"] = _deterministic_content(lead, fotos=[])["akzent"]
+    # Erfolg nur, wenn die Kernfelder wirklich befüllt wurden.
+    return bool(base.get("headline") and base.get("ueber_text") and base.get("leistungen"))
+
+
 def _claude_content(lead: dict, fotos: list) -> dict:
-    """Claude textet + wählt Akzentfarbe (design-pro/Skill-Wissen). Fällt sicher zurück."""
+    """Texte + Akzentfarbe. Reihenfolge: LOKAL (Ollama, spart API-Kosten) → Claude-API →
+    Deterministik. Per JARVIS_BUILD_CONTENT_LOCAL=0 wird Ollama übersprungen."""
     base = _deterministic_content(lead, fotos)
+    # 1) Lokal via Ollama zuerst (Kostenersparnis, nutzt die 32-GB-Maschine).
+    if os.environ.get("JARVIS_BUILD_CONTENT_LOCAL", "1") != "0":
+        try:
+            if _ollama_content(lead, base):
+                return base
+        except Exception:
+            pass
+    # 2) Claude-API als Fallback (oder wenn lokal deaktiviert/leer).
     try:
         import anthropic
         import config

@@ -15,13 +15,20 @@ gefahren — jede mit einem echten Skill, ausgeführt vom **Headless Claude Code
 
 | # | Stufe | Skill |
 |---|-------|-------|
-| 1 | Hero-Bereich | ui-ux-pro-max |
-| 2 | Beschreibung & Dienstleistungen | ui-ux-pro-max |
-| 3 | Über uns & Vertrauen | ui-ux-pro-max |
-| 4 | Kontakt-Bereich | ui-ux-pro-max |
+| 1 | Hero-Bereich | design-pro (5 KB) |
+| 2 | Beschreibung & Dienstleistungen | design-pro |
+| 3 | Über uns & Vertrauen | design-pro |
+| 4 | Kontakt-Bereich | design-pro |
 | 5 | Kontakt-Formular | design-pro |
-| 6 | Komplett-Design (taste) | design-taste-frontend (taste) |
-| 7 | QA, Datenschutz, AGB & Impressum | ui-ux-pro-max |
+| 6 | Komplett-Design (taste) | design-taste-frontend (88 KB, nur hier) |
+| 7 | QA, Datenschutz, AGB & Impressum | design-pro |
+
+> **Token-Sparsam (seit 24.06.2026):** Statt das 45-KB-`ui-ux-pro-max` in 5 Stufen zu laden,
+> nutzen 6 Stufen das kompakte `design-pro` (5 KB, bündelt dieselben Prinzipien); das große
+> `taste` (88 KB) lädt nur in der einen Design-Stufe. Skill-Token/Seite ~313 KB → ~118 KB.
+> Zusätzlich kein content.json-Dump mehr im Prompt (Claude liest die Datei selbst) → Prompt
+> 6262 → 2362 Zeichen, Stufen-Laufzeit ~321 s → ~129 s. Rechtstexte (Impressum/Datenschutz/
+> AGB) kommen lokal aus `legal_pages.py` (0 Tokens) und werden nur noch gerendert.
 
 > **Stufen seit 24.06.2026 abschnittsorientiert** (vorher Design-Facetten). Jede Stufe baut
 > einen echten Seitenbereich aus; Stufe 6 ist der große Design-Durchgang (taste + ui-ux-pro-max

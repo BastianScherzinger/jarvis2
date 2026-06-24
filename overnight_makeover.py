@@ -45,19 +45,21 @@ _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "36
 
 
 # ── Die 7 Stufen ───────────────────────────────────────────────────────────────
-# Echte, mitgelieferte Skills (claude_skills.ensure_installed → ~/.claude/skills/), damit
-# der headless Makeover-Claude sie im Webseiten-Ordner laden kann:
-#   _UIUX  = «ui-ux-pro-max»        — Design-Intelligenz (Paletten, Font-Pairings, UX-Regeln)
-#   _TASTE = «design-taste-frontend»— Anti-Slop-Politur für Landingpages/Redesigns (taste)
-#   _PRO   = «design-pro»           — Bündel-Skill (ui-ux-pro-max/impeccable/taste/frontend-pro/shadcn)
-# Jede Stufe nutzt das für ihre Facette stärkste Skill.
-_UIUX  = "ui-ux-pro-max"
+# TOKEN-SPARSAM (seit 24.06.2026): Der headless Makeover-Claude lädt das referenzierte
+# Skill bei jeder Stufe komplett in den Kontext. ui-ux-pro-max (45 KB) und taste (88 KB)
+# je Stufe × 7 × 10 Seiten haben das Claude-Code-Session-Limit in Minuten geleert
+# (Symptom: „hängt bei ~100 % nach Stufe 1"). Lösung:
+#   _PRO   = «design-pro» (5 KB) — kompakter Bündel-Skill (ui-ux-pro-max/impeccable/taste/
+#            frontend-pro/shadcn destilliert) → Standard für fast alle Stufen.
+#   _TASTE = «design-taste-frontend» (88 KB) — nur EINMAL, in der großen Design-Stufe,
+#            wo die Anti-Slop-Tiefe den Token-Preis wert ist.
+# So sinkt der Skill-Token-Aufwand pro Seite von ~318 KB auf ~118 KB.
 _TASTE = "design-taste-frontend"
 _PRO   = "design-pro"
 
 STAGES: list[dict] = [
     {
-        "key": "hero", "label": "Hero-Bereich", "skill": _UIUX,
+        "key": "hero", "label": "Hero-Bereich", "skill": _PRO,
         "task": (
             "Baue den HERO-BEREICH (Above-the-fold) zu einem echten Premium-Eyecatcher um. "
             "In 5 Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun. "
@@ -71,7 +73,7 @@ STAGES: list[dict] = [
         ),
     },
     {
-        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _UIUX,
+        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _PRO,
         "task": (
             "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN aus. Schreibe einen glaubwürdigen, "
             "betriebsgenauen Einleitungstext (was der Betrieb macht, für wen, warum gut) und "
@@ -83,7 +85,7 @@ STAGES: list[dict] = [
         ),
     },
     {
-        "key": "ueber", "label": "Über uns & Vertrauen", "skill": _UIUX,
+        "key": "ueber", "label": "Über uns & Vertrauen", "skill": _PRO,
         "task": (
             "Baue die Sektion ÜBER UNS überzeugend aus: eine glaubwürdige Geschichte/Positionierung "
             "des Betriebs (Region, Erfahrung, Werte, Ansprechpartner falls dokumentiert), das "
@@ -94,7 +96,7 @@ STAGES: list[dict] = [
         ),
     },
     {
-        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _UIUX,
+        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _PRO,
         "task": (
             "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (als "
             "klickbarer tel:-Link), E-Mail (mailto:), vollständige Adresse, Öffnungszeiten (falls "
@@ -134,16 +136,16 @@ STAGES: list[dict] = [
         ),
     },
     {
-        "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _UIUX,
+        "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _PRO,
         "task": (
             "ABSCHLUSS-DURCHGANG in zwei Teilen.\n"
-            "1) RECHTLICHES (für deutsche Betriebe Pflicht): Ergänze ein vollständiges IMPRESSUM "
-            "(§5 DDG: Name/Firma, vollständige Anschrift, Telefon, E-Mail; falls Daten fehlen, "
-            "klar als «[bitte ergänzen]»-Platzhalter kennzeichnen statt erfinden), eine "
-            "DATENSCHUTZERKLÄRUNG (DSGVO: Verantwortlicher, Zweck, Kontaktformular-Daten, Hosting, "
-            "Rechte der Betroffenen) und kurze AGB. Lege sie als eigene, sauber gestaltete "
-            "Abschnitte/Seiten an und verlinke sie gut sichtbar im Footer; das Kontaktformular "
-            "verweist auf die Datenschutzerklärung.\n"
+            "1) RECHTLICHES: In content.json stehen bereits FERTIGE Texte in den Feldern "
+            "`impressum`, `datenschutz` und `agb`. Erfinde KEINE neuen Texte und kürze sie nicht — "
+            "RENDERE genau diese Texte als drei eigene, sauber gestaltete Unterseiten bzw. "
+            "ausklappbare Abschnitte (Absätze/Zeilenumbrüche erhalten) und verlinke sie gut sichtbar "
+            "im Footer. Das Kontaktformular verweist auf die Datenschutzerklärung. (Falls die Felder "
+            "ausnahmsweise fehlen: knappe DSGVO/DDG-konforme Standardtexte, fehlende Daten als "
+            "«[bitte ergänzen]».)\n"
             "2) QA / RESPONSIVE: Perfekte Mobil-Darstellung (echte Breakpoints), ein mobiler "
             "Sticky-Anruf/CTA, Touch-Ziele ≥ 44 px, keine horizontalen Überläufe, kein CLS, alle "
             "Links/Buttons/Anker funktionieren, SEO-Grundstruktur (title, meta description, "
@@ -295,8 +297,8 @@ def _doc_details(folder: Path, meta: dict) -> dict:
 
 
 def _context_block(folder: Path, meta: dict) -> str:
-    """Standardisierte, ANGEREICHERTE Fakten zu genau dieser Seite/diesem Lead — in JEDEM
-    Stufen-Prompt (content.json + dokumentierte Lead-/Webseiten-Details aus den DBs)."""
+    """Kompakte, angereicherte Fakten zu Seite/Lead — bewusst OHNE content.json-Dump
+    (Claude liest content.json selbst aus dem Ordner; das spart pro Stufe ~3,5 KB Tokens)."""
     c = _read_content(folder)
     d = _doc_details(folder, meta)
 
@@ -308,69 +310,44 @@ def _context_block(folder: Path, meta: dict) -> str:
                     return v
         return default
 
-    name    = (meta.get("name") or c.get("site_name") or "Der Betrieb").strip()
-    branche = pick("branche")
-    stadt   = pick("stadt")
-    akzent  = c.get("akzent") or "#c8102e"
-
+    name = (meta.get("name") or c.get("site_name") or "Der Betrieb").strip()
     lines = [
-        "BETRIEB (alle Texte/Designentscheidungen müssen 100 % hierzu passen — nichts erfinden):",
+        "BETRIEB (alle Inhalte müssen dazu passen — nichts erfinden):",
         f"- Name: {name}",
-        f"- Branche: {branche}",
-        f"- Stadt/Region: {stadt}{(' · ' + d['bundesland']) if d.get('bundesland') else ''}",
+        f"- Branche: {pick('branche')}",
+        f"- Stadt/Region: {pick('stadt')}{(' · ' + d['bundesland']) if d.get('bundesland') else ''}",
         f"- Adresse: {pick('adresse')}",
         f"- Telefon: {pick('telefon')}",
         f"- E-Mail: {pick('email', 'email_adresse', 'kontakt_email')}",
         f"- Ansprechpartner: {pick('ansprechpartner')}",
-        f"- Firmengröße: {d.get('firmengroesse', '')}",
-        f"- Aktuelle Akzentfarbe: {akzent}",
-        f"- Vorhandene Bilder: {', '.join((c.get('fotos') or [])[:6]) or 'hero_image/logo_image siehe content.json'}",
+        f"- Akzentfarbe: {c.get('akzent') or '#c8102e'}",
     ]
     if d.get("beschreibung"):
-        lines.append(f"- Dokumentierte Beschreibung (Lead-Recherche): {str(d['beschreibung'])[:600]}")
+        lines.append(f"- Beschreibung (Recherche): {str(d['beschreibung'])[:280]}")
     if d.get("pitch_hook"):
-        lines.append(f"- Verkaufs-Aufhänger (pitch_hook): {str(d['pitch_hook'])[:300]}")
-    if d.get("potenzial_begruendung"):
-        lines.append(f"- Potenzial/Stärken (recherchiert): {str(d['potenzial_begruendung'])[:300]}")
-    if d.get("social_media"):
-        lines.append(f"- Social Media: {str(d['social_media'])[:200]}")
-
-    dump = json.dumps(c, ensure_ascii=False)
-    if len(dump) > 3500:
-        dump = dump[:3500] + " …"
-    return "\n".join(lines) + f"\n\nAktuelle content.json (vollständige Inhaltsbasis):\n{dump}"
+        lines.append(f"- Aufhänger: {str(d['pitch_hook'])[:180]}")
+    lines.append("Die VOLLSTÄNDIGEN Inhalte stehen in content.json im Ordner — lies sie dort "
+                 "direkt (sie sind hier bewusst nicht eingefügt, um Tokens zu sparen).")
+    return "\n".join(lines)
 
 
 def _build_stage_prompt(folder: Path, meta: dict, stage: dict, idx: int, total: int) -> str:
     context = _context_block(folder, meta)
     return (
-        "Du bist Senior-Webdesigner einer preisgekrönten Agentur und arbeitest im AKTUELLEN "
-        "Ordner an einer fertigen, deployten Django-Landing-Page eines echten lokalen Betriebs. "
-        "Die Seite rendert aus content.json über templates/index.html + static/css/style.css "
-        "(+ static/img, static/js).\n\n"
-        f"Dies ist Schritt {idx}/{total} eines mehrstufigen Upgrades. ZIEL über alle Stufen: "
-        "aus einer Standard-Vorlage eine ECHTE, hochwertige Premium-Webseite machen, die wie von "
-        "einer Top-Agentur wirkt — nicht wie ein Template oder KI-generiert.\n\n"
-        f"SKILL — ZWINGEND NUTZEN: Rufe das Skill «{stage['skill']}» auf (Skill-Tool) und wende es "
-        "AKTIV an: durchsuche seine Datenbank/Referenzen (z.B. Farbpaletten, Font-Pairings, "
-        "UX-Regeln, Style-Empfehlungen) und übernimm KONKRETE, branchengerechte Empfehlungen für "
-        "GENAU diesen Betrieb — nicht nur allgemein „beachten\".\n\n"
+        "Headless-Web-Editor im AKTUELLEN Ordner: fertige Django-Landing-Page, rendert aus "
+        "content.json über templates/index.html + static/css/style.css (+ static/img, static/js). "
+        f"Schritt {idx}/{total} eines Upgrades von Standard-Vorlage zu echter Premium-Seite "
+        "(Top-Agentur-Niveau, nicht templated/KI-haft).\n\n"
         f"{context}\n\n"
         f"AUFGABE — {stage['label']}:\n{stage['task']}\n\n"
-        "HARTE REGELN:\n"
-        "- Beginne SOFORT und stelle KEINE Rückfragen — setze die Aufgabe autonom vollständig um.\n"
-        "- Nutze ALLE oben dokumentierten Lead-/Betriebsdetails (Beschreibung, Stärken, "
-        "Leistungen, Region, Ansprechpartner) für glaubwürdige, betriebsgenaue Inhalte.\n"
-        "- Bearbeite WIRKLICH templates/index.html und static/css/style.css (echtes Design), "
-        "nicht nur content.json.\n"
-        "- content.json bleibt valides JSON; vorhandene Keys NIE löschen/umbenennen; "
-        "hero_image, logo_image und fotos erhalten.\n"
-        "- Alles deutsch, konkret, auf genau diesen Betrieb zugeschnitten — kein Lorem/Platzhalter, "
-        "kein KI-Geschwurbel.\n"
-        "- Baue auf dem Ergebnis der vorherigen Stufen AUF; mache vorherige Verbesserungen nicht "
-        "rückgängig. Minimaler, gezielter Diff für genau diese Aufgabe.\n"
-        "- Am Ende MUSS `python manage.py check` fehlerfrei sein und das Template ohne Fehler rendern.\n"
-        "Fasse zum Schluss in genau einem Satz zusammen, was du verändert hast."
+        f"Nutze das Skill «{stage['skill']}» als Leitlinie für konkrete, branchengerechte "
+        "Design-Entscheidungen.\n"
+        "REGELN: Sofort autonom umsetzen, KEINE Rückfragen. content.json + templates/index.html + "
+        "static/css/style.css bei Bedarf direkt aus dem Ordner lesen und WIRKLICH editieren (echtes "
+        "Design, nicht nur Text). content.json bleibt valides JSON; hero_image/logo_image/fotos "
+        "erhalten, vorhandene Keys nicht löschen. Deutsch, konkret, betriebsgenau — kein Platzhalter, "
+        "kein Geschwurbel. Auf den Vorstufen AUFBAUEN, minimaler gezielter Diff. Am Ende MUSS das "
+        "Template fehlerfrei rendern. Schließe mit genau einem Satz, was du geändert hast."
     )
 
 
@@ -384,9 +361,11 @@ def _is_limit(res: dict, changed: bool) -> bool:
     return _looks_limited((res.get("summary") or "") + " " + (res.get("reason") or ""))
 
 
-def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: int = 0) -> bool:
-    """Wartet `seconds`, bricht bei stop() sofort ab. Meldet die Restzeit ~alle 30 s.
-    Gibt True zurück, wenn die Wartezeit voll abgelaufen ist, False bei Abbruch."""
+def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: int = 0,
+                         pct: int = 50) -> bool:
+    """Wartet `seconds`, bricht bei stop() sofort ab. Meldet die Restzeit ~alle 30 s — mit
+    dem AKTUELLEN Stufen-Fortschritt (nicht 95/100, damit der Balken nicht „fertig" wirkt,
+    während noch gewartet wird). True = volle Wartezeit abgelaufen, False = Abbruch."""
     end = time.time() + seconds
     while True:
         rem = end - time.time()
@@ -396,7 +375,7 @@ def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: 
             return False
         if say:
             mins = int(rem // 60) + (1 if int(rem) % 60 else 0)
-            say(95, f"Claude-Session-Limit — warte {mins} Min, dann Versuch {attempt}/{total}…")
+            say(pct, f"⏳ Claude-Session-Limit — warte {mins} Min, dann Versuch {attempt}/{total}…")
         time.sleep(min(30.0, rem))
 
 
@@ -443,6 +422,31 @@ def _ensure_openai_hero(folder: Path, meta: dict, say) -> None:
         logger.warn("Makeover", f"ChatGPT-Hero übersprungen: {type(e).__name__}: {str(e)[:120]}")
 
 
+def _ensure_legal(folder: Path, meta: dict) -> None:
+    """Schreibt deterministische Rechtstexte (Impressum/Datenschutz/AGB) in content.json,
+    sofern noch nicht vorhanden — lokal generiert, 0 Claude-Tokens. Die QA-Stufe rendert sie
+    danach nur noch + verlinkt sie. Best-effort."""
+    try:
+        import legal_pages
+    except Exception:
+        return
+    content = _read_content(folder)
+    if content.get("impressum") and content.get("datenschutz") and content.get("agb"):
+        return
+    d = _doc_details(folder, meta)
+    src = {
+        "name":  meta.get("name") or content.get("site_name") or "",
+        "adresse": content.get("adresse") or d.get("adresse") or "",
+        "telefon": content.get("telefon") or d.get("telefon") or "",
+        "email": content.get("email") or d.get("email_adresse") or d.get("kontakt_email") or "",
+        "ansprechpartner": content.get("ansprechpartner") or d.get("ansprechpartner") or "",
+    }
+    legal = legal_pages.build_all(src)
+    for k, v in legal.items():
+        content.setdefault(k, v)
+    _write_content(folder, content)
+
+
 def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
     """Fährt die Seite durch alle noch offenen Makeover-Stufen (resume-fähig).
     say(progress:int, text:str) meldet Fortschritt; stop() bricht sauber ab.
@@ -463,6 +467,8 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
     # die folgenden Design-Stufen auf dem hochwertigen Bild aufbauen. Kostengedeckelt.
     if not (stop and stop()):
         _ensure_openai_hero(folder, meta, say)
+    # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
+    _ensure_legal(folder, meta)
 
     done = set(_read_content(folder).get("makeover_stages") or [])
     name = meta.get("name", "?")
@@ -497,15 +503,15 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
                 break
             # Session-Limit erkannt → warten und erneut versuchen.
             if attempt >= _LIMIT_RETRIES:
-                say(95, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
-                        "Makeover pausiert (später fortsetzbar).")
+                say(pct, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
+                         "Makeover pausiert (später fortsetzbar).")
                 logger.warn("Makeover", f"Session-Limit nach {_LIMIT_RETRIES} Wartezyklen — pausiert.")
                 return {"ok": False, "reason": "session_limit",
                         "stages_done": new_done, "all_done": all_done(folder)}
             attempt += 1
             logger.warn("Makeover", f"Claude-Session-Limit — warte {_LIMIT_WAIT // 60} Min, "
                                     f"dann Versuch {attempt}/{_LIMIT_RETRIES} ({stage['label']}).")
-            if not _sleep_interruptible(_LIMIT_WAIT, stop, say, attempt, _LIMIT_RETRIES):
+            if not _sleep_interruptible(_LIMIT_WAIT, stop, say, attempt, _LIMIT_RETRIES, pct):
                 # Während des Wartens gestoppt → pausieren, Resume beim nächsten Lauf.
                 return {"ok": False, "reason": "session_limit",
                         "stages_done": new_done, "all_done": all_done(folder)}

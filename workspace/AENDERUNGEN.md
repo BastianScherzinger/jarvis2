@@ -5,6 +5,47 @@
 
 ---
 
+# Durchgang 24.06.2026 (4) — Token-Sparmaßnahmen: Makeover lief Session-Limit leer
+
+> Symptom: „die meisten Seiten hängen bei ~100 % nach dem ersten Schritt, Token-Limit zu
+> schnell voll." Ursache war massiver Token-Verbrauch pro Stufe. Komplett überarbeitet.
+
+## Ursache
+Jede der 7 Stufen wies den headless Makeover-Claude an, ein Skill **komplett** zu laden:
+`ui-ux-pro-max` = **45 KB**, `taste` = **88 KB**. Stufen 1–4 + 7 luden je das 45-KB-Skill,
+Stufe 6 das 88-KB-Skill → **~313 KB Skill-Text pro Seite**, das in jeder der ~32 Tool-Runden
+im Kontext mitlief. Dazu der volle content.json-Dump (3,5 KB) in JEDEM Stufen-Prompt. Das
+Claude-Code-Session-Limit war nach 1–2 Stufen leer → Pipeline pausierte (sah aus wie „hängt").
+
+## Maßnahmen
+- **Kompaktes Skill:** 6 Stufen nutzen jetzt `design-pro` (**5 KB**, bündelt ui-ux-pro-max/
+  impeccable/taste/frontend-pro/shadcn) statt `ui-ux-pro-max` (45 KB). Das große `taste`
+  (88 KB) lädt nur noch EINMAL — in der dedizierten Design-Stufe. → ~313 KB → **~118 KB/Seite**.
+- **Kein content.json-Dump mehr im Prompt:** Claude liest content.json selbst aus dem Ordner.
+  Stufen-Prompt **6262 → 2362 Zeichen** (−62 %).
+- **Stufen-Laufzeit** dadurch ~321 s → **~129 s** (verifiziert, Stufe Hero) — Proxy für ~60 %
+  weniger Tokens. Mehr Stufen passen ins selbe Session-Budget.
+- **Status sichern:** unverändert je Stufe `makeover_stages` + Git-Commit (resume-fähig).
+- **Limit-Anzeige gefixt:** Beim Session-Limit-Warten zeigt der Balken den AKTUELLEN
+  Stufen-Fortschritt statt auf 95/100 zu springen (kein falsches „fertig").
+
+## Lokal ausgelagert (32-GB-Maschine sinnvoll genutzt)
+- **Build-Texte via Ollama:** `website_builder._ollama_content` erzeugt Headline/Subline/
+  Über-uns/Leistungen/SEO LOKAL (qwen2.5) zuerst; Claude-API nur noch Fallback, dann
+  Deterministik. Spart API-€. Schalter `JARVIS_BUILD_CONTENT_LOCAL=0` deaktiviert.
+- **Rechtstexte lokal (0 Tokens):** neues `legal_pages.py` erzeugt Impressum (§5 DDG),
+  Datenschutz (DSGVO) und AGB deterministisch aus den Betriebsdaten. `overnight_makeover.
+  _ensure_legal` schreibt sie in content.json (impressum/datenschutz/agb). Die QA-Stufe
+  **rendert + verlinkt** sie nur noch (erzeugt sie nicht) → deutlich weniger Claude-Arbeit.
+
+## OpenAI-Hinweis (aus dem Live-Test)
+Der OpenAI-Key ist gesetzt, aber die API meldet **„Billing hard limit has been reached"** →
+ChatGPT-Hero wird sauber übersprungen (Makeover läuft weiter), `hero_source` bleibt offen und
+wird beim nächsten Lauf erneut versucht. **To-do Sir:** OpenAI-Guthaben/Ausgabenlimit erhöhen
+(platform.openai.com → Settings → Limits/Billing).
+
+---
+
 # Durchgang 24.06.2026 (3) — ChatGPT-Hero-Bilder (gpt-image-1) mit Tageslimit
 
 > Hero-Bilder kommen jetzt standardmäßig von **OpenAI gpt-image-1** (ChatGPT) — hochwertig,
