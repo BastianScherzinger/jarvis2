@@ -5,6 +5,30 @@
 
 ---
 
+# Durchgang 24.06.2026 (8) — Programm-Durchsicht, Geld-Workflow & neue Home-Seite
+
+> Vollständige Doku: `workspace/GELD_WORKFLOW.md` (Langfassung der Home-Seite).
+
+## Programm-Durchsicht + ehrliche Einschätzung
+Kompletter Geld-Workflow dokumentiert (Lead → KI-Bewertung → Bau → Makeover → Discord-Gate →
+12-Uhr-Mail → manueller Abschluss). Status je Schritt, Wert jetzt→fertig, ehrliches Fazit.
+**Fazit:** lohnt sich mit Vorbehalt — Stückkosten ~0 & skaliert; echter Umsatz hängt an
+E-Mail-Zustellbarkeit/Recht (Schritt 6), Conversion, Qualität, Hosting-Kostenkontrolle.
+Software-Asset-Wert geschätzt ~12.400 € jetzt → ~37.200 € fertig.
+
+## Home-Seite ersetzt (Programm-Übersicht statt Webseiten-Grid)
+- `templates/index.html`: das `#home-grid` (Webseiten-Kacheln) ist durch die **Programm-Übersicht**
+  ersetzt (`.ov`-Block): Intro, ehrliche Einschätzung, 8-Schritt-Workflow mit Status-Badges
+  (Fertig/Teilweise/Offen) + Wert je Schritt (jetzt→fertig), Gesamtwert, Prioritätenliste.
+  Live-Stats-Strip oben + Aktivitäts-Panel unten bleiben. `loadHome()` unverändert (Grid-Renderer
+  no-opt, da `#home-grid` weg). Webseiten-Grid bleibt im Webseiten-Reiter (keine Funktion verloren).
+- `static/css/style.css`: `.ov*`-Styles (Iron-Man-HUD, responsiv). Verifiziert (Playwright):
+  8 Schritte, Badges, Verdict, Gesamtwert ~37.000 €, 0 relevante Konsolenfehler.
+- **Erkannte Baustelle dokumentiert:** `offer_mail.build` nennt fix **350 €** statt des bewerteten
+  Tiers (`erwartungswert_euro`) — als Priorität #2 in GELD_WORKFLOW.md vermerkt.
+
+---
+
 # Durchgang 24.06.2026 (7) — Lead-Generierung: kostenlos bestätigt, max Threads, echtere Preise
 
 > Sir: Lead-Gen kostenlos + parallel (max Threads), erst Daten sammeln/speichern, dann lokale

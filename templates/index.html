@@ -663,15 +663,123 @@
       </div>
     </div>
 
-    <!-- Site-Cards Grid -->
-    <div class="home-grid" id="home-grid">
-      <div class="home-empty" id="home-empty">
-        <div class="home-empty-icon">🌐</div>
-        <div>Noch keine Webseiten gebaut.</div>
-        <div style="font-size:12px;color:var(--tx3);margin-top:6px">
-          Starte den Auto-Builder oder baue manuell eine Seite im Webseiten-Tab.
-        </div>
+    <!-- ══ PROGRAMM-ÜBERSICHT: Was JARVIS ist, der Geld-Workflow, Status & Wert ══ -->
+    <div class="ov">
+
+      <div class="ov-intro">
+        <div class="ov-intro-kicker">JARVIS · Automatische Webseiten-Akquise</div>
+        <h1 class="ov-intro-title">Eine Maschine, die Kunden findet, ihnen eine fertige Webseite baut und das Angebot verschickt.</h1>
+        <p class="ov-intro-sub">
+          JARVIS sucht vollautomatisch lokale Betriebe ohne (gute) Webseite, bewertet sie mit
+          einer lokalen KI, baut jedem eine echte, live geschaltete Premium-Webseite als
+          unverbindliches Demo und schickt ein Angebot per E-Mail. Ziel: aus „gefunden" wird
+          „bezahlter Auftrag" — bei nahezu null Stückkosten.
+        </p>
       </div>
+
+      <!-- Ehrliche Einschätzung -->
+      <div class="ov-verdict">
+        <div class="ov-verdict-head">⚖️ Ehrliche Einschätzung — lohnt sich das?</div>
+        <p>
+          <b>Ja — mit Vorbehalt.</b> Der entscheidende Vorteil ist real: Leads finden und
+          Webseiten bauen kostet praktisch <b>nichts</b> (lokale Scraper + lokale KI + dein
+          Higgsfield-Abo), und das skaliert deutschlandweit. Damit daraus <b>echtes Geld</b>
+          wird, hängt alles an vier Hebeln:
+        </p>
+        <ul>
+          <li><b>Zustellbarkeit &amp; Recht (wichtigster Punkt):</b> Kalt-E-Mails an Betriebe sind in DE rechtlich heikel (UWG §7, DSGVO) und landen schnell im Spam. Ohne saubere Zustellung & Rechtssicherheit kommt kein Geld an.</li>
+          <li><b>Conversion:</b> Realistisch antworten 0,5–2 % auf Kalt-Mails. Es braucht <b>Volumen</b> — und genau das macht JARVIS billig.</li>
+          <li><b>Qualität:</b> Die Demo-Seite muss aussehen wie von einer Agentur, sonst keine Antwort (dafür die 7-Stufen-Makeover-Pipeline).</li>
+          <li><b>Hosting-Kosten:</b> Jede Live-Demo kostet etwas Hosting — nicht verkaufte Demos müssen automatisch abgebaut werden.</li>
+        </ul>
+        <p class="ov-verdict-bottom">
+          <b>Beispielrechnung:</b> 1.000 versendete Angebote × 1 % Conversion × 350 € =
+          <b>3.500 €</b> bei nahezu null Grenzkosten. Nicht garantiert, aber als skalierbares
+          Nebengeschäft plausibel — sobald Zustellbarkeit, Recht und Qualität stehen.
+        </p>
+      </div>
+
+      <!-- Der Geld-Workflow, Schritt für Schritt -->
+      <div class="ov-steps-head">Der Geld-Workflow — Schritt für Schritt</div>
+      <div class="ov-steps">
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">1</span><span class="ov-step-title">Leads finden (lokal, kostenlos)</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> 6 Scraper (Google Maps via Browser, Gelbe Seiten, Das Örtliche, 11880, golocal, KI) finden deutschlandweit Betriebe inkl. Adresse, Telefon, Bilder — ohne bezahlte API.</div>
+          <div class="ov-todo"><b>Noch:</b> Dubletten-Filter feinjustieren, Branchen-/Stadt-Priorisierung optimieren.</div>
+          <div class="ov-val"><span>Wert jetzt <b>2.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">2</span><span class="ov-step-title">Bewerten &amp; Preis (lokale KI)</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Lokale KI (Ollama) findet die Website, prüft Aktualität, bewertet Bedarf, schreibt Beschreibung &amp; Pitch und vergibt einen realistischen Paketpreis (0/200/350/550/850/1200 €). Läuft über alle CPU-Kerne parallel.</div>
+          <div class="ov-todo"><b>Noch:</b> Preis-Tiers regelmäßig an reale Abschlüsse kalibrieren.</div>
+          <div class="ov-val"><span>Wert jetzt <b>1.500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>4.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">3</span><span class="ov-step-title">Webseite bauen + live schalten</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Pro Lead eine echte Django-Landingpage, Texte aus den Lead-Daten, Hero-Bild über Higgsfield (Abo), automatischer Deploy auf Railway → echter Live-Link.</div>
+          <div class="ov-todo"><b>Noch:</b> Eigene Domain je Demo (statt railway.app) wirkt seriöser; Live-Demos automatisch abbauen, wenn nicht verkauft (Hosting-Kosten).</div>
+          <div class="ov-val"><span>Wert jetzt <b>3.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>8.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">4</span><span class="ov-step-title">Premium-Makeover (7 Stufen)</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Jede Seite läuft durch 7 Skill-Stufen (Hero, Leistungen, Über uns, Kontakt, Formular, Voll-Design mit „taste", QA + Impressum/Datenschutz/AGB) — echtes Agentur-Niveau, token-sparsam.</div>
+          <div class="ov-todo"><b>Noch:</b> Im Live-Lauf über viele Seiten verifizieren; Ergebnis-Qualität stichprobenartig prüfen.</div>
+          <div class="ov-val"><span>Wert jetzt <b>2.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>6.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">5</span><span class="ov-step-title">Qualitäts-Freigabe (Discord)</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Jede fertige Seite landet zur Abstimmung in Discord. 👍 gibt frei, 👎 verwirft — du kontrollierst die Qualität, bevor etwas an einen echten Kunden geht.</div>
+          <div class="ov-todo"><b>Noch:</b> Optional Vorschau-Screenshot statt nur Link in der Discord-Nachricht.</div>
+          <div class="ov-val"><span>Wert jetzt <b>600 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.200 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-E-Mail an den Kunden</span><span class="ov-badge partial">Teilweise</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Designte Angebots-Mail mit Live-Link wird gebaut; freigegebene Seiten gehen um 12 Uhr automatisch raus. Sicherheits-Schalter (Trockenlauf) verhindert versehentlichen Versand.</div>
+          <div class="ov-todo"><b>Noch (Schlüssel zum Geld):</b> SMTP einrichten + scharf schalten; <b>Zustellbarkeit</b> (SPF/DKIM/DMARC, Aufwärmen, kein Spam) und <b>Rechtssicherheit</b> (UWG/DSGVO, Abmelde-Link, Impressum) lösen. Angebotspreis an den bewerteten Tier koppeln (aktuell fix 350 €).</div>
+          <div class="ov-val"><span>Wert jetzt <b>800 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">7</span><span class="ov-step-title">Kunde antwortet → Abschluss &amp; Zahlung</span><span class="ov-badge todo">Offen</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Antworten landen in deinem Postfach — Abschluss, Rechnung und Übergabe machst du manuell.</div>
+          <div class="ov-todo"><b>Noch:</b> Leichtes CRM (Antwort-Status), Zahlungslink/Rechnung (z.B. Stripe-Link), Übergabe-Checkliste. Für einen 350-€-Verkauf ist ein menschlicher Abschluss aber sogar von Vorteil.</div>
+          <div class="ov-val"><span>Wert jetzt <b>0 €</b></span><span class="ov-arrow">→</span><span>fertig <b>3.000 €</b></span></div>
+        </div>
+
+        <div class="ov-step">
+          <div class="ov-step-top"><span class="ov-num">8</span><span class="ov-step-title">Dashboard, Medien &amp; Kosten</span><span class="ov-badge done">Fertig</span></div>
+          <div class="ov-now"><b>Jetzt:</b> Iron-Man-Dashboard, Medien-Studio (Bild/Video, Higgsfield/ChatGPT), Live-Kostentracking, Auto-Builder mit Stopp/Resume und Limit-Resilienz.</div>
+          <div class="ov-todo"><b>Noch:</b> Conversion-/Umsatz-Auswertung (was bringt wirklich Geld), A/B-Test der Betreffzeilen.</div>
+          <div class="ov-val"><span>Wert jetzt <b>2.500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+        </div>
+
+      </div>
+
+      <!-- Gesamtwert -->
+      <div class="ov-total">
+        <div class="ov-total-row"><span>Gesamtwert des Programms (geschätzt, als Software-Asset)</span></div>
+        <div class="ov-total-nums"><span class="ov-total-now">jetzt ~12.000 €</span><span class="ov-arrow">→</span><span class="ov-total-fin">fertig ~37.000 €</span></div>
+        <div class="ov-total-note">Schätzwerte für den Wiederbeschaffungs-/Aufwandswert der Bausteine — getrennt vom möglichen Umsatz. Der Umsatz hängt an Schritt 6 (Zustellbarkeit/Recht) und der Conversion.</div>
+      </div>
+
+      <!-- Nächste Schritte für echtes Geld -->
+      <div class="ov-next">
+        <div class="ov-next-head">🎯 Damit echtes Geld rauskommt — Prioritäten</div>
+        <ol>
+          <li><b>E-Mail-Zustellung &amp; Recht lösen</b> (Schritt 6) — eigene Versand-Domain mit SPF/DKIM/DMARC, langsames Aufwärmen, Abmelde-Link, UWG/DSGVO-konformer Rahmen. <b>Ohne das kein Umsatz.</b></li>
+          <li><b>Angebotspreis = bewerteter Tier</b> (statt fix 350 €) — höhere Tickets bei starken Leads.</li>
+          <li><b>Volumen hochfahren</b> — Auto-Builder dauerhaft laufen lassen, Qualität stichprobenartig prüfen.</li>
+          <li><b>Demos abbauen</b>, die nach X Tagen nicht konvertieren — Hosting-Kosten deckeln.</li>
+          <li><b>Conversion messen</b> — Antworten/Abschlüsse pro 100 Mails sichtbar machen, Betreff/Text optimieren.</li>
+        </ol>
+      </div>
+
     </div>
 
     <!-- Letzte Aktivitäten (kompakt) -->

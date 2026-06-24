@@ -2022,6 +2022,68 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 .hstat-build .hstat-val{ color:var(--y); }
 .hstat-err .hstat-val{ color:var(--r); }
 
+/* ── Programm-Übersicht (Home) ────────────────────────────────────────────── */
+.ov{ display:flex; flex-direction:column; gap:18px; }
+.ov-intro{
+  background:linear-gradient(135deg, rgba(0,212,255,.08), rgba(13,20,32,.6));
+  border:1px solid var(--bdr2); border-radius:16px; padding:26px 28px;
+}
+.ov-intro-kicker{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--c); margin-bottom:10px; }
+.ov-intro-title{ font-family:var(--fh); font-size:26px; line-height:1.25; font-weight:800; color:var(--tx); margin:0 0 12px; max-width:60ch; }
+.ov-intro-sub{ font-size:14.5px; line-height:1.65; color:var(--tx2); margin:0; max-width:80ch; }
+
+.ov-verdict{
+  background:rgba(13,20,32,.6); border:1px solid var(--bdr2);
+  border-left:3px solid var(--c); border-radius:14px; padding:20px 24px;
+}
+.ov-verdict-head{ font-family:var(--fh); font-size:16px; font-weight:800; color:var(--c); margin-bottom:10px; }
+.ov-verdict p{ font-size:14px; line-height:1.65; color:var(--tx2); margin:0 0 10px; }
+.ov-verdict ul{ margin:0 0 10px; padding-left:20px; }
+.ov-verdict li{ font-size:13.5px; line-height:1.6; color:var(--tx2); margin-bottom:6px; }
+.ov-verdict b{ color:var(--tx); }
+.ov-verdict-bottom{ background:rgba(0,212,255,.07); border-radius:10px; padding:12px 14px; margin:12px 0 0 !important; }
+
+.ov-steps-head, .ov-next-head{ font-family:var(--fh); font-size:15px; font-weight:800; letter-spacing:.04em; color:var(--tx); margin-top:6px; }
+.ov-steps{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.ov-step{
+  background:var(--bg2); border:1px solid var(--bdr); border-radius:14px;
+  padding:16px 18px; display:flex; flex-direction:column; gap:8px; transition:border-color .2s;
+}
+.ov-step:hover{ border-color:var(--bdr2); }
+.ov-step-top{ display:flex; align-items:center; gap:10px; }
+.ov-num{
+  flex:0 0 auto; width:26px; height:26px; border-radius:8px; background:rgba(0,212,255,.12);
+  color:var(--c); font-family:var(--fh); font-weight:800; font-size:14px;
+  display:flex; align-items:center; justify-content:center;
+}
+.ov-step-title{ font-weight:700; font-size:14.5px; color:var(--tx); flex:1; }
+.ov-badge{ font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:4px 9px; border-radius:999px; white-space:nowrap; }
+.ov-badge.done{ background:rgba(46,204,113,.16); color:var(--g); }
+.ov-badge.partial{ background:rgba(245,200,66,.16); color:var(--y); }
+.ov-badge.todo{ background:rgba(231,76,60,.16); color:var(--r); }
+.ov-now, .ov-todo{ font-size:12.5px; line-height:1.55; color:var(--tx2); }
+.ov-now b, .ov-todo b{ color:var(--tx); }
+.ov-todo{ color:var(--tx3); }
+.ov-val{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--tx2); margin-top:2px; padding-top:8px; border-top:1px dashed var(--bdr); }
+.ov-val b{ color:var(--c); }
+.ov-arrow{ color:var(--tx3); }
+
+.ov-total{
+  background:linear-gradient(135deg, rgba(46,204,113,.08), rgba(13,20,32,.6));
+  border:1px solid var(--bdr2); border-radius:14px; padding:18px 24px; text-align:center;
+}
+.ov-total-row{ font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--tx3); margin-bottom:6px; }
+.ov-total-nums{ display:flex; align-items:center; justify-content:center; gap:14px; font-family:var(--fh); font-weight:800; font-size:24px; }
+.ov-total-now{ color:var(--tx2); }
+.ov-total-fin{ color:var(--g); }
+.ov-total-note{ font-size:11.5px; color:var(--tx3); margin-top:8px; line-height:1.5; }
+
+.ov-next{ background:rgba(13,20,32,.6); border:1px solid var(--bdr2); border-radius:14px; padding:18px 24px; }
+.ov-next ol{ margin:10px 0 0; padding-left:22px; }
+.ov-next li{ font-size:13.5px; line-height:1.7; color:var(--tx2); margin-bottom:7px; }
+.ov-next b{ color:var(--tx); }
+@media (max-width:860px){ .ov-steps{ grid-template-columns:1fr; } }
+
 /* ── Site Cards Grid ──────────────────────────────────────────────────────── */
 .home-grid{
   display:grid;
