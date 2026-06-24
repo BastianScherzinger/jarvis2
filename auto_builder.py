@@ -426,13 +426,23 @@ def _schedule_restart(seconds: int) -> None:
 
 
 def _handle_exhaustion() -> None:
-    """Claude-Limit erkannt: erst ein bisschen ChatGPT; sind beide leer → stop + Neustart-Timer."""
+    """Claude-Limit erkannt: erst ein bisschen ChatGPT; sind beide leer → stop + Neustart-Timer.
+    Der Neustart folgt dem gelernten Retry-Plan: 4 h Pause nach dem Limit, danach stündlich."""
     global _claude_limited
     _claude_limited = False
     if _cloud_hero_progress():
         return                      # Cloud-Hero (Higgsfield/OpenAI) half → normaler Loop weiter
     stop()
-    _schedule_restart(_EXHAUST_WAIT)
+    # Wiederaufnahme nach dem gelernten Plan (claude_limit: 4 h, dann stündlich) statt fix 1 h.
+    wait = _EXHAUST_WAIT
+    try:
+        import claude_limit
+        s = claude_limit.seconds_to_retry()
+        if s > 0:
+            wait = s
+    except Exception:
+        pass
+    _schedule_restart(wait)
 
 
 def _all_sites_complete() -> bool:

@@ -132,6 +132,12 @@ def _track_cost(data: dict, model: str, task: str, name: str) -> None:
         if in_t or out_t:
             import cost_tracker
             cost_tracker.track_api(model or "claude-sonnet-4-6", in_t, out_t, task, name)
+            # Verbrauch fürs Limit-Lernen buchen (Prozent-Schätzung / „gleich voll"-Warnung).
+            try:
+                import claude_limit
+                claude_limit.record_usage(in_t + out_t)
+            except Exception:
+                pass
     except Exception:
         pass
 

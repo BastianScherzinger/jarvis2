@@ -116,6 +116,7 @@ STAGES: list[dict] = [
     },
     {
         "key": "formular", "label": "Kontakt-Formular", "skill": _PRO,
+        "model": _MODEL_LITE,        # mechanisch (Felder/csrf/tel-mailto/Focus) → günstiges Modell
         "task": (
             "Baue ein funktionsfähiges, schön gestaltetes KONTAKT-FORMULAR (Name, E-Mail, Telefon, "
             "Nachricht, Einwilligungs-Checkbox zur Datenschutzerklärung). Setze method=\"post\" auf "
@@ -473,6 +474,14 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     if not claude_coder.is_available():
         say(100, "Claude-CLI fehlt — Makeover nicht möglich (npm i -g @anthropic-ai/claude-code).")
         return {"ok": False, "reason": "claude-CLI fehlt", "all_done": False, "stages_done": []}
+
+    # Limit-Gate: ist Claude erschöpft und die 4-h-Pause (dann stündlich) noch nicht vorbei,
+    # gar nicht erst einen Lauf starten — spart Token und respektiert den Retry-Plan.
+    if not claude_limit.should_try_now():
+        mins = claude_limit.seconds_to_retry() // 60
+        say(100, f"Claude-Session-Limit aktiv — nächster Versuch in ~{mins} Min.")
+        return {"ok": False, "reason": "session_limit", "all_done": all_done(folder),
+                "stages_done": []}
 
     # Sauberer Resume: eine beim letzten Mal abgebrochene (uncommittete) Stufe verwerfen.
     _reset_dirty(folder)

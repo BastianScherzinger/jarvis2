@@ -21,7 +21,8 @@ laufen bereits lokal bzw. deterministisch (0 Claude-Tokens).
 | Rechtstexte deterministisch (`legal_pages.py`) | Impressum/DS/AGB 0 Claude-Tokens | `_ensure_legal` |
 | Hero-Prompts via Ollama verfeinert | Prompt-Engineering 0 Claude-Tokens | `media_engine.hero_prompt_smart` |
 | Hero-/Galeriebilder via Higgsfield-Abo / lokale Diffusers, sonst SVG-Platzhalter | Bilder 0 Claude-Tokens | `media_engine`, `ref_images.py` |
-| **Mechanische Abschluss-Stufe `qa_recht` auf günstigem Modell (haiku)** | ~1/7 der Makeover-Tokens | `_MODEL_LITE`, Stufe `qa_recht` |
+| **Mechanische Stufen `qa_recht` + `formular` auf günstigem Modell (haiku)** | ~2/7 der Makeover-Tokens | `_MODEL_LITE`, Stufen `qa_recht`/`formular` |
+| **Claude-Limit-Lernen**: Makeover startet in der 4-h-Sperre gar nicht erst (`should_try_now`) | spart vergebliche Läufe am vollen Limit | `claude_limit.py`, Gate in `run_makeover` |
 
 ---
 

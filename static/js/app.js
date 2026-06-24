@@ -1729,12 +1729,50 @@ async function loadCosts() {
       fetch('/api/activity/recent?limit=80').then(r => r.json()),
     ]);
     _renderCostsSummary(todayRes.summary || {});
+    _renderClaudeBudget(todayRes.claude_budget || {}, todayRes.fix_costs || {});
     _renderCostsChart(histRes.history || []);
     _renderCostsSiteList(todayRes.per_site || []);
     _costsAllActs = actRes.activities || [];
     _renderCostsActLog(_costsAllActs, _costsActFilter);
   } catch(e) {
     console.warn('[Costs] Ladefehler:', e);
+  }
+}
+
+function _renderClaudeBudget(b, fix) {
+  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  const pct  = Math.max(0, Math.min(100, b.percent || 0));
+  const fill = document.getElementById('bdg-fill');
+  if (fill) {
+    fill.style.width = pct + '%';
+    // grün < 80, gelb 80–94, rot ≥95 (gleich voll)
+    fill.style.background = pct >= 95 ? 'linear-gradient(90deg,#ff6b3d,#ff3b4e)'
+      : (pct >= 80 ? 'linear-gradient(90deg,#ffc93d,#ff9d3d)' : 'linear-gradient(90deg,#00e87a,#00c853)');
+  }
+  set('bdg-pct', pct + ' %');
+  const st = document.getElementById('bdg-state');
+  if (st) {
+    if (b.limited) {
+      st.textContent = b.minutes_to_retry > 0
+        ? `Limit voll · nächster Versuch in ~${b.minutes_to_retry} Min` : 'Limit voll · Versuch läuft';
+      st.className = 'budget-state limit';
+    } else if (b.near_limit) {
+      st.textContent = 'Fast voll — gleich erreicht';
+      st.className = 'budget-state near';
+    } else {
+      st.textContent = 'Verfügbar';
+      st.className = 'budget-state ok';
+    }
+  }
+  const learn = (b.events_count > 0)
+    ? `aus ${b.events_count} Limit${b.events_count>1?'s':''} gelernt · ~${_fmt_k(b.learned_limit)} Token/Fenster`
+    : 'noch keine Limit-Daten — lernt beim ersten Limit';
+  set('bdg-learn', learn);
+  if (fix && fix.fix_month != null) {
+    set('bdg-fix-month', _fmt_eur(fix.fix_month));
+    set('bdg-fix-day',   _fmt_eur(fix.fix_day));
+    set('bdg-claude-m',  Math.round(fix.claude_month) + ' €');
+    set('bdg-hf-m',      Math.round(fix.hf_month) + ' €');
   }
 }
 

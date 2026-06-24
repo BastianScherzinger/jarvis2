@@ -1299,7 +1299,12 @@ def api_media_generate_ad_video():
         return jsonify({"ok": False, "reason": "Bitte Betrieb, Branche oder Motiv angeben."}), 400
     vp = ad_prompts.build_video_prompt(brief)
     backend = (body.get("backend") or "local").strip()
-    if backend == "higgsfield":
+    if backend in ("higgsfield_mcp", "higgsfield_abo"):
+        params = {"prompt": vp["prompt"], "aspect_ratio": (body.get("aspect_ratio") or "16:9").strip(),
+                  "model": (body.get("hf_model") or "").strip(),
+                  "duration": body.get("duration") or 0, "summary": vp["summary"]}
+        job_id = media_queue.submit("higgsfield_mcp_video", params)
+    elif backend == "higgsfield":
         params = {"prompt": vp["prompt"], "hf_model": (body.get("hf_model") or "dop-lite").strip(),
                   "summary": vp["summary"]}
         job_id = media_queue.submit("higgsfield", params)
@@ -1378,9 +1383,17 @@ def api_costs_today():
         summary   = cost_tracker.today_summary()
         per_site  = cost_tracker.per_site_costs(20)
         events    = cost_tracker.recent_events(40)
-        return jsonify({"ok": True, "summary": summary, "per_site": per_site, "events": events})
+        try:
+            import claude_limit
+            budget = claude_limit.status()
+            fix    = claude_limit.costs()
+        except Exception:
+            budget, fix = {}, {}
+        return jsonify({"ok": True, "summary": summary, "per_site": per_site,
+                        "events": events, "claude_budget": budget, "fix_costs": fix})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "summary": {}, "per_site": [], "events": []})
+        return jsonify({"ok": False, "error": str(e), "summary": {}, "per_site": [],
+                        "events": [], "claude_budget": {}, "fix_costs": {}})
 
 
 @app.route("/api/costs/history")

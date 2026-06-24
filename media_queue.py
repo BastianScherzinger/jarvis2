@@ -155,7 +155,15 @@ def _worker(q: "queue.Queue") -> None:
                     ta       = time.time()
                     asset_fn = f"{a.get('asset','img')}.png"
                     _lg.info("Bilder", f"→ {a.get('label','')} ({i+1}/{tot})…")
-                    if backend == "higgsfield":
+                    if backend in ("higgsfield_mcp", "higgsfield_abo"):
+                        # Higgsfield-Abo (Soul V2 über MCP) — nutzt die Abo-Credits.
+                        import higgsfield_mcp
+                        out = set_dir / asset_fn
+                        ar = "1:1" if (a.get("width") and a.get("height")
+                                       and a["width"] == a["height"]) else "16:9"
+                        r = higgsfield_mcp.generate_image(a.get("prompt", ""), out, aspect_ratio=ar)
+                        res = {"web_url": f"/workspace/media/images/{set_dir.name}/{asset_fn}", **r}
+                    elif backend == "higgsfield":
                         res = media_engine.generate_image_higgsfield(
                             a.get("prompt", ""), output_dir=set_dir, filename=asset_fn,
                             width=a.get("width") or 1280, height=a.get("height") or 720)

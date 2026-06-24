@@ -20,6 +20,53 @@
   70%{box-shadow:0 0 0 7px rgba(179,33,15,0)}
   100%{box-shadow:0 0 0 0 rgba(179,33,15,0)}
 }
+/* ── Home: „Wo stehst du?" Ziel-Block ───────────────────────────────────── */
+.goal{
+  background:linear-gradient(180deg,var(--bg3),var(--bg2));
+  border:1px solid var(--bdr2);border-radius:16px;padding:18px 20px;margin-bottom:18px;
+}
+.goal-kicker{font-size:12px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--c)}
+.goal-title{font-size:20px;font-weight:700;color:var(--tx);margin:5px 0 14px;line-height:1.25}
+.goal-bar{display:flex;gap:4px;height:30px;border-radius:8px;overflow:hidden;margin-bottom:16px}
+.goal-seg{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#06120a}
+.goal-seg span{padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.goal-seg.done{background:linear-gradient(90deg,#00e87a,#00c853)}
+.goal-seg.partial{background:linear-gradient(90deg,#ffc93d,#ff9d3d)}
+.goal-seg.todo{background:#2a3445;color:var(--tx2)}
+.goal-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.goal-col{border-radius:12px;padding:13px 15px;border:1px solid var(--bdr)}
+.goal-col.ok{background:rgba(0,232,122,.06);border-color:rgba(0,232,122,.25)}
+.goal-col.act{background:rgba(0,212,255,.06);border-color:rgba(0,212,255,.3)}
+.goal-col-h{font-weight:700;font-size:13px;margin-bottom:8px;color:var(--tx)}
+.goal-col.ok .goal-col-h{color:var(--g)}
+.goal-col.act .goal-col-h{color:var(--c)}
+.goal-col ul,.goal-col ol{margin:0;padding-left:18px}
+.goal-col li{font-size:12.5px;color:var(--tx);margin:5px 0;line-height:1.45}
+.goal-col.ok li{color:var(--tx2)}
+.goal-note{font-size:12.5px;color:var(--tx2);margin-top:14px;line-height:1.5;
+  border-top:1px solid var(--bdr);padding-top:12px}
+@media(max-width:720px){.goal-grid{grid-template-columns:1fr}}
+
+/* ── Claude-Budget-Panel (Kosten-Tab) ───────────────────────────────────── */
+.budget-box{
+  background:var(--bg3);border:1px solid var(--bdr2);border-radius:14px;
+  padding:14px 16px;margin-bottom:14px;
+}
+.budget-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.budget-title{font-weight:700;color:var(--tx);font-size:14px}
+.budget-sub{font-weight:400;color:var(--tx2);font-size:12px}
+.budget-state{font-size:12px;font-weight:600;padding:3px 10px;border-radius:10px}
+.budget-state.ok{color:var(--g);background:rgba(0,232,122,.10);border:1px solid rgba(0,232,122,.35)}
+.budget-state.near{color:#ffc93d;background:rgba(255,201,61,.12);border:1px solid rgba(255,201,61,.4)}
+.budget-state.limit{color:#ff6b6b;background:rgba(255,59,78,.12);border:1px solid rgba(255,59,78,.4)}
+.budget-bar{height:10px;border-radius:6px;background:var(--bg);overflow:hidden;border:1px solid var(--bdr)}
+.budget-fill{height:100%;border-radius:6px;transition:width .5s ease}
+.budget-meta{font-size:12px;color:var(--tx2);margin-top:7px}
+.budget-costs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:13px}
+.bdg-cost{background:var(--bg);border:1px solid var(--bdr);border-radius:10px;padding:9px 11px;text-align:center}
+.bdg-cost span{display:block;font-weight:700;color:var(--c);font-size:16px}
+.bdg-cost small{display:block;color:var(--tx2);font-size:10px;margin-top:2px}
+@media(max-width:720px){.budget-costs{grid-template-columns:repeat(2,1fr)}}
 /* Limit-Badge auf einer einzelnen Webseiten-Karte */
 .site-limit-badge{
   display:inline-flex;align-items:center;gap:5px;margin-top:4px;

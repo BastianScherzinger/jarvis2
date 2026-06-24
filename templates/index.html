@@ -254,6 +254,7 @@
       <div class="af-field">
         <label class="af-lbl">Modus</label>
         <select id="set-backend" class="flt">
+          <option value="higgsfield_mcp">Higgsfield (Abo · Soul V2)</option>
           <option value="openai">ChatGPT (OpenAI)</option>
           <option value="local">Lokal (Diffusers)</option>
           <option value="higgsfield">Higgsfield Cloud (API-Key)</option>
@@ -671,6 +672,45 @@
       </div>
     </div>
 
+    <!-- ══ WO STEHST DU? Ehrlicher Fortschritt zum Ziel + was DU tun musst ══ -->
+    <div class="goal">
+      <div class="goal-head">
+        <span class="goal-kicker">Ziel: dein erster bezahlter Auftrag</span>
+        <h2 class="goal-title">Die Technik ist fast fertig — der letzte Schritt zum Geld liegt bei dir.</h2>
+      </div>
+      <div class="goal-bar">
+        <div class="goal-seg done" style="flex:5"><span>System (Schritt 1–5)</span></div>
+        <div class="goal-seg partial" style="flex:2"><span>Versand (6)</span></div>
+        <div class="goal-seg todo" style="flex:1"><span>Abschluss (7)</span></div>
+      </div>
+      <div class="goal-grid">
+        <div class="goal-col ok">
+          <div class="goal-col-h">✓ Läuft automatisch</div>
+          <ul>
+            <li>Leads finden, bewerten, Preis</li>
+            <li>Webseite bauen + live schalten</li>
+            <li>7-Stufen-Makeover (token-sparend, lernt am Limit)</li>
+            <li>Bilder/Videos über dein Higgsfield-Abo</li>
+            <li>Qualitäts-Freigabe per Discord</li>
+          </ul>
+        </div>
+        <div class="goal-col act">
+          <div class="goal-col-h">→ Das musst DU tun (für echtes Geld)</div>
+          <ol>
+            <li><b>Versand-Domain + SMTP</b> einrichten (SPF/DKIM/DMARC) — einmalig, ohne das kommt keine Mail an.</li>
+            <li><b>Rechtsrahmen klären</b>: Abmelde-Link, Impressum, UWG/DSGVO — am Anfang nur an passende Kontakte.</li>
+            <li><b>Einen echten Versand testen</b> (Trockenlauf aus, EMAIL_REDIRECT leeren) — an einen Test-Empfänger.</li>
+            <li><b>Ersten Abschluss manuell</b> machen: Antwort → Rechnung/Zahlungslink. Danach Volumen hochfahren.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="goal-note">
+        Ehrlich: Das System bringt dich zuverlässig bis „Angebot verschickt". Den letzten Meter
+        — Zustellbarkeit, Recht und der erste Verkauf — geht ein Mensch. Sobald Schritt 6 steht,
+        ist alles davor reine Wiederholung bei nahezu null Stückkosten.
+      </div>
+    </div>
+
     <!-- ══ PROGRAMM-ÜBERSICHT: Was JARVIS ist, der Geld-Workflow, Status & Wert ══ -->
     <div class="ov">
 
@@ -713,9 +753,9 @@
       <!-- Zwei Fortschritts-Anzeigen -->
       <div class="ov-meters">
         <div class="ov-meter">
-          <div class="ov-meter-top"><span>⚙️ Technik fertig</span><span class="ov-meter-pct">~80 %</span></div>
-          <div class="ov-meter-bar"><div class="ov-meter-fill tech" style="width:80%"></div></div>
-          <div class="ov-meter-note">6 von 8 Schritten komplett — das System läuft.</div>
+          <div class="ov-meter-top"><span>⚙️ Technik fertig</span><span class="ov-meter-pct">~85 %</span></div>
+          <div class="ov-meter-bar"><div class="ov-meter-fill tech" style="width:85%"></div></div>
+          <div class="ov-meter-note">Schritt 1–5 + 8 komplett, inkl. Limit-Lernen &amp; Budget. Offen: nur noch Versand (6) &amp; Abschluss (7).</div>
         </div>
         <div class="ov-meter">
           <div class="ov-meter-top"><span>💰 Bereit für echten Umsatz</span><span class="ov-meter-pct warn">~45 %</span></div>
@@ -905,6 +945,25 @@
           <div class="cst-val" id="cst-power">0,00 €</div>
           <div class="cst-lbl">Stromkosten (~45 W)</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Claude-Budget (Abo-Limit, Lern-Status, Fixkosten) -->
+    <div class="budget-box" id="budget-box">
+      <div class="budget-head">
+        <span class="budget-title">Claude-Budget <span class="budget-sub">(Abo · lernt mit)</span></span>
+        <span class="budget-state" id="bdg-state">—</span>
+      </div>
+      <div class="budget-bar"><div class="budget-fill" id="bdg-fill" style="width:0%"></div></div>
+      <div class="budget-meta">
+        <span id="bdg-pct">0 %</span> der Session verbraucht ·
+        <span id="bdg-learn">noch keine Limit-Daten</span>
+      </div>
+      <div class="budget-costs">
+        <div class="bdg-cost"><span id="bdg-fix-month">55,00 €</span><small>Fixkosten/Monat</small></div>
+        <div class="bdg-cost"><span id="bdg-fix-day">1,83 €</span><small>Fixkosten/Tag</small></div>
+        <div class="bdg-cost"><span id="bdg-claude-m">20 €</span><small>Claude-Abo (bis Limit gratis)</small></div>
+        <div class="bdg-cost"><span id="bdg-hf-m">35 €</span><small>Higgsfield-Abo</small></div>
       </div>
     </div>
 
