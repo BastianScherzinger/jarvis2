@@ -1,16 +1,16 @@
 # JARVIS System Profil
-Erstellt: 2026-06-23 10:12
+Erstellt: 2026-06-23 20:11
 
 ## Hardware
-- **CPU**: Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
-- **RAM**: 64 GB
-- **GPU**: NVIDIA GeForce RTX 4090 Laptop GPU
-- **VRAM**: 16.0 GB
-- **Typ**: Desktop / Server
+- **CPU**: Intel(R) Core(TM) i7-8565U CPU @ 1.80GHz
+- **RAM**: 8 GB
+- **GPU**: 1073741824 Intel(R) UHD Graphics
+- **VRAM**: kein dedizierter VRAM
+- **Typ**: Laptop
 
 ## KI-Empfehlung
-- **Tier**: WORKSTATION — WORKSTATION / HIGH-END DESKTOP
-- **Primär**: Claude API + Starkes lokales Modell
-- **Lokales Modell**: qwen2.5:32b
-- **Fallback**: qwen2.5:14b
-- **Strategie**: 32B offline für alle Sub-Tasks, Claude für komplexe Logik
+- **Tier**: MINIMAL — ULTRABOOK / LOW-END
+- **Primär**: Claude API (zwingend erforderlich)
+- **Lokales Modell**: qwen2.5-coder:1.5b
+- **Fallback**: llama3.2:1b
+- **Strategie**: Fast ausschließlich Claude API — lokale KI nur für Micro-Tasks
