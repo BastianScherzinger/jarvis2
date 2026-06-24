@@ -394,7 +394,7 @@ def _ensure_hero(folder: Path, meta: dict, say) -> bool:
     except Exception:
         return False
     content = _read_content(folder)
-    if content.get("hero_source") in ("higgsfield", "openai"):
+    if content.get("hero_source") in ("higgsfield", "higgsfield_mcp", "openai"):
         return False                             # schon ein Cloud-Hero — nicht erneut erzeugen
     if content.get("hero_custom"):
         return False                             # vom Inhaber hochgeladenes Hero nie ersetzen

@@ -1132,6 +1132,37 @@ def api_media_status():
         })
 
 
+@app.route("/api/higgsfield/mcp/status")
+def api_hf_mcp_status():
+    """Status der Higgsfield-MCP-Anbindung (Abo-Credits via OAuth)."""
+    try:
+        import higgsfield_mcp
+        return jsonify(higgsfield_mcp.login_status())
+    except Exception as e:
+        return jsonify({"authorized": False, "running": False, "url": "",
+                        "error": f"{type(e).__name__}: {e}"})
+
+
+@app.route("/api/higgsfield/mcp/login", methods=["POST"])
+def api_hf_mcp_login():
+    """Startet den einmaligen Browser-Login. Gibt sofort die Anmelde-URL zurück;
+    der Token-Tausch läuft im Hintergrund. Danach nutzt JARVIS die Abo-Credits."""
+    try:
+        import higgsfield_mcp
+        return jsonify(higgsfield_mcp.login_async())
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
+@app.route("/api/higgsfield/mcp/logout", methods=["POST"])
+def api_hf_mcp_logout():
+    try:
+        import higgsfield_mcp
+        return jsonify(higgsfield_mcp.logout())
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
 @app.route("/api/media/models")
 def api_media_models():
     try:

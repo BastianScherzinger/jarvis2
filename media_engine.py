@@ -1299,12 +1299,23 @@ def generate_image_openai(prompt: str, output_dir: "Path | None" = None,
             "prompt": prompt, "elapsed": round(time.time() - t0, 1)}
 
 
+def higgsfield_mcp_available() -> bool:
+    """True, wenn der Higgsfield-MCP-Client angemeldet ist (nutzt die ABO-Credits)."""
+    try:
+        import higgsfield_mcp
+        return higgsfield_mcp.available()
+    except Exception:
+        return False
+
+
 def hero_engine() -> str:
-    """Welche Engine liefert Hero-Bilder? JARVIS_HERO_ENGINE: higgsfield (Default — Sirs Abo)
-    | openai (kostet extra) | local | auto. Steuert die Auto-Pipeline (Build + Makeover);
-    im Medien-Reiter bleibt jede Engine manuell wählbar."""
+    """Welche Engine liefert Hero-Bilder? JARVIS_HERO_ENGINE: higgsfield (Default — Sirs Abo;
+    bevorzugt den MCP-Weg = Abo-Credits, fällt auf API-Key/OpenAI zurück) | higgsfield_mcp
+    (nur Abo-MCP) | higgsfield_only (nur API-Key) | openai | local | auto. Steuert die
+    Auto-Pipeline (Build + Makeover); im Medien-Reiter bleibt jede Engine manuell wählbar."""
     e = (_env("JARVIS_HERO_ENGINE", "higgsfield") or "higgsfield").strip().lower()
-    return e if e in ("higgsfield", "higgsfield_only", "openai", "local", "auto") else "higgsfield"
+    valid = ("higgsfield", "higgsfield_mcp", "higgsfield_only", "openai", "local", "auto")
+    return e if e in valid else "higgsfield"
 
 
 def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename: str = "hero.png",
@@ -1313,19 +1324,34 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
     OpenAI wird NUR genutzt, wenn ausdrücklich gewählt (kostet extra). Gibt das Engine-Ergebnis
     inkl. {'engine': ...}. Wirft, wenn keine Cloud-Engine ein Bild liefert (Aufrufer fällt dann
     auf Lokal/Farbverlauf zurück)."""
-    # Higgsfield bleibt Standard (Sirs Abo). Damit eine Seite NIE ohne echten Hero dasteht,
-    # wenn das Abo-Guthaben leer ist, fällt der Default auf OpenAI zurück (gedeckelt per
-    # Tageslimit). 'higgsfield_only' = striktes Abo ohne OpenAI-Fallback.
+    # Higgsfield bleibt Standard (Sirs Abo). Bevorzugt wird der MCP-Weg (nutzt die ABO-Credits),
+    # dann der Platform-API-Key (eigener Topf), dann OpenAI (gedeckelt) — so steht eine Seite NIE
+    # ohne echten Hero da. 'higgsfield_mcp' = nur Abo-MCP, 'higgsfield_only' = nur API-Key.
     order = {
-        "higgsfield":      ["higgsfield", "openai"],
+        "higgsfield":      ["higgsfield_mcp", "higgsfield", "openai"],
+        "higgsfield_mcp":  ["higgsfield_mcp"],
         "higgsfield_only": ["higgsfield"],
-        "openai":          ["openai", "higgsfield"],
+        "openai":          ["openai", "higgsfield_mcp", "higgsfield"],
         "local":           [],                  # 'local' → keine Cloud (Aufrufer rendert lokal)
-        "auto":            ["higgsfield", "openai"],
-    }.get(hero_engine(), ["higgsfield", "openai"])
+        "auto":            ["higgsfield_mcp", "higgsfield", "openai"],
+    }.get(hero_engine(), ["higgsfield_mcp", "higgsfield", "openai"])
     errs: list[str] = []
     for e in order:
         try:
+            if e == "higgsfield_mcp" and higgsfield_mcp_available():
+                import higgsfield_mcp
+                ar = higgsfield_mcp._aspect_for(width, height)
+                dest = Path(output_dir) if output_dir else WORKSPACE_IMAGES
+                fpath = dest / (filename or "hero.png")
+                r = higgsfield_mcp.generate_image(prompt, fpath, aspect_ratio=ar)
+                try:
+                    rel = Path(r["path"]).relative_to(WORKSPACE_IMAGES)
+                    web_url = f"/workspace/media/images/{rel.as_posix()}"
+                except Exception:
+                    web_url = ""
+                return {"path": r["path"], "web_url": web_url,
+                        "model": "Higgsfield Soul (MCP/Abo)", "prompt": prompt,
+                        "engine": "higgsfield_mcp"}
             if e == "higgsfield" and higgsfield_available():
                 r = generate_image_higgsfield(prompt, output_dir=output_dir,
                                               filename=filename, width=width, height=height)
@@ -1363,6 +1389,7 @@ def get_status() -> dict:
         "video_model_key":    vid_key,
         "diffusers_ok":       _check_diffusers(),
         "higgsfield_api_key": hf_key_set,
+        "higgsfield_mcp":     higgsfield_mcp_available(),
         "openai_image":       openai_available(),
         "openai_quota_left":  openai_quota_left(),
         "openai_daily_max":   openai_daily_max(),
