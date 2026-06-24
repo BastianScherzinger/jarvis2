@@ -1,7 +1,65 @@
 # JARVIS LeadHunter — Änderungsprotokoll
 
-> Vollständige Liste aller Umbauten dieser Arbeitsphase. Stand: 19.06.2026.
+> Vollständige Liste aller Umbauten dieser Arbeitsphase. Stand: 24.06.2026.
 > Reihenfolge: das neue Feature zuerst, dann die früheren Durchgänge, dann offene Punkte.
+
+---
+
+# Durchgang 24.06.2026 — Eigene-Marke-Builder, echte Skills, robustes Makeover
+
+> Detail-Referenz: `workspace/MAKEOVER_PIPELINE.md` + `CLAUDE.dev.md`.
+
+## A. „Eigene Marke"-Reiter = echter Zwei-Schritt-Builder (`custom_build.py`, `app.js`)
+- Aufgeteilt in **Schritt 1 `start()`** (nur bauen + deployen) und **Schritt 2 `improve()`**
+  (7-Stufen-Skill-Makeover, beliebig oft wiederholbar) — kein Auto-Pilot mehr.
+- **KI-Vorschläge** (`suggest()`): lokal via Ollama (`ask_ollama`) mit deterministischem
+  Fallback → füllt Branche/Beschreibung/Tagline/Hero-Prompt/Leistungen.
+- **Persistenz:** Formular + aktiver Job in `localStorage` (`jarvis.cb.*`) → überleben Reload;
+  unbekannter Job nach Server-Neustart wird im Poll erkannt und das Panel zurückgesetzt.
+- Tab ist jetzt **scrollbar** (`.custom-page` Scroll-Container). Formular-Empfänger werden in
+  `content.json["custom_recipients"]` gesichert und von `finalize_review` an Discord gereicht.
+- Neue Routen: `/api/custom-build/improve`, `/api/custom-build/suggest`.
+
+## B. Webseiten-Reiter repariert (vom anderen PC eingeschleppte Bugs)
+- **Typografische Anführungszeichen** (U+201D) als Attribut-Delimiter im gesamten
+  Webseiten-Block → `class="websites-page"`/`data-page="websites"` griffen nicht, Reiter tot.
+  Alle Attribut-Quotes auf gerade ASCII korrigiert.
+- **CSS-Kollision** `.ws-bar` (Toolbar UND 6px-Fortschrittsbalken) → Toolbar gestaucht.
+  Toolbar in `.ws-toolbar` umbenannt.
+
+## C. Echte Design-Skills ins Projekt (`skills/`, `claude_skills.py`)
+- `ui-ux-pro-max` (nextlevelbuilder) und `design-taste-frontend` (Leonxlnx/taste-skill) von
+  GitHub ins Repo unter `skills/<name>/SKILL.md` vendored → auf jedem PC nach `git pull` da.
+- `claude_skills.ensure_installed()` spiegelt `skills/` → `~/.claude/skills/` (App-Start +
+  `start.py` + `install.py`) — nötig, weil der headless Makeover-Claude im Webseiten-Ordner
+  läuft und dort nur user-globale Skills sieht. (Früher referenzierten Stufen 5/6 die nicht
+  existierenden Skills `taste`/`frontend-design` → liefen ohne Skill.)
+
+## D. Makeover-Stufen optimiert (`overnight_makeover.py`)
+- Stufen je mit dem stärksten echten Skill: Inhalt/Layout/Typografie/Farbe/Responsive =
+  `ui-ux-pro-max`, Politur = `design-taste-frontend`, Motion = `design-pro`.
+- `_context_block` reichert JEDEN Prompt mit den dokumentierten Lead-Details an
+  (`beschreibung`, `pitch_hook`, `firmengroesse`, `potenzial_begruendung`, Adresse/Telefon/
+  Ansprechpartner aus db_evaluated über `lead_id`) + volle content.json. Prompt nennt
+  Premium-Ziel + Schritt N/7 und weist an, das Skill AKTIV via Skill-Tool zu nutzen.
+
+## E. Night-Builder: alle Seiten fertigstellen + Verabschiedung (`auto_builder.py`)
+- Phase 2 fährt nach der Bauphase ALLE bestehenden Seiten durch den 7-Stufen-Weg, bis jede
+  auf 7/7 ist. Sind dann alle fertig: EINMALIGE Discord-Verabschiedung via neuem
+  `discord_bot.notify()` (Latch `_farewell_sent`; reset bei Start/Tageswechsel/neuer Arbeit).
+  Neue Helfer `_all_sites_complete` / `_farewell_if_done`.
+
+## F. Robustheit bei Claude-Session-Limit (`overnight_makeover.py`)
+- Erkennt `run_makeover` ein Usage-/Session-Limit, **wartet es 1 h und versucht dieselbe
+  Stufe erneut — bis zu 7×** (`JARVIS_MAKEOVER_LIMIT_WAIT`=3600, `_RETRIES`=7; Wartezeit per
+  `stop()` unterbrechbar). Erst danach pausiert es (Resume später). Builder-Warte-Limit
+  `JARVIS_MAKEOVER_WAIT` darum auf 36000 s/10 h erhöht.
+
+## G. Startup-Setup abgesichert (`start.py`, `app.py`, `install.py`, `claude_coder.py`)
+- `claude_coder.ensure_cli()`: best-effort `npm i -g @anthropic-ai/claude-code`, falls die
+  claude-CLI fehlt (ohne sie kein Makeover). Beim Boot sichtbar in `start.py`; App-Startthread
+  und `install.py` sichern Skills + CLI zusätzlich ab. Hinweis: CLI auf neuem PC einmal
+  anmelden (`claude`), Node.js + Ollama nötig.
 
 ---
 
