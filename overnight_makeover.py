@@ -403,8 +403,9 @@ def _ensure_hero(folder: Path, meta: dict, say) -> bool:
     name    = meta.get("name") or content.get("site_name", "")
     stadt   = meta.get("stadt") or content.get("stadt") or d.get("stadt", "")
     beschr  = d.get("beschreibung") or content.get("ueber_text", "")
-    prompt  = media_engine.hero_master_prompt(branche=branche, name=name, stadt=stadt,
-                                              beschreibung=beschr, akzent=content.get("akzent", ""))
+    prompt  = media_engine.hero_prompt_smart(branche=branche, name=name, stadt=stadt,
+                                             beschreibung=beschr, akzent=content.get("akzent", ""),
+                                             leistungen=content.get("leistungen"))
     try:
         say(6, f"Hero-Bild wird frisch erzeugt ({media_engine.hero_engine()})…")
         res = media_engine.generate_hero_cloud(
@@ -473,6 +474,16 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
         _ensure_hero(folder, meta, say)
     # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
     _ensure_legal(folder, meta)
+    # Leere Bild-Slots mit Referenz-Platzhaltern füllen (auch für ältere Seiten ohne
+    # about/Galerie), damit die Design-Stufen auf vollständigen Inhalten aufbauen.
+    try:
+        import ref_images
+        content0 = _read_content(folder)
+        content0 = ref_images.ensure_placeholders(
+            folder, content0, meta.get("branche") or content0.get("branche", ""))
+        _write_content(folder, content0)
+    except Exception:
+        pass
 
     done = set(_read_content(folder).get("makeover_stages") or [])
     name = meta.get("name", "?")

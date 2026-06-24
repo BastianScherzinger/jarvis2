@@ -804,11 +804,13 @@ def _hf_error_hint(code: int, body: str) -> str:
     if "1010" in b or "error 1010" in b or ("cloudflare" in b and "denied" in b):
         return ("Higgsfield/Cloudflare-Fehler 1010 (Zugriff blockiert). Behoben durch echten "
                 "Browser-User-Agent — falls weiter: Higgsfield-Endpunkt/Key prüfen.")
+    # Guthaben ZUERST prüfen: Higgsfield meldet 'Not enough credits' auch als 403 — sonst
+    # würde es fälschlich als Auth-Fehler ausgegeben.
+    if code == 402 or "credit" in b or "insufficient" in b or "not enough" in b:
+        return f"Higgsfield {code}: Guthaben/Credits zu niedrig — bitte aufladen (cloud.higgsfield.ai)."
     if code in (401, 403):
         return (f"Higgsfield {code}: Auth fehlgeschlagen — HIGGSFIELD_API_KEY (Format ID:SECRET) "
                 "in der .env prüfen.")
-    if code == 402 or "credit" in b or "insufficient" in b:
-        return f"Higgsfield {code}: Guthaben/Credits zu niedrig — bitte aufladen."
     if code == 404:
         return f"Higgsfield {code}: Endpunkt nicht gefunden — API-Pfad veraltet."
     return f"Higgsfield-API-Fehler {code}: {body[:200]}"
@@ -868,13 +870,57 @@ def _hf_extract_image_url(pd: dict) -> str:
     return pd.get("image_url", "") or pd.get("url", "")
 
 
+# Von Higgsfield Soul akzeptierte Bildgrößen (strikt validiert — sonst HTTP 422).
+_HF_SIZES_LANDSCAPE = ["2048x1152", "1696x960", "1680x1120", "1632x1088", "2016x1344",
+                       "2048x1536", "1536x1152"]
+_HF_SIZES_PORTRAIT  = ["1152x2048", "960x1696", "1120x1680", "1088x1632", "1344x2016",
+                       "1536x2048", "1152x1536"]
+_HF_SIZES_SQUARE    = ["1536x1536", "2048x2048"]
+_HF_SIZES_ALL = set(_HF_SIZES_LANDSCAPE + _HF_SIZES_PORTRAIT + _HF_SIZES_SQUARE)
+
+
+def _hf_valid_size(width: int, height: int) -> str:
+    """Bildet die gewünschte Auflösung auf eine von Higgsfield AKZEPTIERTE Größe ab.
+    .env-Override JARVIS_HF_IMAGE_SIZE gilt nur, wenn er in der erlaubten Liste steht."""
+    override = (os.environ.get("JARVIS_HF_IMAGE_SIZE") or "").strip()
+    if override in _HF_SIZES_ALL:
+        return override
+    w, h = max(1, int(width or 1)), max(1, int(height or 1))
+    ratio = w / h
+    if ratio >= 1.15:       # Landscape (Hero) → breitestes 16:9 zuerst
+        return _HF_SIZES_LANDSCAPE[0]   # 2048x1152
+    if ratio <= 0.87:       # Portrait
+        return _HF_SIZES_PORTRAIT[0]    # 1152x2048
+    return _HF_SIZES_SQUARE[0]          # 1536x1536
+
+
+def _hf_poll(rid: str, key: str) -> dict:
+    """Pollt den Status einer Higgsfield-Bildgenerierung. Probiert mehrere mögliche
+    Status-Pfade (die Platform-API variiert) und liefert das erste 200-JSON. {} = nichts."""
+    import urllib.request
+    import json
+    headers = {k: v for k, v in _hf_headers(key).items() if k != "Content-Type"}
+    for path in (f"/v1/text2image/soul/{rid}", f"/requests/{rid}/status",
+                 f"/v1/requests/{rid}", f"/requests/{rid}", f"/v1/generations/{rid}"):
+        try:
+            pr = urllib.request.Request(f"{_HIGGSFIELD_BASE}{path}", headers=headers)
+            with urllib.request.urlopen(pr, timeout=15) as resp:
+                d = json.loads(resp.read().decode())
+            if isinstance(d, dict) and d:
+                return d
+        except Exception:
+            continue
+    return {}
+
+
 def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
                               filename: str = "", width: int = 1280, height: int = 720) -> dict:
     """
     Bild via Higgsfield Soul (Cloud). Für schwache Hardware (CPU) gedacht, wenn lokale
     Generierung zu langsam ist. Wirft bei jedem Problem eine Exception — der Aufrufer
-    fällt dann auf die lokale Generierung zurück. Enums sind per .env überschreibbar
-    (JARVIS_HF_IMAGE_SIZE, JARVIS_HF_IMAGE_QUALITY), da Higgsfield sie strikt prüft.
+    fällt dann auf die nächste Quelle zurück. Die Enums prüft Higgsfield strikt: Größe wird
+    über _hf_valid_size auf einen erlaubten Wert gemappt, der Payload steckt im `params`-Objekt
+    (sonst HTTP 422 'params required' — war der Grund, warum kein Hero entstand).
     """
     import urllib.request
     import urllib.error
@@ -884,24 +930,24 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
     if not key:
         raise ValueError("HIGGSFIELD_API_KEY fehlt in .env.")
 
-    size = os.environ.get("JARVIS_HF_IMAGE_SIZE") or ("1536x864" if width >= height else "864x1536")
+    size = _hf_valid_size(width, height)
     quality = os.environ.get("JARVIS_HF_IMAGE_QUALITY", "1080p")
-    payload = {"prompt": prompt, "width_and_height": size,
-               "quality": quality, "batch_size": "1", "enhance_prompt": True}
+    payload = {"params": {"prompt": prompt, "width_and_height": size,
+                          "quality": quality, "batch_size": 1, "enhance_prompt": True}}
 
     t0 = time.time()
     req = urllib.request.Request(
         f"{_HIGGSFIELD_BASE}/v1/text2image/soul",
         data=json.dumps(payload).encode(), headers=_hf_headers(key), method="POST",
     )
-    _mlog("info", "Higgsfield", f"Bild-Auftrag (Soul) · {prompt[:60]}")
+    _mlog("info", "Higgsfield", f"Bild-Auftrag (Soul · {size}) · {prompt[:60]}")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             d = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         _mlog("warn", "Higgsfield", f"Bild-POST {e.code}: {body[:200]}")
-        raise RuntimeError(_hf_error_hint(e.code, body))   # z.B. 1010 / 402 insufficient credits
+        raise RuntimeError(_hf_error_hint(e.code, body))   # z.B. 1010 / 403 not enough credits
 
     rid = (d.get("id") or d.get("request_id") or d.get("request_set_id")
            or ((d.get("jobs") or [{}])[0].get("id") if d.get("jobs") else None))
@@ -911,17 +957,14 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
     img_url = ""
     for _ in range(40):                      # ~2 Minuten (40 × 3s)
         time.sleep(3)
-        try:
-            pr = urllib.request.Request(f"{_HIGGSFIELD_BASE}/requests/{rid}/status",
-                                        headers=_hf_headers(key))
-            with urllib.request.urlopen(pr, timeout=15) as resp:
-                pd = json.loads(resp.read().decode())
-        except Exception:
+        pd = _hf_poll(str(rid), key)
+        if not pd:
             continue
         st = (pd.get("status") or "").lower()
         if st in ("completed", "success", "done"):
             img_url = _hf_extract_image_url(pd)
-            break
+            if img_url:
+                break
         if st in ("failed", "error", "nsfw", "cancelled"):
             raise RuntimeError(f"Higgsfield-Status: {st}")
     if not img_url:
@@ -1016,28 +1059,116 @@ def openai_quota_left() -> int:
     return max(0, mx - _openai_used_today())
 
 
+# Branchen-Szenen-Lexikon: konkrete, fotografisch verwertbare Bildmotive je Gewerk.
+# Macht den Hero-Prompt „krass genau" (echtes Werkzeug/echte Umgebung statt generisch),
+# auch ohne ein KI-Modell zur Prompt-Verfeinerung. Key = Teilstring der Branche (lower).
+_HERO_SCENES: dict[str, str] = {
+    "dachdecker": "two roofers in clean safety harnesses installing crisp new clay roof tiles on a steep residential roof, blue sky, scaffolding, professional roofing tools",
+    "dach":       "a freshly finished tiled roof of a German house seen from a flattering angle, gutters and ridge perfectly aligned, sunny sky",
+    "maler":      "a painter in spotless white workwear rolling a smooth coat of warm paint on an interior wall, drop cloths, ladder, bright airy room",
+    "lackier":    "a glossy freshly painted car body panel under studio light in a clean professional paint booth",
+    "elektr":     "a focused electrician neatly wiring a modern distribution board, tidy cabling, multimeter, clean workshop light",
+    "sanitär":    "a plumber fitting a sleek modern bathroom faucet, chrome fittings, clean tiled bathroom, professional tools",
+    "heizung":    "a heating technician servicing a modern wall-mounted condensing boiler, clean utility room, professional gauges",
+    "klima":      "a technician installing a sleek modern air-conditioning unit on a clean wall, tools laid out neatly",
+    "garten":     "a landscaped German garden with freshly mown lawn, trimmed hedges and a tidy stone path, golden hour light",
+    "gala":       "a freshly paved natural-stone patio with neat planting beds in a sunny residential garden",
+    "kfz":        "a clean modern car repair workshop with a vehicle on a lift, organized tool wall, mechanic in clean uniform",
+    "auto":       "a polished car in a spotless professional automotive workshop, dramatic light, organized tools",
+    "friseur":    "a bright modern hair salon interior with stylish chairs, large mirrors and warm designer lighting",
+    "kosmetik":   "a serene modern beauty studio with soft lighting, clean treatment bed and elegant minimalist decor",
+    "bau":        "a tidy construction site with a crew in clean hi-vis and helmets reviewing plans, modern building shell, clear sky",
+    "tischler":   "a craftsman in a sunlit woodworking workshop planing a solid oak board, wood shavings, hand tools on a clean bench",
+    "schreiner":  "a craftsman in a sunlit woodworking workshop assembling fine furniture, fresh sawdust, organized hand tools",
+    "gastro":     "an inviting modern restaurant interior with set tables and warm ambient lighting, ready for guests",
+    "restaurant": "an elegant plated dish on a rustic wooden table in a warm restaurant setting, shallow depth of field",
+    "bäcker":     "a rustic display of fresh artisan bread and pastries in a warm bakery, morning light",
+    "reinigung":  "a spotless freshly cleaned modern interior, sunlight on streak-free glass, professional cleaning equipment tidy in frame",
+    "fenster":    "freshly installed large modern windows in a bright room, clean frames, sunlight streaming in",
+    "fliesen":    "a tiler setting large-format tiles in a flawless straight pattern, clean spacers and trowel, modern bathroom",
+    "zimmerei":   "a timber roof truss being assembled by carpenters, fresh-cut beams, blue sky, professional tools",
+    "metallbau":  "a welder in proper gear shaping a clean steel railing in a tidy metal workshop, sparks, organized tools",
+    "umzug":      "a professional moving team in matching uniforms carefully carrying furniture into a clean modern van",
+    "immobilie":  "a bright modern German home exterior with manicured front garden at golden hour, inviting and premium",
+}
+
+
+def _hero_scene(branche: str) -> str:
+    """Konkretes Bildmotiv für die Branche (Lexikon) — sonst ein neutrales Premium-Motiv."""
+    low = (branche or "").lower()
+    for key, scene in _HERO_SCENES.items():
+        if key in low:
+            return scene
+    return (f"an authentic, inviting workplace scene of a German {branche or 'local'} business "
+            "with real tools and a tidy premium environment")
+
+
 def hero_master_prompt(branche: str = "", name: str = "", stadt: str = "",
                        beschreibung: str = "", akzent: str = "") -> str:
     """Ausführlicher, auf den Lead angepasster Master-Prompt für ein professionelles,
-    fotorealistisches Hero-Banner (kein Text, kein Logo) — als Vorlage für jede Branche."""
-    br   = (branche or "lokaler Betrieb").strip()
-    ort  = (stadt or "Deutschland").strip()
-    desc = (beschreibung or "").strip()
-    extra = f" Context about the business: {desc[:300]}." if desc else ""
-    acc  = f" Subtle brand accent color {akzent}." if akzent else ""
+    fotorealistisches Hero-Banner (kein Text, kein Logo). Nutzt das Branchen-Szenen-Lexikon
+    (_HERO_SCENES) für ein konkretes Motiv — so wird der Prompt branchengenau statt generisch."""
+    br    = (branche or "lokaler Betrieb").strip()
+    ort   = (stadt or "Deutschland").strip()
+    desc  = (beschreibung or "").strip()
+    scene = _hero_scene(br)
+    extra = f" Tailor the details to this specific business: {desc[:240]}." if desc else ""
+    acc   = f" Subtle brand accent color {akzent} present in the scene (clothing/signage/props), never as text." if akzent else ""
     return (
-        "Ultra-realistic, professional wide-format hero banner photograph for the website "
-        f"of a German {br} business located in {ort}.{extra} "
-        "Editorial commercial photography, shot on a full-frame camera with a wide lens, "
-        "natural bright daylight, soft realistic shadows, shallow depth of field, "
-        "clean modern composition with intentional negative space on one side for headline "
-        "text overlay. Show an authentic, inviting real-world scene that immediately "
-        "communicates trust, competence and quality for this exact trade — real environment, "
-        "real tools/setting, tidy and premium. Cinematic color grading, high dynamic range, "
-        "crisp focus, magazine-grade quality, 16:9 landscape." + acc +
-        " Absolutely NO text, NO words, NO letters, NO logos, NO watermarks, NO UI, "
-        "no distorted hands, no extra limbs, no collage."
+        f"Ultra-realistic editorial commercial photograph — hero banner for the website of a "
+        f"German {br} business in {ort}. Scene: {scene}.{extra} "
+        "Shot on a full-frame camera with a wide lens, natural bright daylight, soft realistic "
+        "shadows, shallow depth of field, cinematic color grading, high dynamic range, crisp "
+        "focus, magazine-grade quality. Clean modern composition with intentional negative space "
+        "on the left third for a headline text overlay. The scene must immediately communicate "
+        "trust, competence and quality for this exact trade. 16:9 landscape." + acc +
+        " Absolutely NO text, NO words, NO letters, NO logos, NO watermarks, NO UI elements, "
+        "no distorted hands, no extra limbs, no collage, no frames, photorealistic only."
     )
+
+
+def hero_prompt_smart(branche: str = "", name: str = "", stadt: str = "",
+                      beschreibung: str = "", akzent: str = "", leistungen: "list | None" = None) -> str:
+    """Erzeugt einen PRÄZISEN Hero-Bild-Prompt. Philosophie „Claude/Ollama plant den Prompt,
+    die Bild-KI baut": zuerst lokal über Ollama verfeinern (kostenlos, GPU/CPU), sonst das
+    branchengenaue Master-Template (hero_master_prompt). Best-effort — fällt nie aus."""
+    base = hero_master_prompt(branche=branche, name=name, stadt=stadt,
+                              beschreibung=beschreibung, akzent=akzent)
+    # Lokale Verfeinerung nur, wenn aktiviert (Default an) und Ollama erreichbar ist.
+    if _env("JARVIS_HERO_PROMPT_LOCAL", "1") == "0":
+        return base
+    try:
+        from scrapers._http import ask_ollama
+    except Exception:
+        return base
+    leist = ", ".join(str(x.get("titel", "")).strip() if isinstance(x, dict) else str(x)
+                      for x in (leistungen or [])[:5] if x)
+    sys = ("You are a world-class art director writing prompts for a photorealistic text-to-image "
+           "model. Output ONE single English prompt line for a website hero banner photo. No text in "
+           "the image, no logos, no watermarks. Be concrete and specific to the exact trade and "
+           "scene. 60-90 words. Answer with the prompt ONLY, no preface, no quotes.")
+    ask = (f"Business: {name or '(local business)'} — trade: {branche or 'local services'} — "
+           f"city: {stadt or 'Germany'}.\nServices: {leist or '(general)'}\n"
+           f"Owner description: {(beschreibung or '')[:240]}\n"
+           f"Reference scene to build on: {_hero_scene(branche)}\n"
+           "Write the precise hero-image prompt now.")
+    try:
+        to = int(_env("JARVIS_HERO_PROMPT_TIMEOUT", "60") or "60")
+    except Exception:
+        to = 60
+    try:
+        out = (ask_ollama(ask, system=sys, timeout=to) or "").strip()
+    except Exception:
+        return base
+    # Erste nicht-leere Zeile, Anführungszeichen weg, plausible Länge erzwingen.
+    line = next((l.strip().strip('"').strip() for l in out.splitlines() if l.strip()), "")
+    if len(line) < 40:
+        return base
+    # Negativ-/No-Text-Sicherung anhängen, falls das Modell sie vergessen hat.
+    if "no text" not in line.lower():
+        line += (" 16:9 landscape, photorealistic, cinematic, negative space on the left for a "
+                 "headline. Absolutely no text, no words, no logos, no watermarks.")
+    return line[:900]
 
 
 def generate_image_openai(prompt: str, output_dir: "Path | None" = None,
@@ -1124,7 +1255,7 @@ def hero_engine() -> str:
     | openai (kostet extra) | local | auto. Steuert die Auto-Pipeline (Build + Makeover);
     im Medien-Reiter bleibt jede Engine manuell wählbar."""
     e = (_env("JARVIS_HERO_ENGINE", "higgsfield") or "higgsfield").strip().lower()
-    return e if e in ("higgsfield", "openai", "local", "auto") else "higgsfield"
+    return e if e in ("higgsfield", "higgsfield_only", "openai", "local", "auto") else "higgsfield"
 
 
 def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename: str = "hero.png",
@@ -1133,12 +1264,16 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
     OpenAI wird NUR genutzt, wenn ausdrücklich gewählt (kostet extra). Gibt das Engine-Ergebnis
     inkl. {'engine': ...}. Wirft, wenn keine Cloud-Engine ein Bild liefert (Aufrufer fällt dann
     auf Lokal/Farbverlauf zurück)."""
+    # Higgsfield bleibt Standard (Sirs Abo). Damit eine Seite NIE ohne echten Hero dasteht,
+    # wenn das Abo-Guthaben leer ist, fällt der Default auf OpenAI zurück (gedeckelt per
+    # Tageslimit). 'higgsfield_only' = striktes Abo ohne OpenAI-Fallback.
     order = {
-        "higgsfield": ["higgsfield"],
-        "openai":     ["openai", "higgsfield"],
-        "local":      [],                       # 'local' → keine Cloud (Aufrufer rendert lokal)
-        "auto":       ["higgsfield", "openai"],
-    }.get(hero_engine(), ["higgsfield"])
+        "higgsfield":      ["higgsfield", "openai"],
+        "higgsfield_only": ["higgsfield"],
+        "openai":          ["openai", "higgsfield"],
+        "local":           [],                  # 'local' → keine Cloud (Aufrufer rendert lokal)
+        "auto":            ["higgsfield", "openai"],
+    }.get(hero_engine(), ["higgsfield", "openai"])
     errs: list[str] = []
     for e in order:
         try:

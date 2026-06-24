@@ -296,6 +296,13 @@ def enrich(folder: "str | Path", lead: dict, say) -> dict:
     # 4/7 — Bildregie: 5 Bilder lokal nacheinander -------------------------
     say(42, "Pass 4/7 · Bildregie: 5 Bilder lokal generieren (dauert)…")
     _generate_images(folder, branche, content, say)
+    # Leere Bild-Slots mit branchengetönten Referenz-Platzhaltern füllen — die Seite
+    # ist danach garantiert vollständig, auch wenn die lokale/Cloud-Generierung nichts lieferte.
+    try:
+        import ref_images
+        content = ref_images.ensure_placeholders(folder, content, branche)
+    except Exception:
+        pass
     _write_content(folder, content)
 
     # Logo: vom Inhaber hochgeladenes Logo behalten, sonst sauberes SVG-Monogramm.

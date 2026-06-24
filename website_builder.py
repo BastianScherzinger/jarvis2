@@ -703,12 +703,12 @@ def _run(job_id: str) -> None:
             # Hero (von _apply_custom_assets bereits als hero.png abgelegt) existiert hier
             # schon → die Generierung wird automatisch übersprungen.
             custom_prompt = (lead.get("_custom") or {}).get("hero_prompt", "").strip()
-            # Ausführlicher, lead-angepasster Master-Prompt (für Cloud-Engines).
-            master_prompt = custom_prompt or media_engine.hero_master_prompt(
+            # Präziser, lead-angepasster Master-Prompt (Claude/Ollama plant → Bild-KI baut).
+            master_prompt = custom_prompt or media_engine.hero_prompt_smart(
                 branche=branche, name=lead.get("name", ""), stadt=lead.get("stadt", ""),
                 beschreibung=(content.get("ueber_text") or content.get("beschreibung")
                               or lead.get("beschreibung", "")),
-                akzent=content.get("akzent", ""))
+                akzent=content.get("akzent", ""), leistungen=content.get("leistungen"))
             # Knapper Prompt für die lokale Diffusers-Generierung (Fallback).
             prompt = custom_prompt or (
                 f"professional wide hero banner photograph for a German {branche} "
@@ -749,6 +749,19 @@ def _run(job_id: str) -> None:
         except Exception:
             content.setdefault("hero_image", "")
             _step(job_id, 70, "Hero-Banner übersprungen.")
+
+        # 3c) Referenz-Platzhalter: leere Bild-Slots (Hero/Über-uns/Galerie) mit
+        # branchengetönten SVG-Platzhaltern füllen, damit die Seite NIE leer/unfertig
+        # wirkt, falls keine echte Bildquelle verfügbar war. Echte Bilder bleiben.
+        try:
+            import ref_images
+            content = ref_images.ensure_placeholders(target, content, branche)
+            (target / "content.json").write_text(
+                json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+            if content.get("placeholder_images"):
+                _step(job_id, 72, "Referenzbilder als Platzhalter eingebaut (Seite vollständig).")
+        except Exception:
+            pass
 
         secret = _django_secret_key()
 

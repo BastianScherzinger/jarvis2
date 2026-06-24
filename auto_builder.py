@@ -227,12 +227,40 @@ def _pick_next_lead():
     return None
 
 
+# Night-Build verbessert standardmäßig NUR die heute gebauten Seiten (Sirs Vorgabe).
+# Mit JARVIS_IMPROVE_TODAY_ONLY=0 werden wie früher auch ältere Seiten weiter verbessert.
+_IMPROVE_TODAY_ONLY = (os.environ.get("JARVIS_IMPROVE_TODAY_ONLY", "1").strip().lower()
+                       not in ("0", "false", "no", "nein"))
+
+
+def _today_folders() -> set:
+    """Ordner-Pfade aller HEUTE in der Tages-Historie gebauten Seiten (normalisiert)."""
+    out: set = set()
+    for e in _load_log().get(_today(), []):
+        f = (e.get("folder") or "").strip()
+        if f:
+            try:
+                out.add(os.path.normcase(os.path.abspath(f)))
+            except Exception:
+                out.add(f)
+    return out
+
+
+def _is_today_folder(folder: str) -> bool:
+    """True, wenn der Ordner zu einer heute gebauten Seite gehört (oder Filter aus)."""
+    if not _IMPROVE_TODAY_ONLY:
+        return True
+    try:
+        return os.path.normcase(os.path.abspath(folder)) in _today_folders()
+    except Exception:
+        return folder in _today_folders()
+
+
 def _pick_improve_target():
     """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst, bei
-    Gleichstand die NEUESTE ('updated' absteigend) — so werden die neusten Seiten zuerst
-    durch alle neuen Skill-Stufen + ChatGPT-Hero gezogen. Seiten, die alle 7 Stufen durch
-    haben, werden übersprungen. Seiten ohne Fortschritt in dieser Session (_makeover_stuck)
-    werden bis zum nächsten Tag ausgelassen."""
+    Gleichstand die NEUESTE ('updated' absteigend). STANDARD: nur HEUTE gebaute Seiten
+    (JARVIS_IMPROVE_TODAY_ONLY). Seiten, die alle 7 Stufen durch haben, werden übersprungen.
+    Seiten ohne Fortschritt in dieser Session (_makeover_stuck) werden bis morgen ausgelassen."""
     try:
         import db_websites
         import overnight_makeover
@@ -240,7 +268,8 @@ def _pick_improve_target():
                  if (w.get("folder") and os.path.isdir(w["folder"])
                      and (w.get("status") == "done")
                      and not w.get("archived")
-                     and w["folder"] not in _makeover_stuck)]
+                     and w["folder"] not in _makeover_stuck
+                     and _is_today_folder(w["folder"]))]
         if not sites:
             return None
 
@@ -300,12 +329,15 @@ def _already_reviewed(name: str) -> bool:
 
 
 def _makeover_sites() -> list:
-    """Alle nicht-archivierten, fertig gebauten Seiten mit lokalem Ordner."""
+    """Die Arbeitsmenge des Night-Builders: fertig gebaute, nicht-archivierte Seiten mit
+    lokalem Ordner. STANDARD nur HEUTE gebaute Seiten (JARVIS_IMPROVE_TODAY_ONLY) — so
+    beziehen sich Hero-Fallback, Fortschritt & Verabschiedung auf die Seiten von heute."""
     try:
         import db_websites
         return [w for w in db_websites.get_all()
                 if (w.get("folder") and os.path.isdir(w["folder"])
-                    and w.get("status") == "done" and not w.get("archived"))]
+                    and w.get("status") == "done" and not w.get("archived")
+                    and _is_today_folder(w["folder"]))]
     except Exception:
         return []
 
