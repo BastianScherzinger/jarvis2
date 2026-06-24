@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import claude_coder
@@ -29,6 +30,11 @@ import logger
 # Modell für die Stufen — headless-Claude-Alias ('sonnet'/'opus') oder volle ID.
 # Sonnet = starkes Design bei moderaten Kosten; per .env auf 'opus' anhebbar.
 _MODEL = os.environ.get("JARVIS_MAKEOVER_MODEL", "sonnet").strip()
+
+# Bei erschöpftem Claude-Session-Limit: warten und dieselbe Stufe erneut versuchen — für den
+# unbeaufsichtigten Nacht-Lauf. Default: 7 Versuche × je 1 Stunde Wartezeit.
+_LIMIT_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_RETRIES", "7") or "7")
+_LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "3600")
 
 
 # ── Die 7 Stufen ───────────────────────────────────────────────────────────────
@@ -344,6 +350,32 @@ def _build_stage_prompt(folder: Path, meta: dict, stage: dict, idx: int, total: 
     )
 
 
+# ── Session-Limit: warten & wiederholen ────────────────────────────────────────────
+
+def _is_limit(res: dict, changed: bool) -> bool:
+    """Session-/Usage-Limit erkannt? Nur wenn die Stufe NICHTS geändert hat und der Text
+    (summary ODER reason) nach Limit aussieht."""
+    if changed:
+        return False
+    return _looks_limited((res.get("summary") or "") + " " + (res.get("reason") or ""))
+
+
+def _sleep_interruptible(seconds: int, stop, say=None, attempt: int = 0, total: int = 0) -> bool:
+    """Wartet `seconds`, bricht bei stop() sofort ab. Meldet die Restzeit ~alle 30 s.
+    Gibt True zurück, wenn die Wartezeit voll abgelaufen ist, False bei Abbruch."""
+    end = time.time() + seconds
+    while True:
+        rem = end - time.time()
+        if rem <= 0:
+            return True
+        if stop and stop():
+            return False
+        if say:
+            mins = int(rem // 60) + (1 if int(rem) % 60 else 0)
+            say(95, f"Claude-Session-Limit — warte {mins} Min, dann Versuch {attempt}/{total}…")
+        time.sleep(min(30.0, rem))
+
+
 # ── Hauptlauf ─────────────────────────────────────────────────────────────────────
 
 def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
@@ -373,29 +405,53 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
         if stage["key"] in done:
             continue
         pct = 8 + int(i / total * 82)
-        say(pct, f"Makeover {i + 1}/{total} · {stage['label']} ({stage['skill']})…")
         logger.info("Makeover", f"{name} — Stufe {stage['label']}")
         prompt = _build_stage_prompt(folder, meta, stage, i + 1, total)
-        fp0 = _fingerprint(folder)
-        res = claude_coder.run_prompt(
-            str(folder), prompt, branche=meta.get("branche", ""),
-            model=_MODEL, task=f"makeover:{stage['key']}", name=name,
-        )
+
+        # Stufe ausführen — bei Claude-Session-Limit bis zu _LIMIT_RETRIES× je _LIMIT_WAIT
+        # (Default 7× 1 h) warten und dieselbe Stufe erneut versuchen.
+        res: dict = {}
+        changed = False
+        attempt = 0
+        while True:
+            if stop and stop():
+                break
+            say(pct, f"Makeover {i + 1}/{total} · {stage['label']} ({stage['skill']})…")
+            fp0 = _fingerprint(folder)
+            res = claude_coder.run_prompt(
+                str(folder), prompt, branche=meta.get("branche", ""),
+                model=_MODEL, task=f"makeover:{stage['key']}", name=name,
+            )
+            changed = _fingerprint(folder) != fp0
+            if not _is_limit(res, changed):
+                break
+            # Session-Limit erkannt → warten und erneut versuchen.
+            if attempt >= _LIMIT_RETRIES:
+                say(95, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
+                        "Makeover pausiert (später fortsetzbar).")
+                logger.warn("Makeover", f"Session-Limit nach {_LIMIT_RETRIES} Wartezyklen — pausiert.")
+                return {"ok": False, "reason": "session_limit",
+                        "stages_done": new_done, "all_done": all_done(folder)}
+            attempt += 1
+            logger.warn("Makeover", f"Claude-Session-Limit — warte {_LIMIT_WAIT // 60} Min, "
+                                    f"dann Versuch {attempt}/{_LIMIT_RETRIES} ({stage['label']}).")
+            if not _sleep_interruptible(_LIMIT_WAIT, stop, say, attempt, _LIMIT_RETRIES):
+                # Während des Wartens gestoppt → pausieren, Resume beim nächsten Lauf.
+                return {"ok": False, "reason": "session_limit",
+                        "stages_done": new_done, "all_done": all_done(folder)}
+
+        if stop and stop():
+            break
+
         if not res.get("ok"):
             logger.warn("Makeover", f"Stufe '{stage['label']}' übersprungen: {str(res.get('reason', ''))[:140]}")
             continue
 
         summ = res.get("summary") or ""
-        # Eine Stufe gilt NUR als erledigt, wenn sie wirklich Dateien geändert hat —
-        # sonst (Session-Limit, reine Rückfrage o.ä.) würde eine leere Stufe für immer
-        # übersprungen. Bei erkanntem Limit pausieren (Resume später möglich).
-        if _fingerprint(folder) == fp0:
+        # Eine Stufe gilt NUR als erledigt, wenn sie wirklich Dateien geändert hat (kein Limit
+        # mehr — das ist oben abgefangen; hier bleibt nur eine echte Rückfrage/Leerlauf).
+        if not changed:
             logger.warn("Makeover", f"Stufe '{stage['label']}' ohne Datei-Änderung — nicht markiert: {summ[:90]}")
-            if _looks_limited(summ):
-                say(95, "Claude-Session-Limit erreicht — Makeover pausiert (später fortsetzbar).")
-                logger.warn("Makeover", "Claude-Session-Limit — Pipeline pausiert; Resume beim nächsten Lauf.")
-                return {"ok": False, "reason": "session_limit",
-                        "stages_done": new_done, "all_done": all_done(folder)}
             continue
 
         _mark_done(folder, stage["key"])

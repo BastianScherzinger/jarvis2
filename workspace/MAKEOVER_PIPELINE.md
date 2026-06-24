@@ -53,7 +53,13 @@ eine Seite offene Stufen hat).
 **Wichtig:** `claude_coder` gibt `--append-system-prompt` mit, damit ein im Zielordner gefundenes
 `CLAUDE.md` (JARVIS-Persona) den Headless-Lauf nicht in einen Chat verwandelt. Modell via
 `JARVIS_MAKEOVER_MODEL` (Default `sonnet`). Eine Stufe dauert ~1–15 Min; läuft über das
-Claude-Code-Abo → bei erschöpftem Session-Limit pausiert das Makeover und setzt später fort.
+Claude-Code-Abo.
+
+**Session-Limit → warten & wiederholen:** Erkennt das Makeover ein Claude-Usage-/Session-Limit,
+**wartet es 1 Stunde und versucht dieselbe Stufe erneut — bis zu 7 Mal** (`JARVIS_MAKEOVER_LIMIT_WAIT`
+= 3600 s, `JARVIS_MAKEOVER_LIMIT_RETRIES` = 7; Wartezeit per Stop unterbrechbar). Erst danach
+pausiert es und setzt beim nächsten Lauf fort. Das Builder-Warte-Limit `JARVIS_MAKEOVER_WAIT`
+ist deshalb auf 10 h erhöht.
 
 ---
 

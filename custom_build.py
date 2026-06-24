@@ -228,7 +228,7 @@ def improve(job_id: str) -> dict:
 def _watch_improve(job_id: str, improve_job: str, folder: str) -> None:
     """Wartet auf den Makeover-Lauf und schreibt den Endzustand zurück."""
     import website_builder
-    job = _wait_job(improve_job, timeout=int(os.environ.get("JARVIS_MAKEOVER_WAIT", "9000")))
+    job = _wait_job(improve_job, timeout=int(os.environ.get("JARVIS_MAKEOVER_WAIT", "36000")))
     final = (job or {}).get("step", "") or "Verbesserung abgeschlossen."
     live  = (job or {}).get("live_url", "")
     _set(job_id, improving=False, done=True,

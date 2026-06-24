@@ -155,7 +155,12 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   Der „Webseiten verbessern"-Button (`/api/websites/<id>/improve`) löst denselben Lauf aus.
   Wichtig: `claude_coder` gibt `--append-system-prompt` mit, damit ein im Zielordner
   gefundenes CLAUDE.md (JARVIS-Persona) den Headless-Lauf nicht in einen Chat verwandelt.
-  Modell via `JARVIS_MAKEOVER_MODEL` (Default `sonnet`).
+  Modell via `JARVIS_MAKEOVER_MODEL` (Default `sonnet`). **Session-Limit:** erkennt
+  `run_makeover` ein Claude-Usage-/Session-Limit (keine Datei-Änderung + Limit-Text), wartet
+  es `JARVIS_MAKEOVER_LIMIT_WAIT` (Default 1 h) und versucht DIESELBE Stufe erneut, bis zu
+  `JARVIS_MAKEOVER_LIMIT_RETRIES` (Default 7) Mal; die Wartezeit ist über `stop()`
+  unterbrechbar. Erst danach pausiert es (Resume später). Das Builder-Warte-Limit
+  `JARVIS_MAKEOVER_WAIT` ist darum auf 10 h erhöht.
 
 - **Eigene-Marke-Modus** (`custom_build.py`, Tab „Eigene Marke"): nutzergesteuerter
   **Zwei-Schritt-Fluss** (kein Auto-Pilot). Schritt 1 `start(data)` = nur bauen + deployen

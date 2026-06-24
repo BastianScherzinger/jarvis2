@@ -37,9 +37,10 @@ _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10") 
 _RESPECT_CUTOFF = (os.environ.get("JARVIS_IMPROVE_RESPECT_CUTOFF", "0").strip().lower()
                    in ("1", "true", "yes", "ja"))
 # Ein volles 7-Stufen-Makeover (Headless Claude Code) dauert lange — bis zu ~15 Min je
-# Stufe. Großzügiges Warte-Limit, damit der Night-Builder eine Seite KOMPLETT fertigstellt,
-# bevor er die nächste beginnt (keine parallele Claude-/Deploy-Last).
-_MAKEOVER_WAIT = int(os.environ.get("JARVIS_MAKEOVER_WAIT", "9000") or "9000")
+# Stufe. Bei Claude-Session-Limit wartet das Makeover zudem bis zu 7× 1 h und versucht erneut
+# (overnight_makeover._LIMIT_RETRIES/_LIMIT_WAIT). Das Warte-Limit muss das abdecken, sonst
+# zieht der Builder weiter, während das Makeover im Hintergrund noch wartet. Default 10 h.
+_MAKEOVER_WAIT = int(os.environ.get("JARVIS_MAKEOVER_WAIT", "36000") or "36000")
 # Tiefen-Modus für den Nightly-Improver: off | local (Claude plant, Ollama baut) |
 # claude (Claude Code headless baut echte Code-Features).
 _NIGHTLY_DEEP  = os.environ.get("JARVIS_NIGHTLY_DEEP", "off").strip().lower()
