@@ -32,18 +32,21 @@ aber als skalierbares Nebengeschäft plausibel, sobald Schritt 6 (Zustellbarkeit
 
 | # | Schritt | Status | Wert jetzt | Wert fertig |
 |---|---------|--------|-----------:|------------:|
-| 1 | Leads finden (lokal, kostenlos) | ✅ Fertig | 2.000 € | 5.000 € |
-| 2 | Bewerten & Preis (lokale KI) | ✅ Fertig | 1.500 € | 4.000 € |
-| 3 | Webseite bauen + live schalten | ✅ Fertig | 3.000 € | 8.000 € |
-| 4 | Premium-Makeover (7 Stufen) | ✅ Fertig | 2.000 € | 6.000 € |
-| 5 | Qualitäts-Freigabe (Discord) | ✅ Fertig | 600 € | 1.200 € |
-| 6 | Angebots-E-Mail an Kunden | 🟡 Teilweise | 800 € | 5.000 € |
-| 7 | Antwort → Abschluss & Zahlung | ❌ Offen | 0 € | 3.000 € |
-| 8 | Dashboard, Medien & Kosten | ✅ Fertig | 2.500 € | 5.000 € |
-| | **Gesamt (Software-Asset, geschätzt)** | | **~12.400 €** | **~37.200 €** |
+| 1 | Leads finden (lokal, kostenlos) | ✅ Fertig | 300 € | 800 € |
+| 2 | Bewerten & Preis (lokale KI) | ✅ Fertig | 250 € | 700 € |
+| 3 | Webseite bauen + live schalten | ✅ Fertig | 500 € | 1.500 € |
+| 4 | Premium-Makeover (7 Stufen) | ✅ Fertig | 400 € | 1.200 € |
+| 5 | Qualitäts-Freigabe (Discord) | ✅ Fertig | 100 € | 250 € |
+| 6 | Angebots-E-Mail an Kunden | 🟡 Teilweise | 150 € | 900 € |
+| 7 | Antwort → Abschluss & Zahlung | ❌ Offen | 0 € | 500 € |
+| 8 | Dashboard, Medien & Kosten | ✅ Fertig | 350 € | 800 € |
+| | **Gesamt (ehrlich, Einzelnutzer-Werkzeug)** | | **~2.000 €** | **~6.500 €** |
 
-> Die €-Werte sind Schätzungen für den Aufwands-/Wiederbeschaffungswert der Bausteine —
-> getrennt vom möglichen Umsatz. Der Umsatz hängt an Schritt 6 + der Conversion.
+> **Ehrlich eingeordnet:** mit Claude (KI) gebautes Solo-Projekt eines Einsteigers — kein
+> verkaufsfertiges Produkt, kein Agentur-Wiederaufbaupreis. Die Zahlen schätzen, was ein
+> Freelancer für den Nachbau dieser *funktionierenden* Bausteine etwa nehmen würde. Der echte
+> Wert ist nicht der Code, sondern was das System einbringt — und das hängt an Schritt 6
+> (Zustellbarkeit/Recht) + der Conversion, nicht an diesen Beträgen.
 
 ### 1 · Leads finden — ✅ Fertig, kostenlos
 - **Jetzt:** `scrapers/controller.py` mit 6 Workern (Google Maps via Playwright-Browser — NICHT
@@ -112,3 +115,7 @@ aber als skalierbares Nebengeschäft plausibel, sobald Schritt 6 (Zustellbarkeit
   `templates/index.html` (`.ov*`-Block), `static/css/style.css` (`.ov*`-Styles). Live-Stats-Strip
   oben + Aktivitäts-Panel unten bleiben. Verifiziert (Playwright): rendert, 0 relevante Fehler.
 - Das Webseiten-Grid bleibt unverändert im **Webseiten-Reiter** erreichbar (keine Funktion verloren).
+- **Werte realistisch korrigiert** (Einzelnutzer-Werkzeug, mit KI gebaut): gesamt ~2.000 → ~6.500 €.
+- **Grafische Darstellungen ergänzt:** Pipeline-Flussdiagramm (7 Knoten, farbcodiert nach Status),
+  zwei Fortschritts-Anzeigen (Technik ~80 % / Umsatz-bereit ~45 %) und ein Wert-Balkendiagramm
+  (jetzt vs. fertig je Baustein) — alles pure HTML/CSS im HUD-Stil.

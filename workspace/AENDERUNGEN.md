@@ -5,6 +5,24 @@
 
 ---
 
+# Durchgang 24.06.2026 (9) — Realistische Werte + grafischer Workflow auf der Home-Seite
+
+> Sir: „mach die Preise realistisch (Einsteiger, mit Claude gebaut) und mehr Grafiken."
+
+- **Werte ehrlich nach unten korrigiert:** je Schritt (z.B. 1: 300→800 €, 3: 500→1.500 €,
+  6: 150→900 €), Gesamt **~2.000 € jetzt → ~6.500 € fertig** (statt 12,4k→37,2k). Neue Einordnung:
+  Einzelnutzer-Werkzeug, mit KI gebaut, kein Agentur-Wiederaufbaupreis — der echte Wert ist der Umsatz.
+  Aktualisiert in `templates/index.html` + `workspace/GELD_WORKFLOW.md`.
+- **Grafische Workflow-Darstellungen ergänzt** (pure HTML/CSS, HUD-Stil):
+  (a) **Pipeline-Flussdiagramm** — 7 Knoten mit Pfeilen, farbcodiert nach Status (grün/gelb/rot) + Legende;
+  (b) **2 Fortschritts-Anzeigen** — „Technik fertig ~80 %" und „Bereit für echten Umsatz ~45 %";
+  (c) **Wert-Balkendiagramm** — jetzt- vs. fertig-Balken je Baustein.
+  CSS-Klassen `.ov-flow*`, `.ofn*`, `.ov-meter*`, `.ov-chart*`/`.ovc*` in `static/css/style.css`.
+- Verifiziert (Playwright): 7 Flow-Knoten, 2 Meter (80/45 %), 8 Chart-Zeilen, Werte korrekt,
+  0 relevante Konsolenfehler. (Hinweis: Browser cachte zunächst altes HTML — Cache-Bust nötig.)
+
+---
+
 # Durchgang 24.06.2026 (8) — Programm-Durchsicht, Geld-Workflow & neue Home-Seite
 
 > Vollständige Doku: `workspace/GELD_WORKFLOW.md` (Langfassung der Home-Seite).

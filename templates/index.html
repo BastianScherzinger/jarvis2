@@ -677,6 +677,45 @@
         </p>
       </div>
 
+      <!-- Grafisches Pipeline-Flussdiagramm -->
+      <div class="ov-flow-wrap">
+        <div class="ov-flow-title">Die Pipeline auf einen Blick</div>
+        <div class="ov-flow">
+          <div class="ofn done"><span class="ofn-num">1</span><span class="ofn-lbl">Leads finden</span></div>
+          <span class="ofn-arr done">→</span>
+          <div class="ofn done"><span class="ofn-num">2</span><span class="ofn-lbl">Bewerten + Preis</span></div>
+          <span class="ofn-arr done">→</span>
+          <div class="ofn done"><span class="ofn-num">3</span><span class="ofn-lbl">Webseite bauen</span></div>
+          <span class="ofn-arr done">→</span>
+          <div class="ofn done"><span class="ofn-num">4</span><span class="ofn-lbl">Makeover</span></div>
+          <span class="ofn-arr done">→</span>
+          <div class="ofn done"><span class="ofn-num">5</span><span class="ofn-lbl">Freigabe</span></div>
+          <span class="ofn-arr partial">→</span>
+          <div class="ofn partial"><span class="ofn-num">6</span><span class="ofn-lbl">Angebots-Mail</span></div>
+          <span class="ofn-arr todo">→</span>
+          <div class="ofn todo"><span class="ofn-num">7</span><span class="ofn-lbl">Abschluss + €</span></div>
+        </div>
+        <div class="ov-flow-legend">
+          <span><i class="dot done"></i> Fertig</span>
+          <span><i class="dot partial"></i> Teilweise</span>
+          <span><i class="dot todo"></i> Offen</span>
+        </div>
+      </div>
+
+      <!-- Zwei Fortschritts-Anzeigen -->
+      <div class="ov-meters">
+        <div class="ov-meter">
+          <div class="ov-meter-top"><span>⚙️ Technik fertig</span><span class="ov-meter-pct">~80 %</span></div>
+          <div class="ov-meter-bar"><div class="ov-meter-fill tech" style="width:80%"></div></div>
+          <div class="ov-meter-note">6 von 8 Schritten komplett — das System läuft.</div>
+        </div>
+        <div class="ov-meter">
+          <div class="ov-meter-top"><span>💰 Bereit für echten Umsatz</span><span class="ov-meter-pct warn">~45 %</span></div>
+          <div class="ov-meter-bar"><div class="ov-meter-fill money" style="width:45%"></div></div>
+          <div class="ov-meter-note">Fehlt: E-Mail zustellbar + rechtssicher (Schritt 6) und Abschluss (7).</div>
+        </div>
+      </div>
+
       <!-- Ehrliche Einschätzung -->
       <div class="ov-verdict">
         <div class="ov-verdict-head">⚖️ Ehrliche Einschätzung — lohnt sich das?</div>
@@ -707,65 +746,86 @@
           <div class="ov-step-top"><span class="ov-num">1</span><span class="ov-step-title">Leads finden (lokal, kostenlos)</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> 6 Scraper (Google Maps via Browser, Gelbe Seiten, Das Örtliche, 11880, golocal, KI) finden deutschlandweit Betriebe inkl. Adresse, Telefon, Bilder — ohne bezahlte API.</div>
           <div class="ov-todo"><b>Noch:</b> Dubletten-Filter feinjustieren, Branchen-/Stadt-Priorisierung optimieren.</div>
-          <div class="ov-val"><span>Wert jetzt <b>2.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>300 €</b></span><span class="ov-arrow">→</span><span>fertig <b>800 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">2</span><span class="ov-step-title">Bewerten &amp; Preis (lokale KI)</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> Lokale KI (Ollama) findet die Website, prüft Aktualität, bewertet Bedarf, schreibt Beschreibung &amp; Pitch und vergibt einen realistischen Paketpreis (0/200/350/550/850/1200 €). Läuft über alle CPU-Kerne parallel.</div>
           <div class="ov-todo"><b>Noch:</b> Preis-Tiers regelmäßig an reale Abschlüsse kalibrieren.</div>
-          <div class="ov-val"><span>Wert jetzt <b>1.500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>4.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>250 €</b></span><span class="ov-arrow">→</span><span>fertig <b>700 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">3</span><span class="ov-step-title">Webseite bauen + live schalten</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> Pro Lead eine echte Django-Landingpage, Texte aus den Lead-Daten, Hero-Bild über Higgsfield (Abo), automatischer Deploy auf Railway → echter Live-Link.</div>
           <div class="ov-todo"><b>Noch:</b> Eigene Domain je Demo (statt railway.app) wirkt seriöser; Live-Demos automatisch abbauen, wenn nicht verkauft (Hosting-Kosten).</div>
-          <div class="ov-val"><span>Wert jetzt <b>3.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>8.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.500 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">4</span><span class="ov-step-title">Premium-Makeover (7 Stufen)</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> Jede Seite läuft durch 7 Skill-Stufen (Hero, Leistungen, Über uns, Kontakt, Formular, Voll-Design mit „taste", QA + Impressum/Datenschutz/AGB) — echtes Agentur-Niveau, token-sparsam.</div>
           <div class="ov-todo"><b>Noch:</b> Im Live-Lauf über viele Seiten verifizieren; Ergebnis-Qualität stichprobenartig prüfen.</div>
-          <div class="ov-val"><span>Wert jetzt <b>2.000 €</b></span><span class="ov-arrow">→</span><span>fertig <b>6.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>400 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.200 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">5</span><span class="ov-step-title">Qualitäts-Freigabe (Discord)</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> Jede fertige Seite landet zur Abstimmung in Discord. 👍 gibt frei, 👎 verwirft — du kontrollierst die Qualität, bevor etwas an einen echten Kunden geht.</div>
           <div class="ov-todo"><b>Noch:</b> Optional Vorschau-Screenshot statt nur Link in der Discord-Nachricht.</div>
-          <div class="ov-val"><span>Wert jetzt <b>600 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.200 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>100 €</b></span><span class="ov-arrow">→</span><span>fertig <b>250 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-E-Mail an den Kunden</span><span class="ov-badge partial">Teilweise</span></div>
           <div class="ov-now"><b>Jetzt:</b> Designte Angebots-Mail mit Live-Link wird gebaut; freigegebene Seiten gehen um 12 Uhr automatisch raus. Sicherheits-Schalter (Trockenlauf) verhindert versehentlichen Versand.</div>
           <div class="ov-todo"><b>Noch (Schlüssel zum Geld):</b> SMTP einrichten + scharf schalten; <b>Zustellbarkeit</b> (SPF/DKIM/DMARC, Aufwärmen, kein Spam) und <b>Rechtssicherheit</b> (UWG/DSGVO, Abmelde-Link, Impressum) lösen. Angebotspreis an den bewerteten Tier koppeln (aktuell fix 350 €).</div>
-          <div class="ov-val"><span>Wert jetzt <b>800 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>150 €</b></span><span class="ov-arrow">→</span><span>fertig <b>900 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">7</span><span class="ov-step-title">Kunde antwortet → Abschluss &amp; Zahlung</span><span class="ov-badge todo">Offen</span></div>
           <div class="ov-now"><b>Jetzt:</b> Antworten landen in deinem Postfach — Abschluss, Rechnung und Übergabe machst du manuell.</div>
           <div class="ov-todo"><b>Noch:</b> Leichtes CRM (Antwort-Status), Zahlungslink/Rechnung (z.B. Stripe-Link), Übergabe-Checkliste. Für einen 350-€-Verkauf ist ein menschlicher Abschluss aber sogar von Vorteil.</div>
-          <div class="ov-val"><span>Wert jetzt <b>0 €</b></span><span class="ov-arrow">→</span><span>fertig <b>3.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>0 €</b></span><span class="ov-arrow">→</span><span>fertig <b>500 €</b></span></div>
         </div>
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">8</span><span class="ov-step-title">Dashboard, Medien &amp; Kosten</span><span class="ov-badge done">Fertig</span></div>
           <div class="ov-now"><b>Jetzt:</b> Iron-Man-Dashboard, Medien-Studio (Bild/Video, Higgsfield/ChatGPT), Live-Kostentracking, Auto-Builder mit Stopp/Resume und Limit-Resilienz.</div>
           <div class="ov-todo"><b>Noch:</b> Conversion-/Umsatz-Auswertung (was bringt wirklich Geld), A/B-Test der Betreffzeilen.</div>
-          <div class="ov-val"><span>Wert jetzt <b>2.500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>5.000 €</b></span></div>
+          <div class="ov-val"><span>Wert jetzt <b>350 €</b></span><span class="ov-arrow">→</span><span>fertig <b>800 €</b></span></div>
         </div>
 
       </div>
 
+      <!-- Wert-Balkendiagramm: jetzt vs. fertig je Schritt -->
+      <div class="ov-chart">
+        <div class="ov-chart-head">Wert je Baustein <span class="ov-chart-leg"><i class="cbar now"></i> jetzt &nbsp; <i class="cbar fin"></i> fertig</span></div>
+        <div class="ov-chart-rows">
+          <div class="ovc"><span class="ovc-lbl">1 · Leads finden</span><div class="ovc-track"><div class="ovc-fin" style="width:53%"></div><div class="ovc-now" style="width:20%"></div></div><span class="ovc-num">300 → 800 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">2 · Bewerten + Preis</span><div class="ovc-track"><div class="ovc-fin" style="width:47%"></div><div class="ovc-now" style="width:17%"></div></div><span class="ovc-num">250 → 700 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">3 · Webseite bauen</span><div class="ovc-track"><div class="ovc-fin" style="width:100%"></div><div class="ovc-now" style="width:33%"></div></div><span class="ovc-num">500 → 1.500 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">4 · Makeover</span><div class="ovc-track"><div class="ovc-fin" style="width:80%"></div><div class="ovc-now" style="width:27%"></div></div><span class="ovc-num">400 → 1.200 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">5 · Freigabe</span><div class="ovc-track"><div class="ovc-fin" style="width:17%"></div><div class="ovc-now" style="width:7%"></div></div><span class="ovc-num">100 → 250 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">6 · Angebots-Mail</span><div class="ovc-track"><div class="ovc-fin" style="width:60%"></div><div class="ovc-now" style="width:10%"></div></div><span class="ovc-num">150 → 900 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">7 · Abschluss + €</span><div class="ovc-track"><div class="ovc-fin" style="width:33%"></div><div class="ovc-now" style="width:0%"></div></div><span class="ovc-num">0 → 500 €</span></div>
+          <div class="ovc"><span class="ovc-lbl">8 · Dashboard/Medien</span><div class="ovc-track"><div class="ovc-fin" style="width:53%"></div><div class="ovc-now" style="width:23%"></div></div><span class="ovc-num">350 → 800 €</span></div>
+        </div>
+      </div>
+
       <!-- Gesamtwert -->
       <div class="ov-total">
-        <div class="ov-total-row"><span>Gesamtwert des Programms (geschätzt, als Software-Asset)</span></div>
-        <div class="ov-total-nums"><span class="ov-total-now">jetzt ~12.000 €</span><span class="ov-arrow">→</span><span class="ov-total-fin">fertig ~37.000 €</span></div>
-        <div class="ov-total-note">Schätzwerte für den Wiederbeschaffungs-/Aufwandswert der Bausteine — getrennt vom möglichen Umsatz. Der Umsatz hängt an Schritt 6 (Zustellbarkeit/Recht) und der Conversion.</div>
+        <div class="ov-total-row"><span>Gesamtwert des Programms (ehrlich, als Einzelnutzer-Werkzeug)</span></div>
+        <div class="ov-total-nums"><span class="ov-total-now">jetzt ~2.000 €</span><span class="ov-arrow">→</span><span class="ov-total-fin">fertig ~6.500 €</span></div>
+        <div class="ov-total-note">
+          Ehrlich eingeordnet: Das ist ein mit Claude (KI) gebautes Solo-Projekt eines Einsteigers —
+          kein verkaufsfertiges Produkt und kein Agentur-Wiederaufbaupreis. Die Zahlen schätzen, was
+          ein Freelancer für den Nachbau dieser <i>funktionierenden</i> Bausteine etwa nehmen würde.
+          <b>Der eigentliche Wert ist nicht der Code, sondern was das System einbringt</b> — und das
+          hängt an Schritt 6 (Zustellbarkeit/Recht) und der Conversion, nicht an diesen Beträgen.
+        </div>
       </div>
 
       <!-- Nächste Schritte für echtes Geld -->

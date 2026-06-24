@@ -2082,7 +2082,59 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 .ov-next ol{ margin:10px 0 0; padding-left:22px; }
 .ov-next li{ font-size:13.5px; line-height:1.7; color:var(--tx2); margin-bottom:7px; }
 .ov-next b{ color:var(--tx); }
-@media (max-width:860px){ .ov-steps{ grid-template-columns:1fr; } }
+
+/* Pipeline-Flussdiagramm */
+.ov-flow-wrap{ background:rgba(13,20,32,.6); border:1px solid var(--bdr2); border-radius:14px; padding:18px 22px; }
+.ov-flow-title{ font-family:var(--fh); font-size:13px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--tx3); margin-bottom:14px; }
+.ov-flow{ display:flex; align-items:stretch; flex-wrap:wrap; gap:8px; }
+.ofn{
+  flex:1 1 110px; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:6px;
+  background:var(--bg2); border:1px solid var(--bdr); border-top:3px solid var(--tx3);
+  border-radius:11px; padding:12px 8px; text-align:center;
+}
+.ofn.done{ border-top-color:var(--g); }
+.ofn.partial{ border-top-color:var(--y); }
+.ofn.todo{ border-top-color:var(--r); }
+.ofn-num{ width:24px; height:24px; border-radius:7px; background:rgba(0,212,255,.12); color:var(--c);
+  font-family:var(--fh); font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.ofn-lbl{ font-size:11.5px; font-weight:600; color:var(--tx); line-height:1.25; }
+.ofn-arr{ display:flex; align-items:center; color:var(--tx3); font-size:18px; font-weight:800; }
+.ofn-arr.done{ color:var(--g); } .ofn-arr.partial{ color:var(--y); } .ofn-arr.todo{ color:var(--r); }
+.ov-flow-legend{ display:flex; gap:18px; margin-top:14px; font-size:11.5px; color:var(--tx2); }
+.ov-flow-legend i.dot{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.dot.done{ background:var(--g); } .dot.partial{ background:var(--y); } .dot.todo{ background:var(--r); }
+
+/* Fortschritts-Anzeigen */
+.ov-meters{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+.ov-meter{ background:var(--bg2); border:1px solid var(--bdr); border-radius:14px; padding:16px 18px; }
+.ov-meter-top{ display:flex; justify-content:space-between; align-items:center; font-size:13.5px; font-weight:700; color:var(--tx); margin-bottom:10px; }
+.ov-meter-pct{ font-family:var(--fh); font-size:18px; font-weight:800; color:var(--g); }
+.ov-meter-pct.warn{ color:var(--y); }
+.ov-meter-bar{ height:10px; background:var(--bg); border-radius:999px; overflow:hidden; }
+.ov-meter-fill{ height:100%; border-radius:999px; }
+.ov-meter-fill.tech{ background:linear-gradient(90deg,var(--c),var(--g)); }
+.ov-meter-fill.money{ background:linear-gradient(90deg,var(--y),#ff8a3d); }
+.ov-meter-note{ font-size:11.5px; color:var(--tx3); margin-top:8px; line-height:1.5; }
+
+/* Wert-Balkendiagramm */
+.ov-chart{ background:rgba(13,20,32,.6); border:1px solid var(--bdr2); border-radius:14px; padding:18px 22px; }
+.ov-chart-head{ font-family:var(--fh); font-size:13px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--tx3); margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+.ov-chart-leg{ font-family:var(--fb,inherit); text-transform:none; letter-spacing:0; font-size:11.5px; color:var(--tx2); font-weight:600; }
+.ov-chart-leg i.cbar{ display:inline-block; width:14px; height:9px; border-radius:3px; vertical-align:middle; }
+.cbar.now{ background:var(--c); } .cbar.fin{ background:rgba(0,232,122,.45); border:1px solid var(--g); }
+.ov-chart-rows{ display:flex; flex-direction:column; gap:9px; }
+.ovc{ display:grid; grid-template-columns:140px 1fr 96px; align-items:center; gap:12px; }
+.ovc-lbl{ font-size:12px; color:var(--tx2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ovc-track{ position:relative; height:16px; background:var(--bg); border-radius:6px; overflow:hidden; }
+.ovc-fin{ position:absolute; left:0; top:0; height:100%; background:rgba(0,232,122,.20); border-right:2px solid var(--g); border-radius:6px 0 0 6px; }
+.ovc-now{ position:absolute; left:0; top:0; height:100%; background:var(--c); border-radius:6px 0 0 6px; opacity:.9; }
+.ovc-num{ font-size:11.5px; color:var(--tx2); text-align:right; white-space:nowrap; }
+
+@media (max-width:860px){
+  .ov-steps{ grid-template-columns:1fr; }
+  .ov-meters{ grid-template-columns:1fr; }
+  .ovc{ grid-template-columns:96px 1fr 84px; gap:8px; }
+}
 
 /* ── Site Cards Grid ──────────────────────────────────────────────────────── */
 .home-grid{
