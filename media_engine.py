@@ -807,7 +807,10 @@ def _hf_error_hint(code: int, body: str) -> str:
     # Guthaben ZUERST prüfen: Higgsfield meldet 'Not enough credits' auch als 403 — sonst
     # würde es fälschlich als Auth-Fehler ausgegeben.
     if code == 402 or "credit" in b or "insufficient" in b or "not enough" in b:
-        return f"Higgsfield {code}: Guthaben/Credits zu niedrig — bitte aufladen (cloud.higgsfield.ai)."
+        return (f"Higgsfield {code}: API-Key gültig, aber 0 Platform-API-Credits. ACHTUNG: "
+                "Abo-Credits (Soul/Plus) sind ein ANDERER Topf als Platform-API-Credits "
+                "(platform.higgsfield.ai). Lösung: API-Key auf dem Abo-Konto erstellen ODER "
+                "dort API-Credits aufladen.")
     if code in (401, 403):
         return (f"Higgsfield {code}: Auth fehlgeschlagen — HIGGSFIELD_API_KEY (Format ID:SECRET) "
                 "in der .env prüfen.")
@@ -818,6 +821,52 @@ def _hf_error_hint(code: int, body: str) -> str:
 
 def higgsfield_available() -> bool:
     return bool(_hf_key())
+
+
+def higgsfield_selftest() -> dict:
+    """Prüft, ob die Higgsfield-Bild-API WIRKLICH nutzbar ist (nicht nur ob ein Key da ist).
+    Schickt einen minimalen, gültigen Probe-Auftrag und klassifiziert die Antwort:
+      state = 'nokey' | 'unreachable' | 'auth' | 'no_credits' | 'ok'
+    Wichtig: bei 'ok' (Auth gültig UND Guthaben vorhanden) wird ein echter — sehr kleiner —
+    Auftrag erstellt und kostet ~1 Credit. Daher nur ON DEMAND aufrufen, nicht in get_status.
+    Gibt {ok, state, detail, hint}."""
+    import urllib.request
+    import urllib.error
+    import json
+    key = _hf_key()
+    if not key:
+        return {"ok": False, "state": "nokey", "detail": "Kein HIGGSFIELD_API_KEY in .env.",
+                "hint": "HIGGSFIELD_API_KEY=ID:SECRET in die .env eintragen."}
+    payload = {"params": {"prompt": "selftest", "width_and_height": "1536x1536",
+                          "quality": "720p", "batch_size": 1, "enhance_prompt": False}}
+    try:
+        req = urllib.request.Request(f"{_HIGGSFIELD_BASE}/v1/text2image/soul",
+                                     data=json.dumps(payload).encode(),
+                                     headers=_hf_headers(key), method="POST")
+        with urllib.request.urlopen(req, timeout=25) as r:
+            json.loads(r.read().decode())   # Auftrag erstellt → Auth + Guthaben ok
+        return {"ok": True, "state": "ok", "detail": "Higgsfield-Bild-API funktioniert (Auftrag erstellt).",
+                "hint": ""}
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        b = body.lower()
+        if e.code == 402 or "credit" in b or "not enough" in b or "insufficient" in b:
+            return {"ok": False, "state": "no_credits",
+                    "detail": f"Key gültig, aber 0 Platform-API-Credits (HTTP {e.code}).",
+                    "hint": ("Wichtig: Higgsfield trennt ABO-Credits (Soul/Plus, nutzbar über "
+                             "App/MCP) von PLATFORM-API-Credits (platform.higgsfield.ai, eigener "
+                             "Topf). Lösung: den API-Key auf GENAU dem Konto mit dem Abo erstellen "
+                             "ODER unter platform.higgsfield.ai API-Credits aufladen.")}
+        if e.code in (401, 403):
+            return {"ok": False, "state": "auth",
+                    "detail": f"Auth abgelehnt (HTTP {e.code}): {body[:120]}",
+                    "hint": "HIGGSFIELD_API_KEY-Format prüfen (ID:SECRET)."}
+        return {"ok": False, "state": "unreachable",
+                "detail": f"HTTP {e.code}: {body[:120]}", "hint": ""}
+    except Exception as e:
+        return {"ok": False, "state": "unreachable",
+                "detail": f"{type(e).__name__}: {str(e)[:120]}",
+                "hint": "Higgsfield nicht erreichbar — Netzwerk/Endpunkt prüfen."}
 
 
 def higgsfield_balance() -> "int | None":
