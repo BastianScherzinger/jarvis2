@@ -173,7 +173,7 @@ async function archiveAllAndStart(){
     '⚡ Neu starten\n\n'
     + 'Das archiviert alle aktuellen Webseiten (sie bleiben unter „Alte Webseiten" sichtbar) '
     + 'und startet den Night-Builder neu — er baut dann 5 neue Seiten, verbessert jede mit dem '
-    + '7-Stufen-Makeover und schickt jede fertige Seite zur Freigabe in Discord.\n\n'
+    + '3-Stufen-Makeover und schickt jede fertige Seite zur Freigabe in Discord.\n\n'
     + 'Leads werden nicht doppelt gebaut.\n\nFortfahren?'
   );
   if(!ok) return;

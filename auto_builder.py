@@ -117,9 +117,14 @@ def start(_resume: bool = False) -> dict:
                        "mode": "build"})
     _persist_running(True)
     threading.Thread(target=_loop, name="AutoBuilder", daemon=True).start()
+    try:
+        import overnight_makeover as _om
+        _nstages = len(_om.STAGES)
+    except Exception:
+        _nstages = 3
     logger.info("AutoBuilder",
                 ("fortgesetzt" if _resume else "gestartet")
-                + f" — {_DAILY_LIMIT} Seiten/Tag, Makeover 7 Stufen/Seite")
+                + f" — {_DAILY_LIMIT} Seiten/Tag, Makeover {_nstages} Stufen/Seite")
     return {"ok": True}
 
 

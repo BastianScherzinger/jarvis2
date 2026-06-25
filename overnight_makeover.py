@@ -52,120 +52,68 @@ _LIMIT_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_RETRIES", "0") or "0"
 _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "3600")
 
 
-# ── Die 7 Stufen ───────────────────────────────────────────────────────────────
-# TOKEN-SPARSAM (seit 25.06.2026): Der headless Makeover-Claude lädt das referenzierte
-# Skill bei jeder Stufe in den Kontext. taste (88 KB) + ui-ux-pro-max (45 KB) je Stufe ×
-# 7 × Seiten haben das Claude-Session-Limit in Minuten geleert (Symptom: „hängt bei Stufe 1").
-# Lösung — ein EIGENER, kompakter Skill statt der großen:
-#   _LANDING = «premium-landing» (~12 KB, skills/premium-landing/SKILL.md) — destilliert
-#              taste/design-pro/ui-ux-pro-max auf GENAU dieses Seiten-Rezept (Tokens, Fonts,
-#              Spacing, Sektions-Bauplan inkl. WhatsApp, Team-/Foto-Platzhalter, Footer-Recht).
-#              Standard für ALLE Sektions-Stufen → gleiche Qualität, ein Bruchteil der Tokens.
-#   _TASTE   = «design-taste-frontend» (88 KB) — nur EINMAL, im großen Design-Durchgang,
-#              wo die volle Anti-Slop-Tiefe für Farb-/Font-/Typo-Feinschliff den Preis wert ist.
+# ── Die 3 Makeover-Stufen ───────────────────────────────────────────────────────
+# TOKEN-DISZIPLIN (seit 26.06.2026): Jede Stufe ist EIN eigener headless-Claude-Lauf, der den
+# referenzierten Skill + System-Prompt + Kontext NEU lädt. 7 Stufen = 7× dieser Fix-Overhead.
+# Zusammengelegt auf 3 Stufen → nur noch 3× Overhead, und DURCHGEHEND der eine kompakte Skill
+# «premium-landing» (~12 KB) statt zusätzlich «design-taste-frontend» (88 KB). Da die Basis-
+# Vorlage bereits alle Sektionen rendert und die Inhalte VOR dem Makeover lokal (Ollama) in
+# content.json stehen, arrangiert/gestaltet Claude nur noch — das spart massiv Tokens (Ziel:
+# ≥5 Seiten pro Claude-Session). taste-Tiefe ist in «premium-landing» destilliert; wer den
+# vollen 88-KB-taste-Pass zurück will, setzt JARVIS_MAKEOVER_DESIGN_SKILL=design-taste-frontend.
 _TASTE   = "design-taste-frontend"
 _LANDING = "premium-landing"
+_DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).strip() or _LANDING
 
-# Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der
-# Builder bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen
-# Bauplan neu — so werden nach einem Update die heute gebauten Seiten überall aktualisiert.
-_MAKEOVER_VERSION = 2
+# Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der Builder
+# bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen Bauplan neu.
+# 3 = Umstellung von 7 auf 3 Stufen (heute gebaute Seiten laufen einmal neu durch).
+_MAKEOVER_VERSION = 3
 
 STAGES: list[dict] = [
     {
-        "key": "hero", "label": "Hero-Bereich", "skill": _LANDING,
+        "key": "aufbau", "label": "Aufbau: Hero, Sektionen, Kontakt & Formular", "skill": _LANDING,
+        "max_turns": 75,             # ganze Struktur in EINEM Lauf → etwas mehr Runden erlaubt
         "task": (
-            "Baue den HERO-BEREICH (Above-the-fold) zu einem echten Premium-Eyecatcher um. "
-            "In 5 Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun.\n"
-            "WICHTIG zum Bild: Das Hero-Bild (content.json.hero_image, von Higgsfield erzeugt) "
-            "enthält NIEMALS Text, Wörter, Buchstaben oder Logos — es ist ein reines Foto. Die "
-            "Headline & alle Texte sind ausschließlich HTML-Text in einem .hero-copy-Overlay ÜBER "
-            "dem Bild; sichere die Lesbarkeit über einen Scrim/Gradient. hero_image NICHT entfernen.\n"
-            "Inhalt: Eyebrow (Branche · Stadt), kraftvolle betriebsgenaue Headline mit konkretem "
-            "Nutzenversprechen + Subline, dann eine Button-Reihe: primärer CTA («Kostenlose Anfrage» "
-            "/«Termin anfragen»), ein WhatsApp-Button (https://wa.me/<Telefon nur Ziffern, Länder-"
-            "vorwahl 49 ohne führende 0 und ohne +/Leerzeichen>?text=Hallo%2C%20ich%20interessiere"
-            "%20mich%20f%C3%BCr…), ein E-Mail-Button (mailto:) und ein Anruf-Button (tel:). Primär "
-            "dominant, der Rest leiser (Ghost-Stil). Darunter dezente Vertrauenssignale (Bewertung, "
-            "Erreichbarkeit, Region, Jahre Erfahrung). Bearbeite den Hero-Block in "
-            "templates/index.html und das zugehörige CSS wirklich."
+            "Baue die GESAMTE Seitenstruktur in EINEM Durchgang aus dem bereits in content.json "
+            "vorbefüllten Inhalt (leistungen/ueber_text/faq/trust + Lead-Daten). Die Basis-Vorlage "
+            "rendert die Sektionen schon — deine Aufgabe ist sie betriebsgenau, vollständig und "
+            "premium zu machen. NICHT Texte neu erfinden, vorhandene 1:1 übernehmen.\n"
+            "1) HERO (Above-the-fold): Hero-Bild (content.hero_image, von Higgsfield) als Hintergrund "
+            "— es enthält NIEMALS Text/Logos, alle Texte sind HTML-Overlay über einem Scrim/Gradient. "
+            "Eyebrow (Branche·Stadt), kraftvolle Headline + Subline, Button-Reihe: primärer CTA, "
+            "WhatsApp (https://wa.me/<Tel nur Ziffern, 49 statt führender 0>), E-Mail (mailto:), "
+            "Anruf (tel:); darunter dezente Vertrauenssignale.\n"
+            "2) LEISTUNGEN: content.leistungen als sauberes Karten-Grid (Titel, Nutzen-Text, "
+            "konsistentes Inline-SVG-Icon, KEINE Emojis) + FAQ-Sektion aus content.faq.\n"
+            "3) KONTAKT-BAND zwischen Leistungen und Über uns: Akzent-Streifen mit WhatsApp- + "
+            "Anruf-Button (zweiter Conversion-Punkt).\n"
+            "4) ÜBER UNS: content.ueber_text + content.trust übernehmen; links Platzhalter für das "
+            "Inhaber-Foto (Label 'Inhaber'), darunter Team-Grid mit GENAU 4 Mitarbeiter-Platzhaltern "
+            "(rundes Avatar + '[Name]'/'[Position]'), daneben Trust-/USP-Liste.\n"
+            "5) KONTAKT: echte Telefonnummer (tel:), WhatsApp (wa.me), E-Mail (mailto:), Adresse; für "
+            "die Karte content.maps_url verlinken (kein leeres OSM-iframe).\n"
+            "6) KONTAKT-FORMULAR: Name/E-Mail/Telefon/Nachricht + Einwilligungs-Checkbox → Datenschutz; "
+            "method=\"post\", {% csrf_token %}, korrekte input-Typen, required, sichtbare Labels, "
+            "focus-visible, Touch-Ziele ≥ 44 px.\n"
+            "Bearbeite templates/index.html + static/css/style.css wirklich; alle Bild-Slots als "
+            "saubere Platzhalter, nie ein gebrochenes <img>."
         ),
     },
     {
-        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _LANDING,
-        "model": _MODEL_LITE,        # Inhalte vorgefüllt → reines Arrangieren → günstiges Modell
+        "key": "design", "label": "Komplett-Design (Farben, Fonts, Feinschliff)", "skill": _DESIGN_SKILL,
         "task": (
-            "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN. Die Inhalte stehen BEREITS in "
-            "content.json: `leistungen` (4–6 Einträge mit titel/text) und `faq`. NICHT neu "
-            "erfinden oder umschreiben — übernimm die vorhandenen Texte 1:1 und BAUE sie sauber "
-            "ein: ein kurzer Einleitungssatz, dann die Leistungen als übersichtliches Karten-Grid "
-            "(je Titel, Nutzen-Text und ein konsistentes Inline-SVG-Icon, 1.5px stroke, currentColor "
-            "— KEINE Emojis), darunter eine FAQ-Sektion aus `faq`. Integriere dezent ein Mockup-/"
-            "Platzhalterbild, falls vorhanden (sonst sauberer Platzhalter mit aspect-ratio, nie ein "
-            "gebrochenes <img>). Dein Fokus ist LAYOUT + DESIGN, nicht Texten. Bearbeite "
-            "templates/index.html + CSS wirklich."
-        ),
-    },
-    {
-        "key": "ueber", "label": "Über uns, Team & Kontakt-Band", "skill": _LANDING,
-        "model": _MODEL_LITE,        # Inhalte vorgefüllt → reines Arrangieren → günstiges Modell
-        "task": (
-            "Zwei Dinge in dieser Reihenfolge:\n"
-            "1) KONTAKT-BAND direkt zwischen Leistungen und Über uns: ein schmaler Streifen in "
-            "Akzent-Tönung mit einer klaren Conversion-Zeile und zwei Buttons (WhatsApp via wa.me + "
-            "Anrufen via tel:). Zweiter Conversion-Punkt der Seite.\n"
-            "2) ÜBER UNS überzeugend ausbauen: die Geschichte steht BEREITS in content.json "
-            "(`ueber_text`) und die Trust-Signale in `trust` — übernimm sie 1:1 (nicht neu "
-            "schreiben), Fokus ist Layout/Design. Oben/links ein PLATZHALTER für das Foto des "
-            "Inhabers (Label 'Inhaber', "
-            "sauberes Bild-Placeholder mit aspect-ratio + dezentem Icon). Darunter ein TEAM-GRID mit "
-            "GENAU 4 Mitarbeiter-Platzhaltern (rundes Avatar-Placeholder + '[Name]' / '[Position]'). "
-            "Daneben eine echte Trust-/USP-Liste (Garantien, Referenzen, Erreichbarkeit, "
-            "Mitgliedschaften falls branchenpassend). Alles betriebsgenau, kein Geschwurbel. Bearbeite "
-            "templates/index.html + CSS wirklich."
-        ),
-    },
-    {
-        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _LANDING,
-        "model": _MODEL_LITE,        # mechanisch (Kontaktdaten/Karte/CTAs) → günstiges Modell
-        "task": (
-            "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (klickbarer "
-            "tel:-Link), WhatsApp-Button (wa.me), E-Mail (mailto:), vollständige Adresse, "
-            "Öffnungszeiten (falls dokumentiert, sonst plausibel branchentypisch), Anfahrt/Region. "
-            "Für die Karte den vorhandenen Link c.maps_url verwenden (Google-Maps-Suche nach der "
-            "Adresse, ohne API-Key) ODER ein OSM-iframe NUR mit echten Koordinaten — NIEMALS ein "
-            "leeres/graues Karten-iframe ohne bbox. Klare CTAs zum Anrufen, WhatsApp und Schreiben. Sauberes, gut "
-            "lesbares Layout. Bearbeite templates/index.html + CSS wirklich."
-        ),
-    },
-    {
-        "key": "formular", "label": "Kontakt-Formular", "skill": _LANDING,
-        "model": _MODEL_LITE,        # mechanisch (Felder/csrf/tel-mailto/Focus) → günstiges Modell
-        "task": (
-            "Baue ein funktionsfähiges, schön gestaltetes KONTAKT-FORMULAR (Name, E-Mail, Telefon, "
-            "Nachricht, Einwilligungs-Checkbox zur Datenschutzerklärung). Setze method=\"post\" auf "
-            "eine sinnvolle Action, ergänze {% csrf_token %} im Form, korrekte input-Typen, "
-            "required-Felder, name-Attribute, sichtbare Labels, focus-visible-States und eine klare "
-            "Erfolgs-/Fehlermeldungs-Stelle. Falls keine Backend-Route existiert, mailto-Fallback "
-            "ODER ein dezenter Hinweis — aber das Formular MUSS valide rendern und gut aussehen. "
-            "Touch-Ziele ≥ 44 px. Bearbeite templates/index.html + CSS wirklich."
-        ),
-    },
-    {
-        "key": "design", "label": "Komplett-Design (taste)", "skill": _TASTE,
-        "task": (
-            "Großer DESIGN-DURCHGANG über die GESAMTE Seite mit dem Skill «design-taste-frontend» "
-            "(taste). Ziel: sieht aus wie von einer preisgekrönten Agentur, seriös aber farbig-"
-            "schlicht, nicht templated/KI-generiert. Wähle mit taste eine stimmige Farbwelt um die "
-            "Akzentfarbe + leicht getönte Neutrals als CSS-Tokens (--accent --bg --surface --ink "
-            "--muted --line --ring), WCAG-AA-Kontraste. Wähle ein charakterstarkes, passendes "
-            "Display-/Body-Font-Pairing (Google Fonts) und eine fluide Typo-Skala mit clamp(). Feste "
-            "Spacing-Skala (4/8/12/16/24/32/48/72), rhythmischer Weißraum, konsistente Radien/Stroke-"
-            "Breiten, WEICHE mehrschichtige Schatten (kein harter Glow), ein Icon-Set (Inline-SVG). "
-            "Dezente, performante Motion (nur transform/opacity, 150–400 ms, ease-out; prefers-"
-            "reduced-motion respektieren). Alle Zustände vollständig (hover, focus-visible, active, "
-            "disabled). Weniger, aber besser — entferne alles Billige/KI-haft Wirkende. Bearbeite "
-            "static/css/style.css + templates/index.html durchgreifend."
+            "Großer DESIGN-DURCHGANG über die GESAMTE Seite. Ziel: sieht aus wie von einer "
+            "preisgekrönten Agentur, seriös aber farbig-schlicht, nicht templated/KI-generiert. "
+            "Wähle eine stimmige Farbwelt um die Akzentfarbe + leicht getönte Neutrals als CSS-Tokens "
+            "(--accent --bg --surface --ink --muted --line --ring), WCAG-AA-Kontraste. Wähle ein "
+            "charakterstarkes, passendes Display-/Body-Font-Pairing (Google Fonts) und eine fluide "
+            "Typo-Skala mit clamp(). Feste Spacing-Skala (4/8/12/16/24/32/48/72), rhythmischer "
+            "Weißraum, konsistente Radien/Stroke-Breiten, WEICHE mehrschichtige Schatten (kein harter "
+            "Glow), ein Icon-Set (Inline-SVG). Dezente, performante Motion (nur transform/opacity, "
+            "150–400 ms, ease-out; prefers-reduced-motion respektieren). Alle Zustände vollständig "
+            "(hover, focus-visible, active, disabled). Weniger, aber besser — entferne alles Billige/"
+            "KI-haft Wirkende. Bearbeite static/css/style.css + templates/index.html durchgreifend."
         ),
     },
     {
@@ -182,7 +130,7 @@ STAGES: list[dict] = [
             "konforme Standardtexte, fehlende Daten als «[bitte ergänzen]».) Der gesamte UNTERE "
             "BEREICH (Footer + Rechtsabschnitte) zeigt ECHTE Texte und echte Betriebsdaten — KEINE "
             "Blindtexte/Platzhalter. Behalte ausserdem den dezenten Credit «Erstellt von WVM-IT» "
-            "(Link wvm-it.at, Feld wvm_url/wvm_name) im Footer sauber erhalten.\n"
+            "(Felder wvm_url/wvm_name) + den Shop-Link (wvm_shop) im Footer sauber erhalten.\n"
             "2) QA / RESPONSIVE: Perfekte Mobil-Darstellung (echte Breakpoints), ein mobiler "
             "Sticky-Anruf/WhatsApp-Balken, Touch-Ziele ≥ 44 px, keine horizontalen Überläufe, kein "
             "CLS, alle Links/Buttons/Anker funktionieren, SEO-Grundstruktur (title, meta description, "
@@ -701,6 +649,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             res = claude_coder.run_prompt(
                 str(folder), prompt, branche=meta.get("branche", ""),
                 model=stage.get("model") or _MODEL, task=f"makeover:{stage['key']}", name=name,
+                max_turns=stage.get("max_turns", 0),
                 on_progress=lambda s, _p=pct, _l=stage["label"], _i=i + 1, _t=total:
                     say(_p, f"Makeover {_i}/{_t} · {_l} · {s}"),
             )

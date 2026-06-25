@@ -257,7 +257,7 @@ def status(job_id: str) -> dict:
 def _stages_done(folder: str) -> int:
     try:
         import overnight_makeover
-        return max(0, 7 - overnight_makeover.open_stages(folder))
+        return max(0, len(overnight_makeover.STAGES) - overnight_makeover.open_stages(folder))
     except Exception:
         return 0
 

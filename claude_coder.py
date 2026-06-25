@@ -182,7 +182,7 @@ def _terminate(proc: "subprocess.Popen") -> None:
 
 def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
                model: str = "", task: str = "claude_code", name: str = "",
-               on_progress=None) -> dict:
+               on_progress=None, max_turns: int = 0) -> dict:
     """Lässt Claude Code einen FERTIG formulierten Prompt im Ordner ausführen.
     Snapshot vorher, Render-Gate + Rollback bei Regression, Kosten-Tracking.
 
@@ -219,8 +219,9 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     # stream-json + --verbose: zeilenweise JSON-Events (Liveness + Fortschritt + Abbruch).
     args = [cmd, "-p", "--output-format", "stream-json", "--verbose",
             "--permission-mode", _PERMISSION, "--append-system-prompt", _SYS_APPEND]
-    if _MAX_TURNS > 0:
-        args += ["--max-turns", str(_MAX_TURNS)]
+    _mt = max_turns if max_turns and max_turns > 0 else _MAX_TURNS
+    if _mt > 0:
+        args += ["--max-turns", str(_mt)]
     if model:
         args += ["--model", model]
 
