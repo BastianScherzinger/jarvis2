@@ -68,9 +68,9 @@ _DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).str
 # Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der Builder
 # bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen Bauplan neu.
 # 3 = Umstellung von 7 auf 3 Stufen (heute gebaute Seiten laufen einmal neu durch).
-_MAKEOVER_VERSION = 3
+_MAKEOVER_VERSION = 4
 
-STAGES: list[dict] = [
+STAGES_MULTI: list[dict] = [
     {
         "key": "aufbau", "label": "Aufbau: Hero, Sektionen, Kontakt & Formular", "skill": _LANDING,
         "max_turns": 75,             # ganze Struktur in EINEM Lauf → etwas mehr Runden erlaubt
@@ -139,6 +139,56 @@ STAGES: list[dict] = [
         ),
     },
 ]
+
+# ── EIN-PASS-Makeover (Standard) ─────────────────────────────────────────────────
+# Der gesamte Makeover in EINEM headless-Claude-Lauf: Skill + System-Prompt + Kontext werden
+# nur EINMAL geladen (statt 3×). Mit lokal vorgefülltem content.json + fertiger Basis-Vorlage
+# ist das der mit Abstand günstigste Weg (Ziel: ≥5 Seiten/Session). Per JARVIS_MAKEOVER_ONEPASS=0
+# zurück auf die 3 getrennten Stufen (mehr Kontrolle/Qualität, mehr Tokens).
+STAGES_ONEPASS: list[dict] = [
+    {
+        "key": "makeover", "label": "Komplett-Makeover (ein Durchgang)", "skill": _DESIGN_SKILL,
+        "max_turns": 130, "timeout": 1800,
+        "task": (
+            "Mach die GESAMTE Seite in EINEM Durchgang fertig — Struktur, Inhalt, Design und Recht. "
+            "Inhalte stehen BEREITS in content.json (leistungen/ueber_text/faq/trust + Lead-Daten + "
+            "Rechtstexte); übernimm sie 1:1, schreibe sie NICHT neu, dein Fokus ist Layout + Design. "
+            "Die Basis-Vorlage rendert die Sektionen schon — mach sie betriebsgenau und premium.\n\n"
+            "A) AUFBAU/SEKTIONEN:\n"
+            "1) HERO: content.hero_image als Hintergrund (enthält NIE Text/Logos; alle Texte sind "
+            "HTML-Overlay über Scrim/Gradient). Eyebrow (Branche·Stadt), Headline + Subline, Button-"
+            "Reihe: primärer CTA, WhatsApp (https://wa.me/<Tel nur Ziffern, 49 statt führender 0>), "
+            "E-Mail (mailto:), Anruf (tel:); dezente Vertrauenssignale.\n"
+            "2) LEISTUNGEN: content.leistungen als Karten-Grid (Inline-SVG-Icons, KEINE Emojis) + "
+            "FAQ-Sektion aus content.faq.\n"
+            "3) KONTAKT-BAND (Akzent-Streifen, WhatsApp + Anruf) zwischen Leistungen und Über uns.\n"
+            "4) ÜBER UNS: content.ueber_text + content.trust; Platzhalter fürs Inhaber-Foto + Team-"
+            "Grid mit GENAU 4 Mitarbeiter-Platzhaltern.\n"
+            "5) KONTAKT: Telefon (tel:), WhatsApp (wa.me), E-Mail (mailto:), Adresse; echte Karte "
+            "über content.map_embed (OSM-iframe mit Koordinaten) bzw. content.maps_url-Link.\n"
+            "6) KONTAKT-FORMULAR: Name/E-Mail/Telefon/Nachricht + Einwilligungs-Checkbox → Datenschutz; "
+            "method=\"post\", {% csrf_token %}, required, sichtbare Labels, focus-visible, Touch ≥ 44 px.\n\n"
+            "B) DESIGN (durchgreifend): eine stimmige Farbwelt um die Akzentfarbe + getönte Neutrals "
+            "als CSS-Tokens (--accent --bg --surface --ink --muted --line --ring), WCAG-AA. "
+            "Charakterstarkes Display-/Body-Font-Pairing (Google Fonts), fluide Typo mit clamp(), "
+            "feste Spacing-Skala, weiche mehrschichtige Schatten, ein Inline-SVG-Icon-Set, dezente "
+            "Motion (transform/opacity, prefers-reduced-motion), alle Zustände (hover/focus-visible/"
+            "active/disabled). Seriös, farbig-schlicht, NICHT templated/KI-haft.\n\n"
+            "C) RECHT + QA: Rechtstexte aus content.json (impressum/datenschutz/agb) 1:1 rendern + "
+            "UNTEN LINKS im Footer verlinken; Credit «Erstellt von WVM-IT» (wvm_url/wvm_name) + Shop-"
+            "Link (wvm_shop) erhalten. Perfekt mobil (echte Breakpoints, Sticky-Anruf/WhatsApp, Touch "
+            "≥ 44 px, keine Überläufe), SEO-Grundgerüst intakt. Am Ende MUSS das Template fehlerfrei "
+            "rendern. KEINE Blindtexte/Platzhalter im sichtbaren Text.\n\n"
+            "Arbeite EFFIZIENT: jede Datei höchstens einmal lesen, in wenigen gezielten Edits, keine "
+            "Probe-Renders, kein endloses Polishing — fertig, sobald es sauber rendert."
+        ),
+    },
+]
+
+# Standard: Ein-Pass. JARVIS_MAKEOVER_ONEPASS=0 → die 3 getrennten Stufen.
+_ONEPASS = (os.environ.get("JARVIS_MAKEOVER_ONEPASS", "1") or "1").strip().lower() not in (
+    "0", "false", "no", "nein", "off")
+STAGES: list[dict] = STAGES_ONEPASS if _ONEPASS else STAGES_MULTI
 
 _ALL_KEYS = {s["key"] for s in STAGES}
 
@@ -494,6 +544,47 @@ def _ensure_legal(folder: Path, meta: dict) -> None:
     _write_content(folder, content)
 
 
+def _ensure_geo(folder: Path, meta: dict) -> None:
+    """Geocodet die Betriebsadresse EINMAL (Google Maps, Key in .env) → lat/lng in content.json,
+    damit die Kontakt-Sektion eine echte eingebettete Karte (OSM, kein Key) zeigt. Best-effort;
+    ohne Treffer bleibt der Maps-Suchlink. Idempotent (lat/lng schon da → nichts tun)."""
+    content = _read_content(folder)
+    if content.get("lat") and content.get("lng"):
+        return
+    adr = (content.get("adresse") or meta.get("adresse")
+           or _doc_details(folder, meta).get("adresse") or "").strip()
+    if not adr:
+        return
+    try:
+        import agent_maps
+        ll = agent_maps.geocode_latlng(adr)
+    except Exception:
+        ll = None
+    if not ll:
+        return
+    content = _read_content(folder)
+    content["lat"], content["lng"] = ll[0], ll[1]
+    _write_content(folder, content)
+    try:
+        logger.info("Makeover", f"Adresse geocodet ({folder.name}): {ll[0]:.4f}, {ll[1]:.4f}")
+    except Exception:
+        pass
+
+
+def _content_model() -> str:
+    """Bestes lokales Modell für deutsche Prosa-Inhalte — GPU-/VRAM-bewusst (meidet das winzige
+    Coder-Modell, nutzt z.B. qwen2.5:7b/14b auf einer GPU). '' = ask_ollama-Default. Per
+    JARVIS_CONTENT_MODEL fest wählbar."""
+    m = (os.environ.get("JARVIS_CONTENT_MODEL") or "").strip()
+    if m:
+        return m
+    try:
+        from scrapers._http import best_chat_model
+        return best_chat_model() or ""
+    except Exception:
+        return ""
+
+
 def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     """Reichert content.json VOR dem Makeover LOKAL über Ollama an (kostenlos, 32-GB-Maschine):
     4–6 betriebsgenaue Leistungen, eine glaubwürdige Über-uns-Geschichte, 4–5 FAQ und Trust-
@@ -509,6 +600,7 @@ def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
         from scrapers._http import ask_ollama
     except Exception:
         return
+    cmodel = _content_model()
     d = _doc_details(folder, meta)
     name    = meta.get("name") or content.get("site_name") or "Der Betrieb"
     branche = meta.get("branche") or content.get("branche") or d.get("branche", "")
@@ -529,7 +621,8 @@ def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
            '  "trust": ["3-5 kurze Vertrauenssignale, z.B. Erreichbarkeit, Garantie, Region"]\n}\n'
            "Nur das JSON.")
     try:
-        out = ask_ollama(usr, system=sys, timeout=int(os.environ.get("JARVIS_PREFILL_TIMEOUT", "180") or "180"))
+        out = ask_ollama(usr, system=sys, model=cmodel,
+                         timeout=int(os.environ.get("JARVIS_PREFILL_TIMEOUT", "180") or "180"))
     except Exception:
         return
     try:
@@ -597,6 +690,9 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         _ensure_hero(folder, meta, say)
     # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
     _ensure_legal(folder, meta)
+    # Adresse → Koordinaten (für echte eingebettete Karte). Best-effort, 0 Claude-Tokens.
+    if not (stop and stop()):
+        _ensure_geo(folder, meta)
     # Inhalte (Leistungen/Über-uns/FAQ/Trust) LOKAL über Ollama anreichern (0 Claude-Tokens),
     # damit die teuren Stufen nur noch einbauen/gestalten statt zu schreiben → ≥3 Seiten/Session.
     if not (stop and stop()):
@@ -649,7 +745,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             res = claude_coder.run_prompt(
                 str(folder), prompt, branche=meta.get("branche", ""),
                 model=stage.get("model") or _MODEL, task=f"makeover:{stage['key']}", name=name,
-                max_turns=stage.get("max_turns", 0),
+                max_turns=stage.get("max_turns", 0), timeout=stage.get("timeout", 0),
                 on_progress=lambda s, _p=pct, _l=stage["label"], _i=i + 1, _t=total:
                     say(_p, f"Makeover {_i}/{_t} · {_l} · {s}"),
             )

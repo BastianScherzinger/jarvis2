@@ -1293,8 +1293,12 @@ def hero_prompt_smart(branche: str = "", name: str = "", stadt: str = "",
             if key:
                 model = _env("JARVIS_HERO_PROMPT_MODEL", "claude-haiku-4-5-20251001")
                 client = anthropic.Anthropic(api_key=key)
+                # Prompt-Caching: der System-Block ist über ALLE Seiten identisch → als
+                # ephemeren Cache markieren (kostet bei Wiederholung ~1/10).
                 msg = client.messages.create(
-                    model=model, max_tokens=320, system=sysmsg,
+                    model=model, max_tokens=320,
+                    system=[{"type": "text", "text": sysmsg,
+                             "cache_control": {"type": "ephemeral"}}],
                     messages=[{"role": "user", "content": usr}])
                 try:
                     import cost_tracker

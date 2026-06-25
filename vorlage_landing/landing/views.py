@@ -90,6 +90,18 @@ def _content() -> dict:
         data["maps_url"] = "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(adr)
     else:
         data["maps_url"] = ""
+    # Echte eingebettete OSM-Karte, wenn Koordinaten vorliegen (vom Makeover geocodet) —
+    # ohne API-Key, mit Marker. Sonst leer → Template zeigt nur den Maps-Link.
+    try:
+        lat = float(data.get("lat"))
+        lng = float(data.get("lng"))
+        dlat, dlng = 0.006, 0.010
+        data["map_embed"] = (
+            "https://www.openstreetmap.org/export/embed.html"
+            f"?bbox={lng-dlng}%2C{lat-dlat}%2C{lng+dlng}%2C{lat+dlat}"
+            f"&layer=mapnik&marker={lat}%2C{lng}")
+    except (TypeError, ValueError):
+        data["map_embed"] = ""
     team = list(data.get("team") or [])
     if not team:
         team = list(_TEAM_FALLBACK)

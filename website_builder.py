@@ -335,8 +335,16 @@ def _ollama_content(lead: dict, base: dict) -> bool:
         '  "seo_title": "Titel-Tag", "seo_desc": "Meta-Description (max 150 Zeichen)"\n}\n'
         "Nur das JSON."
     )
+    # GPU-/VRAM-bewusstes Modell für deutsche Prosa (meidet das winzige Coder-Modell).
+    cmodel = (os.environ.get("JARVIS_CONTENT_MODEL") or "").strip()
+    if not cmodel:
+        try:
+            from scrapers._http import best_chat_model
+            cmodel = best_chat_model() or ""
+        except Exception:
+            cmodel = ""
     try:
-        text = ask_ollama(prompt, system=sys, timeout=120)
+        text = ask_ollama(prompt, system=sys, model=cmodel, timeout=120)
     except Exception:
         return False
     data = _extract_json(text or "")
@@ -404,8 +412,10 @@ def _claude_content(lead: dict, fotos: list) -> dict:
             "}\n"
             "Nur das JSON, sonst nichts."
         )
+        # Prompt-Caching: der System-Block ist je Bau identisch → ephemerer Cache (günstiger).
         msg = client.messages.create(
-            model=MODEL, max_tokens=1400, system=sys,
+            model=MODEL, max_tokens=1400,
+            system=[{"type": "text", "text": sys, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
         try:

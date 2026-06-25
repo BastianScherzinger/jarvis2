@@ -127,6 +127,30 @@ def place_contact(name: str, stadt: str = "") -> dict:
 
 # ── Geocoding (über Text-Suche) ───────────────────────────────────────────────
 
+def geocode_latlng(address: str) -> "tuple[float, float] | None":
+    """Reine (lat, lng) einer Adresse über die Places-Textsuche — für die eingebettete Karte
+    der gebauten Seiten. None bei fehlendem Key/keinem Treffer/Fehler (Aufrufer fällt auf den
+    Maps-Suchlink zurück)."""
+    if not _key() or not (address or "").strip():
+        return None
+    data, err = _post("https://places.googleapis.com/v1/places:searchText",
+                      {"textQuery": address, "languageCode": "de", "maxResultCount": 1},
+                      "places.location")
+    if err:
+        return None
+    places = data.get("places", [])
+    if not places:
+        return None
+    loc = places[0].get("location", {}) or {}
+    lat, lng = loc.get("latitude"), loc.get("longitude")
+    if lat is None or lng is None:
+        return None
+    try:
+        return (float(lat), float(lng))
+    except (TypeError, ValueError):
+        return None
+
+
 def geocode(address: str) -> str:
     if not _key():
         return "GOOGLE_MAPS_API_KEY fehlt in der .env."

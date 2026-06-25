@@ -12,4 +12,4 @@ from __future__ import annotations
 
 import os
 
-SITE_VERSION = (os.environ.get("JARVIS_SITE_VERSION") or "0.9").strip()
+SITE_VERSION = (os.environ.get("JARVIS_SITE_VERSION") or "1.0").strip()
