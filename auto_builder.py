@@ -606,10 +606,15 @@ def _build_and_email(lead: dict) -> None:
     except Exception:
         pass
 
-    # Discord-Freigabe: sicherstellen dass immer eine Nachricht gepostet wird sobald
-    # die Seite live ist — auch wenn der Makeover nicht alle 7 Stufen abgeschlossen hat
-    # (_run_makeover postet selbst; diese Sicherung greift, falls er es nicht tat).
-    if link and not _already_reviewed(name):
+    # Discord-Freigabe NUR für WIRKLICH fertige Seiten (alle 7 Makeover-Stufen durch) und
+    # mit erreichbarem Live-Link. So landen in Discord ausschließlich abstimmungsreife Seiten
+    # (_run_makeover postet selbst bei all_done; diese Sicherung greift, falls er es nicht tat).
+    try:
+        import overnight_makeover as _om
+        fertig = bool(folder) and _om.open_stages(folder) == 0
+    except Exception:
+        fertig = False
+    if link and fertig and not _already_reviewed(name):
         try:
             import overnight_makeover as _om
             _om.finalize_review(
@@ -618,6 +623,9 @@ def _build_and_email(lead: dict) -> None:
                 link, folder or "")
         except Exception as _de:
             logger.warn("AutoBuilder", f"Discord-Freigabe: {type(_de).__name__}")
+    elif link and not fertig:
+        logger.info("AutoBuilder", f"'{name}' noch nicht 7/7 fertig — keine Discord-Freigabe "
+                                   "(kommt rein, sobald alle Stufen durch sind).")
 
 
 def _deep_claude(folder: str, branche: str) -> dict:
@@ -729,15 +737,75 @@ def _improve_existing_once() -> bool:
     return True
 
 
+_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "10") or "10")
+
+
+def _lead_converted(lead_id) -> bool:
+    """True, wenn der Lead in einem aktiven Deal ist (verkauft/Termin) → Demo behalten."""
+    if not lead_id:
+        return False
+    try:
+        import db_evaluated
+        lead = db_evaluated.get_by_id(int(lead_id)) or {}
+        return (lead.get("status") or "").strip().lower() in ("verkauft", "termin")
+    except Exception:
+        return False
+
+
+def teardown_stale_demos(max_age_days: int = 0) -> int:
+    """Baut Live-Demos ab, die nach `max_age_days` (Default JARVIS_DEMO_TEARDOWN_DAYS=10) NICHT
+    konvertiert sind (Hosting-Kosten deckeln): löscht den Railway-Service und archiviert die Zeile.
+    Verkaufte/Termin-Leads bleiben unangetastet. Gibt die Anzahl abgebauter Demos zurück. 0=aus."""
+    days = max_age_days or _TEARDOWN_DAYS
+    if days <= 0:
+        return 0
+    try:
+        import db_websites
+        import website_builder
+        import agent_railway
+    except Exception:
+        return 0
+    if not agent_railway.is_ready():
+        return 0
+    cutoff = time.time() - days * 86400
+    abgebaut = 0
+    for w in db_websites.get_all():                 # aktive (archived=0)
+        try:
+            created = float(w.get("created") or 0)
+            if not created or created > cutoff:
+                continue                            # zu jung
+            if not (w.get("live_url") or "").strip():
+                continue                            # nichts live → nichts abzubauen
+            if _lead_converted(w.get("lead_id")):
+                continue                            # verkauft/Termin → behalten
+            slug = website_builder._slug(w.get("name", ""))
+            r = agent_railway.service_delete_by_name(slug)
+            db_websites.update(w["job_id"], archived=1, live=0, status="abgebaut")
+            abgebaut += 1
+            logger.info("AutoBuilder", f"Demo abgebaut (>{days} Tage, nicht verkauft): "
+                                       f"{w.get('name','?')} · Railway: {r.get('error') or 'ok'}")
+        except Exception as e:
+            logger.warn("AutoBuilder", f"Teardown übersprungen ({w.get('name','?')}): {type(e).__name__}")
+    if abgebaut:
+        logger.success("AutoBuilder", f"{abgebaut} nicht-konvertierte Demo(s) nach {days} Tagen abgebaut.")
+    return abgebaut
+
+
 def _loop() -> None:
     while is_running():
         today = _today()
         with _lock:
-            if _state["day"] != today:               # neuer Tag → Zähler/Phase zurück
+            neuer_tag = _state["day"] != today
+            if neuer_tag:                            # neuer Tag → Zähler/Phase zurück
                 _state["day"] = today
                 _makeover_stuck.clear()              # täglich zurücksetzen
                 globals()["_farewell_sent"] = False  # neuer Tag → wieder verabschiedbar
                 logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
+        if neuer_tag:                                # einmal je Tag: alte Demos abbauen (best-effort)
+            try:
+                teardown_stale_demos()
+            except Exception as e:
+                logger.warn("AutoBuilder", f"Teardown-Lauf fehlgeschlagen: {type(e).__name__}")
 
         # ── Erschöpfung zuerst: Claude-Limit → ein bisschen ChatGPT; beide leer → aus+Neustart ─
         if _claude_limited:

@@ -103,6 +103,48 @@ def build_agb(name: str = "") -> str:
     )
 
 
+def wvm_company() -> dict:
+    """Eigene Firmendaten (WVM-IT) für den rechtssicheren Mail-Footer — aus der .env, mit
+    Platzhaltern. EINMAL setzen: JARVIS_WVM_NAME/PERSON/ADDRESS/EMAIL/PHONE/URL/VATID."""
+    import os
+    g = lambda k, d="": (os.environ.get(k) or d).strip()
+    url = g("JARVIS_WVM_URL", "https://wvm-it.at")
+    return {
+        "name":    g("JARVIS_WVM_NAME", "WVM-IT"),
+        "person":  g("JARVIS_WVM_PERSON", "Bastian Scherzinger"),
+        "address": g("JARVIS_WVM_ADDRESS", _PH),
+        "email":   g("JARVIS_WVM_EMAIL", _PH),
+        "phone":   g("JARVIS_WVM_PHONE", ""),
+        "url":     url,
+        "domain":  url.replace("https://", "").replace("http://", "").rstrip("/"),
+        "vatid":   g("JARVIS_WVM_VATID", ""),
+    }
+
+
+def build_email_footer(unsubscribe_url: str = "") -> str:
+    """Rechtssicherer Plaintext-Footer für die Kalt-Akquise-Mail (UWG/DSGVO):
+    Absender-Impressum + Abmeldehinweis. Der Abmelde-Link wird angehängt, wenn vorhanden;
+    zusätzlich gilt immer „mit STOP antworten" (funktioniert ohne öffentlichen Webhost)."""
+    w = wvm_company()
+    teile = [
+        "—",
+        f"{w['name']} · {w['person']}",
+        w["address"],
+    ]
+    kontakt = " · ".join(x for x in [f"Tel: {w['phone']}" if w["phone"] else "",
+                                     f"E-Mail: {w['email']}", w["url"]] if x)
+    teile.append(kontakt)
+    if w["vatid"]:
+        teile.append(f"USt-IdNr.: {w['vatid']}")
+    teile.append("")
+    if unsubscribe_url:
+        teile.append(f"Keine weiteren Mails? Hier abmelden: {unsubscribe_url}")
+    teile.append("Sie erhalten diese einmalige Nachricht als Gewerbetreibender im Rahmen einer "
+                 "Geschäftsanbahnung. Möchten Sie keine weitere Mail, antworten Sie einfach mit "
+                 "\"STOP\" — wir tragen Sie sofort aus.")
+    return "\n".join(teile)
+
+
 def build_all(meta: dict) -> dict:
     """Alle drei Rechtstexte aus einem Betriebs-/Lead-dict (best-effort Feldwahl)."""
     name  = meta.get("name") or meta.get("site_name") or ""

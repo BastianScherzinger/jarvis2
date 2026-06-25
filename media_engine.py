@@ -493,11 +493,25 @@ def generate_video(
     _mlog("debug", "Video", f"Backend={backend} device={hw['device']} → "
           + ("Higgsfield Cloud" if (backend == 'higgsfield' or (backend != 'local' and on_cpu)) else "lokal (Wan)"))
     if backend == "higgsfield" or (backend != "local" and on_cpu):
-        hf_key = _hf_key()
         if on_cpu and backend != "higgsfield":
             _mlog("info", "Video", "Kein GPU erkannt → Video läuft automatisch über Higgsfield Cloud.")
-        if hf_key:
-            # Automatischer Cloud-Weg — kein Fehler mehr, das Video entsteht via Higgsfield.
+        # 1) Abo-MCP bevorzugt (zuverlässige Modelle wie kling3_0_turbo über die Abo-Credits) —
+        #    so wie bei Hero-Bildern. Vermeidet den toten Platform-API-Pfad (dop-lite → 404).
+        try:
+            import higgsfield_mcp
+            if higgsfield_mcp.available():
+                ts  = time.strftime("%Y%m%d_%H%M%S")
+                out = WORKSPACE_VIDEOS / f"vid_{ts}.mp4"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                r = higgsfield_mcp.generate_video(prompt, out, aspect_ratio="16:9")
+                return {"path": r.get("path", str(out)),
+                        "web_url": f"/workspace/media/videos/{out.name}",
+                        "model": r.get("model", "Higgsfield (MCP/Abo)"),
+                        "prompt": prompt, "engine": "higgsfield_mcp"}
+        except Exception as ex:
+            _mlog("warn", "Video", f"MCP-Video fehlgeschlagen, versuche Platform-API: {str(ex)[:140]}")
+        # 2) Platform-API-Key (eigener Credit-Topf).
+        if higgsfield_available():
             hf_model = os.environ.get("JARVIS_HIGGSFIELD_VIDEO_MODEL", "dop-lite")
             return generate_video_higgsfield(prompt, model=hf_model)
         if backend == "higgsfield":
@@ -505,11 +519,11 @@ def generate_video(
                 "Video-Backend 'higgsfield' gewählt, aber HIGGSFIELD_API_KEY fehlt in der "
                 ".env. Format: HIGGSFIELD_API_KEY=KEY_ID:KEY_SECRET  "
                 "(Key unter https://cloud.higgsfield.ai/api-keys erstellen).")
-        # auto + CPU + kein Higgsfield-Key
+        # auto + CPU + kein Higgsfield (weder MCP-Abo noch API-Key)
         raise RuntimeError(
-            f"Kein GPU ({hw['device']}) und kein Higgsfield-Key — Video nicht möglich. "
-            "Lösung: HIGGSFIELD_API_KEY=ID:SECRET in die .env eintragen, "
-            "dann läuft Video automatisch über die Higgsfield Cloud (dop-lite, 3 Credits).")
+            f"Kein GPU ({hw['device']}) und kein Higgsfield-Zugang — Video nicht möglich. "
+            "Lösung: HIGGSFIELD_API_KEY=ID:SECRET in die .env eintragen (oder Higgsfield-MCP "
+            "anmelden), dann läuft Video automatisch über die Higgsfield Cloud.")
 
     key = model_key or get_active_video_model()
     m   = VIDEO_MODELS.get(key)

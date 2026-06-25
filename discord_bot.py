@@ -111,14 +111,25 @@ def _send_one_real(review: dict) -> tuple:
     if raw_link and not safe_link:
         logger.warn("Discord", f"Live-Link nicht erreichbar ({raw_link[:80]}) — "
                                "Mail ohne Link-Button versendet.")
-    betreff, text, html = offer_mail.build(
-        review.get("name", ""), safe_link, review.get("branche", ""),
-        review.get("stadt", ""), review.get("ansprechpartner", ""))
+    preis = review.get("preis") or 0
+
+    def _build_for(to: str):
+        """Baut Betreff/Text/HTML mit dem für DIESE Adresse gültigen Abmelde-Link."""
+        try:
+            import email_suppress
+            unsub = email_suppress.unsub_link(to)
+        except Exception:
+            unsub = ""
+        return offer_mail.build(
+            review.get("name", ""), safe_link, review.get("branche", ""),
+            review.get("stadt", ""), review.get("ansprechpartner", ""),
+            preis=preis, unsubscribe_url=unsub)
 
     recipients = [e.strip() for e in (review.get("recipients") or []) if "@" in (e or "")]
     if recipients:                                   # Custom-Modus: an alle senden
         ok_n, fail_n = 0, 0
         for to in recipients:
+            betreff, text, html = _build_for(to)
             r = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
             if r.get("ok"):
                 ok_n += 1
@@ -140,6 +151,7 @@ def _send_one_real(review: dict) -> tuple:
     if "@" not in to:
         return False, "keine Kundenadresse gefunden"
     # bypass_redirect=True: bewusst an den echten Kunden (Voting ist die Freigabe).
+    betreff, text, html = _build_for(to)
     r = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
     return bool(r.get("ok")), (r.get("status") or r.get("fehler") or "")
 
@@ -407,16 +419,17 @@ if _HAS_DISCORD:
 def submit_for_review(name: str, stadt: str, branche: str, link: str,
                       email: str = "", ansprechpartner: str = "", folder: str = "",
                       recipients: "list | None" = None,
-                      email_text: str = "", email_subject: str = "") -> "dict | None":
+                      email_text: str = "", email_subject: str = "", preis: int = 0) -> "dict | None":
     """Legt einen Review an und postet ihn (falls der Bot läuft) in den Discord-Kanal.
     Gibt den Review zurück, oder None wenn der Bot nicht aktiv ist.
     recipients: optionale Empfängerliste (Custom-Modus, 11+).
     email_text: Plaintext der Angebots-Mail (wird im Embed angezeigt).
-    email_subject: Betreffzeile der Angebots-Mail."""
+    email_subject: Betreffzeile der Angebots-Mail.
+    preis: Angebotspreis (Tier) — 0 = fairer Standardpreis."""
     if not enabled() or not _started or _loop is None:
         return None
     review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder, recipients,
-                    email_text=email_text)
+                    email_text=email_text, preis=preis)
     if email_subject:
         try:
             rq.update(review["id"], email_subject=email_subject)

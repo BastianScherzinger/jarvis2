@@ -936,6 +936,37 @@ def api_lead_opt_out(eval_id):
     return jsonify({"ok": True})
 
 
+@app.route("/abmelden", methods=["GET", "POST"])
+def abmelden():
+    """Öffentlicher Abmelde-Endpunkt für die Angebots-Mails (UWG/DSGVO + List-Unsubscribe).
+    Aufruf per Klick (GET) oder Ein-Klick-POST (RFC 8058). Token verhindert Fremd-Abmeldung."""
+    import email_suppress
+    email = (request.values.get("e") or "").strip()
+    token = (request.values.get("t") or "").strip()
+    ok = bool(email) and email_suppress.verify(email, token)
+    if ok:
+        email_suppress.suppress(email, quelle=("one-click" if request.method == "POST" else "link"))
+    if request.method == "POST":
+        # List-Unsubscribe-Post erwartet nur einen 200er, keine Seite.
+        return ("", 200) if ok else ("", 400)
+    msg = ("Sie wurden erfolgreich abgemeldet. Sie erhalten keine weiteren Nachrichten von uns."
+           if ok else "Abmeldelink ungültig oder abgelaufen. Bitte antworten Sie der Mail mit \"STOP\".")
+    html = (f"<!doctype html><html lang=de><head><meta charset=utf-8>"
+            f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>Abmeldung</title></head>"
+            f"<body style='font-family:system-ui,Segoe UI,sans-serif;background:#f4f6f9;margin:0;"
+            f"display:flex;min-height:100vh;align-items:center;justify-content:center'>"
+            f"<div style='background:#fff;max-width:460px;padding:36px 32px;border-radius:16px;"
+            f"box-shadow:0 12px 40px rgba(0,0,0,.1);text-align:center'>"
+            f"<div style='font-size:40px'>{'✓' if ok else '⚠'}</div>"
+            f"<h1 style='font-size:20px;margin:12px 0 8px;color:#16314f'>"
+            f"{'Abgemeldet' if ok else 'Abmeldung fehlgeschlagen'}</h1>"
+            f"<p style='color:#5c6b7a;font-size:15px;line-height:1.6'>{msg}</p></div></body></html>")
+    return Response(html, mimetype="text/html"), (200 if ok else 400)
+
+
+
+
 @app.route("/api/sync", methods=["GET", "POST"])
 def api_sync():
     """GET: Sync-Status. POST: manueller Sync-Trigger (body: {full: true/false})."""

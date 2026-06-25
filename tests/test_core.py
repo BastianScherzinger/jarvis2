@@ -372,7 +372,9 @@ def test_offer_email_enthaelt_link_und_preis():
                                                  "Dachdecker", "Köln")
     assert "Müller GmbH" in betreff               # Name im Betreff (Preis steht im Body)
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
-    assert "350" in text and "350" in html        # Angebot
+    import offer_mail
+    _p = str(offer_mail._price(0))                 # fairer Standardpreis (Default 299 €)
+    assert _p in text and _p in html               # Angebot
     assert "Bastian Scherzinger" in text
 
 
@@ -425,7 +427,8 @@ def test_offer_mail_build():
     import offer_mail
     betreff, text, html = offer_mail.build("Müller GmbH", "https://x.up.railway.app", "Dachdecker", "Köln")
     assert "Müller GmbH" in betreff               # Name im Betreff (Preis im Body)
-    assert "350" in text and "350" in html
+    _p = str(offer_mail._price(0))                 # fairer Standardpreis (Default 299 €)
+    assert _p in text and _p in html
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
 
 
@@ -688,7 +691,8 @@ def test_offer_email_preview_route(monkeypatch):
     d = r.get_json()
     # leerer Live-Link → kein Netzwerk-Call, link="", link_ok False, aber Vorschau ok
     assert d["ok"] and d["to"] == "info@m.de" and d["link"] == "" and d["link_ok"] is False
-    assert "350" in d["html"]
+    import offer_mail
+    assert str(offer_mail._price(0)) in d["html"]   # fairer Standardpreis (Default 299 €)
 
 
 def test_media_hardware_info_hat_ram():
@@ -840,8 +844,11 @@ def test_review_queue_owner_whitelist(tmp_path, monkeypatch):
     assert rq.vote(r["id"], "fremd", True, owners=["1", "2"]) == {"error": "not_owner"}
 
 
-def test_discord_bot_import_safe():
+def test_discord_bot_import_safe(monkeypatch):
     # Ohne Token/Library muss der Bot ein No-op sein und das System nie blockieren.
+    # Token/Kanal aus der Umgebung (z.B. echte .env) für diesen Test leeren.
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
     import discord_bot
     assert discord_bot.enabled() is False
     st = discord_bot.status()
@@ -989,9 +996,12 @@ def test_video_cpu_faellt_auf_higgsfield(monkeypatch):
 
 def test_video_cpu_ohne_key_klare_meldung(monkeypatch):
     import media_engine as me
+    import higgsfield_mcp
     import pytest
     monkeypatch.setattr(me, "hardware_info", lambda: {"device": "cpu"})
     monkeypatch.setattr(me, "higgsfield_available", lambda: False)
+    # Kein Higgsfield-Zugang: weder Platform-API-Key noch angemeldeter Abo-MCP.
+    monkeypatch.setattr(higgsfield_mcp, "available", lambda: False)
     monkeypatch.setenv("JARVIS_VIDEO_BACKEND", "auto")
     with pytest.raises(RuntimeError) as e:
         me.generate_video("x")

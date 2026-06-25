@@ -127,8 +127,9 @@ STAGES: list[dict] = [
             "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (klickbarer "
             "tel:-Link), WhatsApp-Button (wa.me), E-Mail (mailto:), vollständige Adresse, "
             "Öffnungszeiten (falls dokumentiert, sonst plausibel branchentypisch), Anfahrt/Region. "
-            "Wenn eine Adresse vorhanden ist, eine eingebettete Karte (OpenStreetMap-iframe, KEIN "
-            "API-Key) ergänzen. Klare CTAs zum Anrufen, WhatsApp und Schreiben. Sauberes, gut "
+            "Für die Karte den vorhandenen Link c.maps_url verwenden (Google-Maps-Suche nach der "
+            "Adresse, ohne API-Key) ODER ein OSM-iframe NUR mit echten Koordinaten — NIEMALS ein "
+            "leeres/graues Karten-iframe ohne bbox. Klare CTAs zum Anrufen, WhatsApp und Schreiben. Sauberes, gut "
             "lesbares Layout. Bearbeite templates/index.html + CSS wirklich."
         ),
     },
@@ -334,7 +335,7 @@ def _doc_details(folder: Path, meta: dict) -> dict:
                     or db_evaluated.get_by_raw_id(int(lead_id)) or {})
             for k in ("beschreibung", "firmengroesse", "pitch_hook", "potenzial_begruendung",
                       "adresse", "telefon", "email_adresse", "social_media", "bundesland",
-                      "branche", "stadt", "ansprechpartner"):
+                      "branche", "stadt", "ansprechpartner", "potenzial_euro"):
                 if lead.get(k) and k not in out:
                     out[k] = lead[k]
     except Exception:
@@ -680,14 +681,33 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     branche = meta.get("branche", "")
     email   = meta.get("email", "")
     ap      = meta.get("ansprechpartner", "")
+    # Zentrales Gate: NUR vollständig fertige Seiten (alle 7 Stufen) gehen in die Freigabe.
+    # So landen in Discord ausschließlich abstimmungsreife Seiten (außer der Aufrufer erzwingt
+    # es via meta['force']=True, z.B. für manuelle Eigene-Marke-Sendungen).
+    try:
+        if folder and not meta.get("force") and open_stages(folder) > 0:
+            logger.info("Makeover", f"finalize_review übersprungen ({name}) — noch "
+                                    f"{open_stages(folder)}/{len(STAGES)} Stufen offen.")
+            return {"review": False, "reason": "nicht fertig"}
+    except Exception:
+        pass
     # Eigene-Marke-Empfänger (vom Nutzer im Formular eingegeben) aus content.json holen.
     recipients = meta.get("recipients") or _read_content(Path(folder)).get("custom_recipients") or None
+
+    # Angebotspreis (Tier) best-effort aus den Lead-Daten — sonst fairer Standardpreis.
+    preis = int(meta.get("preis") or 0)
+    if not preis:
+        try:
+            d = _doc_details(Path(folder), meta)
+            preis = int(d.get("potenzial_euro") or 0)
+        except Exception:
+            preis = 0
 
     # Angebots-Mail-Text vorbauen (für Discord-Vorschau + Fallback-Mail)
     betreff = text = html_mail = ""
     try:
         import offer_mail
-        betreff, text, html_mail = offer_mail.build(name, live_url, branche, stadt, ap)
+        betreff, text, html_mail = offer_mail.build(name, live_url, branche, stadt, ap, preis=preis)
     except Exception:
         pass
 
@@ -696,7 +716,7 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
         if discord_bot.enabled():
             r = discord_bot.submit_for_review(
                 name, stadt, branche, live_url, email, ap, str(folder),
-                recipients=recipients, email_text=text, email_subject=betreff)
+                recipients=recipients, email_text=text, email_subject=betreff, preis=preis)
             if r:
                 logger.info("Makeover", f"Zur Discord-Freigabe gepostet: {name}")
                 return {"review": True}

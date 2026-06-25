@@ -86,6 +86,15 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
         to = redirect
     if "@" not in to:
         return {"ok": False, "status": "fehler", "fehler": "keine gültige Empfänger-Adresse"}
+    # ABMELDUNG/OPT-OUT respektieren (UWG/DSGVO) — gilt auch für bypass_redirect, also für
+    # bewusste Kunden-Sendungen. Wer sich abgemeldet hat, bekommt nie wieder eine Mail.
+    try:
+        import email_suppress
+        if email_suppress.is_suppressed(to):
+            logger.info("Mailer", f"Versand unterdrückt (Abmeldung aktiv): {to}")
+            return {"ok": False, "status": "opt_out", "fehler": "Empfänger hat sich abgemeldet"}
+    except Exception:
+        pass
     if not is_enabled():
         return {"ok": False, "status": "deaktiviert",
                 "fehler": "JARVIS_EMAIL_ENABLED=false — Trockenlauf, nichts gesendet"}
@@ -101,6 +110,25 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
     msg["From"]    = os.environ["SMTP_FROM"]
     msg["To"]      = to
     msg["Subject"] = betreff or "(kein Betreff)"
+    # List-Unsubscribe (RFC 2369/8058): erlaubt ein-Klick-Abmeldung in seriösen Mail-Clients
+    # und verbessert die Zustellbarkeit. mailto funktioniert IMMER (ohne öffentlichen Webhost);
+    # die URL zusätzlich, wenn JARVIS_PUBLIC_URL gesetzt ist.
+    try:
+        unsub_targets = []
+        base = (os.environ.get("JARVIS_PUBLIC_URL") or "").strip().rstrip("/")
+        mailto = (os.environ.get("JARVIS_UNSUB_MAILTO") or os.environ.get("SMTP_USER") or "").strip()
+        if base:
+            import email_suppress
+            import urllib.parse
+            q = urllib.parse.urlencode({"e": to, "t": email_suppress.token_for(to)})
+            unsub_targets.append(f"<{base}/abmelden?{q}>")
+        if mailto and "@" in mailto:
+            unsub_targets.append(f"<mailto:{mailto}?subject=unsubscribe>")
+        if unsub_targets:
+            msg["List-Unsubscribe"] = ", ".join(unsub_targets)
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    except Exception:
+        pass
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")

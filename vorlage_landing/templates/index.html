@@ -142,6 +142,7 @@
             {% if c.email %}<li><span>E-Mail</span><a href="mailto:{{ c.email }}">{{ c.email }}</a></li>{% endif %}
             {% if c.adresse %}<li><span>Adresse</span><span>{{ c.adresse }}</span></li>{% endif %}
           </ul>
+          {% if c.maps_url %}<a class="btn btn-ghost map-link" href="{{ c.maps_url }}" target="_blank" rel="noopener">Auf der Karte ansehen</a>{% endif %}
         </div>
         <form class="contact-form" method="post" action="#kontakt">
           {% csrf_token %}

@@ -692,23 +692,25 @@
             <li>7-Stufen-Makeover mit eigenem „premium-landing"-Skill (token-sparend, lernt am Limit)</li>
             <li>Hero-Bilder über dein Higgsfield-Abo (max. 5/Tag, nie Text im Bild)</li>
             <li>WhatsApp/E-Mail/Anruf-CTAs, Team, Kontaktformular, Recht &amp; WVM-Credit</li>
-            <li>Qualitäts-Freigabe per Discord</li>
+            <li>Rechtssichere Mail (Impressum, Abmelde-Link, Opt-out-Sperre), fairer Tier-Preis</li>
+            <li>Nur fertige Seiten (7/7) zur Discord-Freigabe; alte Demos nach 10 Tagen abbauen</li>
           </ul>
         </div>
         <div class="goal-col act">
           <div class="goal-col-h">→ Das musst DU tun (für echtes Geld)</div>
           <ol>
-            <li><b>Versand-Domain + SMTP</b> einrichten (SPF/DKIM/DMARC) — einmalig, ohne das kommt keine Mail an.</li>
-            <li><b>Rechtsrahmen klären</b>: Abmelde-Link, Impressum, UWG/DSGVO — am Anfang nur an passende Kontakte.</li>
+            <li><b>Firmendaten setzen</b>: JARVIS_WVM_ADDRESS/EMAIL/VATID + JARVIS_PUBLIC_URL (für den Abmelde-Link) in die .env — einmalig.</li>
+            <li><b>Versand-Domain + SMTP</b> einrichten (SPF/DKIM/DMARC) — ohne das kommt keine Mail an.</li>
             <li><b>Einen echten Versand testen</b> (Trockenlauf aus, EMAIL_REDIRECT leeren) — an einen Test-Empfänger.</li>
-            <li><b>Ersten Abschluss manuell</b> machen: Antwort → Rechnung/Zahlungslink. Danach Volumen hochfahren.</li>
+            <li><b>Ersten Abschluss manuell</b> machen: Antwort → Rechnung. Danach Volumen hochfahren.</li>
           </ol>
         </div>
       </div>
       <div class="goal-note">
-        Ehrlich: Das System bringt dich zuverlässig bis „Angebot verschickt". Den letzten Meter
-        — Zustellbarkeit, Recht und der erste Verkauf — geht ein Mensch. Sobald Schritt 6 steht,
-        ist alles davor reine Wiederholung bei nahezu null Stückkosten.
+        Ehrlich: Das System bringt dich zuverlässig bis „Angebot verschickt" — inklusive
+        rechtssicherem Rahmen (Impressum, Abmeldung, Opt-out). Den letzten Meter — Zustellbarkeit
+        (eigene Domain/SMTP) und der erste Verkauf — geht ein Mensch. Danach ist alles davor reine
+        Wiederholung bei nahezu null Stückkosten.
       </div>
     </div>
 
@@ -828,8 +830,8 @@
 
         <div class="ov-step">
           <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-E-Mail an den Kunden</span><span class="ov-badge partial">Teilweise</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Designte Angebots-Mail mit Live-Link wird gebaut; freigegebene Seiten gehen um 12 Uhr automatisch raus. Sicherheits-Schalter (Trockenlauf) verhindert versehentlichen Versand.</div>
-          <div class="ov-todo"><b>Noch (Schlüssel zum Geld):</b> SMTP einrichten + scharf schalten; <b>Zustellbarkeit</b> (SPF/DKIM/DMARC, Aufwärmen, kein Spam) und <b>Rechtssicherheit</b> (UWG/DSGVO, Abmelde-Link, Impressum) lösen. Angebotspreis an den bewerteten Tier koppeln (aktuell fix 350 €).</div>
+          <div class="ov-now"><b>Jetzt:</b> Kurze, menschliche Angebots-Mail mit geprüftem Live-Link (kein toter Link), fairem Preis (Default 299 €, an den bewerteten Tier gekoppelt) und rechtssicherem Footer: WVM-IT-Impressum, Abmelde-Link + List-Unsubscribe, Opt-out-Sperrliste (UWG/DSGVO). Nur 7/7-fertige Seiten gehen in die Discord-Freigabe; bestätigte gehen um 12 Uhr automatisch raus. Trockenlauf-Schalter sichert ab.</div>
+          <div class="ov-todo"><b>Noch (Schlüssel zum Geld):</b> SMTP einrichten + scharf schalten; <b>Zustellbarkeit</b> (eigene Versand-Domain mit SPF/DKIM/DMARC, langsames Aufwärmen, kein Spam) — der letzte externe Schritt.</div>
           <div class="ov-val"><span>Wert jetzt <b>150 €</b></span><span class="ov-arrow">→</span><span>fertig <b>900 €</b></span></div>
         </div>
 
@@ -882,7 +884,7 @@
         <div class="ov-next-head">🎯 Damit echtes Geld rauskommt — Prioritäten</div>
         <ol>
           <li><b>E-Mail-Zustellung &amp; Recht lösen</b> (Schritt 6) — eigene Versand-Domain mit SPF/DKIM/DMARC, langsames Aufwärmen, Abmelde-Link, UWG/DSGVO-konformer Rahmen. <b>Ohne das kein Umsatz.</b></li>
-          <li><b>Angebotspreis = bewerteter Tier</b> (statt fix 350 €) — höhere Tickets bei starken Leads.</li>
+          <li><b>E-Mail-Postfach scharf schalten</b> — Versand-Domain + SMTP, dann läuft der 12-Uhr-Versand der freigegebenen Seiten automatisch.</li>
           <li><b>Volumen hochfahren</b> — Auto-Builder dauerhaft laufen lassen, Qualität stichprobenartig prüfen.</li>
           <li><b>Demos abbauen</b>, die nach X Tagen nicht konvertieren — Hosting-Kosten deckeln.</li>
           <li><b>Conversion messen</b> — Antworten/Abschlüsse pro 100 Mails sichtbar machen, Betreff/Text optimieren.</li>

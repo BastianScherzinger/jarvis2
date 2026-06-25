@@ -51,7 +51,7 @@ def _needed() -> int:
 
 def add(name: str, stadt: str, branche: str, link: str, email: str = "",
         ansprechpartner: str = "", folder: str = "", recipients: "list | None" = None,
-        email_text: str = "") -> dict:
+        email_text: str = "", preis: int = 0) -> dict:
     """Legt einen neuen Review (Status pending) an und gibt ihn zurück.
 
     recipients: optionale Empfängerliste (Custom-Modus, 11+). Ist sie gesetzt, geht das
@@ -73,6 +73,7 @@ def add(name: str, stadt: str, branche: str, link: str, email: str = "",
             "votes_up": [], "votes_down": [],
             "message_id": 0, "channel_id": 0, "ts": time.time(),
             "sent_ts": 0.0, "note": "", "email_text": (email_text or ""),
+            "preis": int(preis or 0),
         }
         data["reviews"].append(review)
         _save(data)

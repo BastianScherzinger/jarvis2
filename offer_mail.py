@@ -69,9 +69,27 @@ def _wvm() -> dict:
     }
 
 
+def _price(preis: "int | None") -> int:
+    """Effektiver Angebotspreis: übergebener Tier-Preis (>0), sonst fairer Standardpreis
+    aus JARVIS_OFFER_PRICE (Default 299 € — günstig, aber lohnend für eine komplette Seite)."""
+    import os
+    try:
+        p = int(preis or 0)
+    except Exception:
+        p = 0
+    if p > 0:
+        return p
+    try:
+        return int(os.environ.get("JARVIS_OFFER_PRICE", "299") or "299")
+    except Exception:
+        return 299
+
+
 def build(name: str, link: str, branche: str = "", stadt: str = "",
-          ansprechpartner: str = "") -> tuple:
-    """Gibt (betreff, text, html). Komplettpreis 350 €, alles anpassbar, Live-Link.
+          ansprechpartner: str = "", preis: "int | None" = 0,
+          unsubscribe_url: str = "") -> tuple:
+    """Gibt (betreff, text, html). Fairer Komplettpreis (Default 299 €, per Tier/Env), alles
+    anpassbar, Live-Link, rechtssicherer Footer (Impressum + Abmeldung).
 
     Ist kein gültiger Live-Link vorhanden, wird KEIN kaputter Button gerendert —
     stattdessen eine ehrliche Variante ohne Link."""
@@ -81,6 +99,12 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     anrede = _anrede(ansprechpartner)
     betreff = _subject(name, branche, stadt, bool(url))
     wvm = _wvm()
+    eur = _price(preis)
+    try:
+        import legal_pages
+        rechtsfooter = legal_pages.build_email_footer(unsubscribe_url)
+    except Exception:
+        rechtsfooter = ""
 
     # ── Plain-Text — kurz, menschlich, freundlich ───────────────────────────
     linkblock = (f"Hier ist sie, schon online:\n{url}\n\n" if url
@@ -92,10 +116,11 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
         f"gebaut – ganz unverbindlich.\n\n"
         f"{linkblock}"
         f"Gefällt sie Ihnen? Dann übernehme ich sie für Sie und passe jedes Detail an Ihre "
-        f"Wünsche an – Texte, Farben, Bilder. Komplett fertig für 350 € einmalig, kein Abo, "
+        f"Wünsche an – Texte, Farben, Bilder. Komplett fertig für {eur} € einmalig, kein Abo, "
         f"keine versteckten Kosten. Gefällt sie nicht, kostet es Sie nichts.\n\n"
         f"Antworten Sie einfach kurz auf diese Mail, dann klären wir den Rest.\n\n"
         f"Beste Grüße\n{wvm['person']}\n{wvm['name']} · {wvm['domain']}"
+        + (("\n\n" + rechtsfooter) if rechtsfooter else "")
     )
 
     # ── HTML (alle dynamischen Werte escaped) ───────────────────────────────
@@ -129,6 +154,24 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     )
     foot_link = f'<p style="text-align:center;color:#90a0b3;font-size:12px;margin:16px 0 0"><a href="{e_url}" style="color:#90a0b3">{e_url}</a></p>' if url else ""
 
+    # Rechtssicherer HTML-Footer: Absender-Impressum (WVM-IT) + Abmeldung (UWG/DSGVO).
+    e_unsub = _html.escape(unsubscribe_url, quote=True)
+    abmelde_html = (f'<a href="{e_unsub}" style="color:#90a0b3;text-decoration:underline">abmelden</a>'
+                    if unsubscribe_url else 'mit „STOP" antworten')
+    import os as _os
+    _imp = " · ".join(x for x in [
+        f"{wvm['name']} · {e_wvm_person}",
+        _html.escape((_os.environ.get("JARVIS_WVM_ADDRESS") or "").strip()),
+        _html.escape((_os.environ.get("JARVIS_WVM_EMAIL") or "").strip()),
+    ] if x)
+    legal_html = (
+        f'<div style="max-width:600px;margin:14px auto 0;padding:0 16px;text-align:center;'
+        f'font-size:11px;line-height:1.6;color:#9aa7b5">'
+        f'{_imp}<br>'
+        f'Einmalige geschäftliche Kontaktaufnahme. Keine weiteren Mails? Einfach {abmelde_html}.'
+        f'</div>'
+    )
+
     html = f"""<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;background:#e9edf2;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#161b22">
@@ -148,7 +191,7 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
       <div style="display:flex;align-items:center;gap:16px;background:#f3f8ff;border:1px solid #d6e6fb;border-radius:16px;padding:18px 22px;margin:0 0 24px">
         <div>
           <div style="font-size:12px;color:#6a7c90;text-transform:uppercase;letter-spacing:.08em">Komplettpreis</div>
-          <div style="font-size:34px;font-weight:800;color:#0b1626;line-height:1">350&nbsp;€</div>
+          <div style="font-size:34px;font-weight:800;color:#0b1626;line-height:1">{eur}&nbsp;€</div>
           <div style="font-size:12px;color:#8a99ab"><span style="text-decoration:line-through">Agentur ab 1.500&nbsp;€</span> · einmalig, kein Abo</div>
         </div>
         <div style="margin-left:auto;text-align:right">
@@ -170,5 +213,6 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     </div>
     {foot_link}
   </div>
+  {legal_html}
 </body></html>"""
     return betreff, text, html

@@ -81,6 +81,13 @@ def _content() -> dict:
         pass
     # Abgeleitete Felder fürs Template (WhatsApp + Team immer 4 Slots).
     data["whatsapp"] = _whatsapp(data.get("telefon", ""))
+    # Karten-Link aus der Adresse (kein API-Key, funktioniert immer; kein leerer Embed).
+    adr = (data.get("adresse") or "").strip()
+    if adr:
+        import urllib.parse
+        data["maps_url"] = "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(adr)
+    else:
+        data["maps_url"] = ""
     team = list(data.get("team") or [])
     if not team:
         team = list(_TEAM_FALLBACK)
