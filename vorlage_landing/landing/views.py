@@ -40,12 +40,13 @@ _FALLBACK = {
     "datenschutz": "",
     "impressum": "",
     "agb": "",
-    # „Erstellt von WVM-IT"-Branding (Agentur-Credit im Footer). Platzhalter; per content.json
-    # oder Env (JARVIS_WVM_*) überschreibbar. Logo/Foto leer → dezenter Text-/Foto-Platzhalter.
+    # „Erstellt von WVM-IT"-Branding (Agentur-Credit im Footer). Defaults gelten auch auf der
+    # deployten Kundenseite (Railway), wo die JARVIS_WVM_*-Env NICHT gesetzt ist. Per content.json
+    # oder Env überschreibbar. Das Foto liegt in static/img und wird in jeden Build mitkopiert.
     "wvm_name": "WVM-IT",
-    "wvm_url": "https://wvm-it.at",
+    "wvm_url": "https://wvm-it.tech",
     "wvm_logo": "",
-    "wvm_photo": "",
+    "wvm_photo": "/static/img/wvm_person.jpg",
 }
 
 # Vier neutrale Mitarbeiter-Platzhalter, falls keine Team-Daten vorliegen.
