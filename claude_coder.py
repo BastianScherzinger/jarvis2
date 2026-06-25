@@ -226,10 +226,24 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
         args += ["--model", model]
 
     hard_to = timeout or _TIMEOUT
+    # Mehrere Keys konfiguriert → den AKTIVEN (nicht-erschöpften) Key für diesen Lauf setzen,
+    # damit das headless-CLI den nächsten „Claude" nutzt, sobald einer am Limit ist. Bei nur
+    # EINEM Key bleibt alles unverändert (CLI nutzt die normale Abo-Anmeldung).
+    run_env = None
+    try:
+        import claude_keys
+        if claude_keys.count() > 1:
+            ak = claude_keys.active_key()
+            if ak:
+                run_env = os.environ.copy()
+                run_env["ANTHROPIC_API_KEY"] = ak
+    except Exception:
+        run_env = None
     try:
         proc = subprocess.Popen(args, cwd=folder, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, encoding="utf-8", errors="replace", bufsize=1)
+                                text=True, encoding="utf-8", errors="replace", bufsize=1,
+                                env=run_env)
     except Exception as e:
         if tools and snap:
             tools.restore(snap)

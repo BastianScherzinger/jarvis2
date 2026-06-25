@@ -9,6 +9,15 @@ except ImportError:
 
 
 def get_api_key() -> str:
+    """Aktiver Anthropic-Key. Bei mehreren konfigurierten Keys rotiert claude_keys automatisch
+    auf einen nicht-erschöpften (mehrere „Claudes"). Fallback: direkte Env-Variable."""
+    try:
+        import claude_keys
+        k = claude_keys.active_key()
+        if k:
+            return k
+    except Exception:
+        pass
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_KEY", "")
 
 

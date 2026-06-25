@@ -32,8 +32,9 @@ _FILE = Path(__file__).resolve().parent / "data" / "claude_budget.json"
 
 # ── Konstanten ────────────────────────────────────────────────────────────────
 _WINDOW      = 5 * 3600          # Claude-Abo: rollendes 5-Stunden-Session-Fenster
-_COOLDOWN    = 4 * 3600          # nach einem Limit: 4 h Pause (Sirs Vorgabe)
+_COOLDOWN    = 4 * 3600          # nach einem Session-Limit: 4 h Pause (Sirs Vorgabe)
 _RETRY_EVERY = 3600              # danach stündlich ein neuer Versuch
+_WEEKLY_RECHECK = 6 * 3600       # Weekly-Limit: alle 6 h erneut testen (Reset rollt ~wöchentlich)
 _NEAR        = 0.95              # ab 95 % Verbrauch = „gleich voll" (5 % übrig)
 _EMA_ALPHA   = 0.4               # Lerngewicht neuer Limit-Beobachtungen
 _DEFAULT_LIMIT = 1_800_000       # Start-Schätzung Token/Fenster bis Limit (wird gelernt)
@@ -100,17 +101,16 @@ def record_usage(tokens: int) -> None:
 
 # ── Limit-Ereignis (Zeichen + Lernen + Retry-Plan) ────────────────────────────
 
-def mark(stage: str = "", wait_seconds: int = 0, site: str = "") -> None:
-    """Markiert das Claude-Limit als erschöpft. Speichert die Uhrzeit, LERNT die Token-
-    Schwelle (gleitender Mittelwert über `tokens_used` beim Limit) und plant den nächsten
-    Versuch (4 h Pause, danach stündlich). `wait_seconds` wird ignoriert zugunsten des
-    gelernten 4-h-Plans, bleibt aber als Parameter für Rückwärtskompatibilität."""
+def mark(stage: str = "", wait_seconds: int = 0, site: str = "", scope: str = "session") -> None:
+    """Markiert das Claude-Limit als erschöpft. Speichert Uhrzeit + Scope (session|weekly), LERNT
+    die Token-Schwelle (nur Session) und plant den nächsten Versuch: Session 4 h dann stündlich,
+    Weekly alle 6 h erneut testen. `wait_seconds` bleibt nur für Rückwärtskompatibilität."""
     now = time.time()
     d = _read()
     _maybe_reset_window(d, now)
     used = int(d.get("tokens_used") or 0)
-    # Lernen: war echter Verbrauch im Fenster → Schwelle Richtung `used` ziehen.
-    if used > 0:
+    # Lernen nur beim Session-Limit (Weekly hängt nicht am 5-h-Token-Fenster).
+    if used > 0 and scope != "weekly":
         prev = float(d.get("learned_limit") or _DEFAULT_LIMIT)
         d["learned_limit"] = int(prev * (1 - _EMA_ALPHA) + used * _EMA_ALPHA)
         ev = d.get("events") or []
@@ -119,13 +119,33 @@ def mark(stage: str = "", wait_seconds: int = 0, site: str = "") -> None:
         d["events"] = ev[-30:]
     was_limited = bool(d.get("limited"))
     d["limited"] = True
+    d["scope"] = scope
     d["since"] = d.get("since") if was_limited else now
     d["stage"] = stage or d.get("stage", "")
     d["site"] = site or d.get("site", "")
-    # Erstes Limit → 4 h Cooldown; läuft ein späterer Versuch erneut aufs Limit → stündlich.
-    d["next_try"] = now + (_RETRY_EVERY if was_limited else _COOLDOWN)
+    if scope == "weekly":
+        d["next_try"] = now + _WEEKLY_RECHECK
+    else:
+        # Erstes Session-Limit → 4 h Cooldown; läuft ein späterer Versuch erneut aufs Limit → stündlich.
+        d["next_try"] = now + (_RETRY_EVERY if was_limited else _COOLDOWN)
     d["updated"] = now
     _write(d)
+
+
+def reset() -> dict:
+    """Manuelles „nochmal testen": hebt das Limit-Zeichen auf UND startet das 5-h-Token-Fenster
+    frisch (Verbrauch 0). Der Makeover darf danach sofort wieder laufen."""
+    d = _read()
+    now = time.time()
+    d["limited"] = False
+    d["scope"] = ""
+    d["since"] = 0
+    d["next_try"] = 0
+    d["session_start"] = now
+    d["tokens_used"] = 0
+    d["updated"] = now
+    _write(d)
+    return {"ok": True}
 
 
 def note_retry_failed() -> None:
@@ -198,6 +218,7 @@ def state() -> dict:
     mins = max(0, int((nxt - now) // 60)) if nxt else 0
     return {
         "limited": True,
+        "scope": d.get("scope", "session"),
         "since": d.get("since", 0),
         "stage": d.get("stage", ""),
         "site": d.get("site", ""),
@@ -214,10 +235,19 @@ def status() -> dict:
         _write(d)
     pct = percent()
     limited = bool(d.get("limited"))
+    # Mehrfach-Key-Übersicht (mehrere „Claudes") best-effort beilegen.
+    keys_info = {}
+    try:
+        import claude_keys
+        keys_info = claude_keys.status()
+    except Exception:
+        keys_info = {}
     return {
         "limited": limited,
+        "scope": d.get("scope", "") if limited else "",
         "percent": pct,
         "near_limit": (pct >= int(_NEAR * 100)),   # ≥95 % → „gleich voll"
+        "keys": keys_info,
         "since": d.get("since", 0),
         "stage": d.get("stage", ""),
         "site": d.get("site", ""),

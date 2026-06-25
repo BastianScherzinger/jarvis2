@@ -275,11 +275,16 @@ def _fingerprint(folder: Path) -> str:
 
 
 def _looks_limited(text: str) -> bool:
-    """Erkennt eine Claude-Code-Limit-/Abbruch-Meldung im Ergebnis-Text."""
+    """Erkennt eine Claude-Code-Limit-/Abbruch-Meldung im Ergebnis-Text (Session ODER Weekly)."""
     t = (text or "").lower()
     return any(s in t for s in (
-        "session limit", "usage limit", "rate limit", "hit your limit",
-        "resets", "quota", "try again later"))
+        "session limit", "usage limit", "rate limit", "hit your limit", "weekly limit",
+        "weekly usage", "reached your limit", "resets", "quota", "try again later"))
+
+
+def _limit_scope(text: str) -> str:
+    """'weekly' wenn die Limit-Meldung nach Wochenlimit aussieht, sonst 'session'."""
+    return "weekly" if "weekly" in (text or "").lower() else "session"
 
 
 def open_stages(folder: "str | Path") -> int:
@@ -675,9 +680,16 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
 
     # Limit-Gate: ist Claude erschöpft und die 4-h-Pause (dann stündlich) noch nicht vorbei,
     # gar nicht erst einen Lauf starten — spart Token und respektiert den Retry-Plan.
-    if not claude_limit.should_try_now():
+    # Mehrere Keys: ist noch einer frei, trotz „limited"-Zeichen weiterlaufen (anderer Claude).
+    _key_free = False
+    try:
+        import claude_keys
+        _key_free = claude_keys.count() > 1 and claude_keys.has_available()
+    except Exception:
+        _key_free = False
+    if not _key_free and not claude_limit.should_try_now():
         mins = claude_limit.seconds_to_retry() // 60
-        say(100, f"Claude-Session-Limit aktiv — nächster Versuch in ~{mins} Min.")
+        say(100, f"Claude-Limit aktiv — nächster Versuch in ~{mins} Min.")
         return {"ok": False, "reason": "session_limit", "all_done": all_done(folder),
                 "stages_done": []}
 
@@ -752,9 +764,26 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             changed = _fingerprint(folder) != fp0
             if not _is_limit(res, changed):
                 break
-            # Session-Limit erkannt → Zeichen fürs Dashboard setzen, warten, erneut versuchen.
-            claude_limit.mark(stage["label"], _LIMIT_WAIT, site=name)
-            # Session-Limit erkannt → warten und erneut versuchen.
+            # Limit erkannt. Scope (Session/Weekly) bestimmen.
+            scope = _limit_scope((res.get("summary") or "") + " " + (res.get("reason") or ""))
+            # Mehrere Keys? Aktiven Key erschöpft setzen und SOFORT auf den nächsten „Claude"
+            # wechseln (ohne die ganze Cooldown-Pause).
+            try:
+                import claude_keys
+                if claude_keys.count() > 1:
+                    ak = claude_keys.active_key()
+                    if ak:
+                        claude_keys.mark_exhausted(ak, scope)
+                    if claude_keys.has_available():
+                        logger.warn("Makeover", f"{scope}-Limit auf einem Key — wechsle sofort "
+                                                "auf den nächsten Claude-Key.")
+                        say(pct, f"{scope}-Limit — wechsle auf nächsten Claude-Key…")
+                        claude_limit.clear()
+                        continue                       # sofort mit nächstem Key erneut
+            except Exception:
+                pass
+            # Limit-Zeichen fürs Dashboard setzen + Budget lernen (Weekly = langer Cooldown).
+            claude_limit.mark(stage["label"], _LIMIT_WAIT, site=name, scope=scope)
             if attempt >= _LIMIT_RETRIES:
                 say(pct, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
                          "Makeover pausiert (später fortsetzbar).")

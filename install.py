@@ -373,6 +373,43 @@ def run(quiet: bool = False) -> bool:
                     else:
                         _warn(f"Modell '{model_name}' nicht gefunden", f"manuell: ollama pull {model_name}")
 
+    # ── Lokale KI optimal auf die Hardware abstimmen (RAM/GPU automatisch) ────────
+    # Damit der Ziel-PC seinen RAM/seine GPU wirklich nutzt: das hardware-empfohlene
+    # (größere) Modell für hochwertige LOKALE Texte sicherstellen + Parallelität/Threads
+    # passend setzen. Läuft auch non-interaktiv über update.py (kein input()).
+    if shutil.which("ollama"):
+        try:
+            import hardware as _hwm
+            _hw  = _hwm.detect()
+            _rec = _hwm.recommend(_hw)["model"]
+            _env_now = (HERE / ".env").read_text(encoding="utf-8", errors="replace") if (HERE / ".env").exists() else ""
+            _have = subprocess.run(["ollama", "list"], capture_output=True, text=True,
+                                   timeout=10, encoding="utf-8", errors="replace").stdout or ""
+            gpu_txt = (f"GPU {_hw['gpu_name']} {_hw['vram_gb']:.0f} GB"
+                       if _hw.get("has_gpu") else f"CPU · {_hw['ram_gb']:.0f} GB RAM")
+            if _rec.split(":")[0] not in _have:
+                print(f"  {CY}>{R}   Hardware: {gpu_txt} → lade empfohlenes Modell '{_rec}' "
+                      f"(einmalig, kann groß sein) ...", flush=True)
+                if subprocess.run(["ollama", "pull", _rec], timeout=7200).returncode == 0:
+                    _ok(f"Content-Modell {_rec}", f"geladen ({gpu_txt})")
+                else:
+                    _warn(f"'{_rec}' nicht geladen", f"manuell: ollama pull {_rec}")
+            else:
+                _ok(f"Content-Modell {_rec}", f"vorhanden ({gpu_txt})")
+            # Parallelität + Content-Modell in .env festschreiben (nur wenn noch nicht gesetzt).
+            _adds = []
+            if "JARVIS_OLLAMA_PARALLEL=" not in _env_now:
+                _adds.append(("JARVIS_OLLAMA_PARALLEL", "3" if _hw.get("has_gpu") else "2"))
+            if "JARVIS_CONTENT_MODEL=" not in _env_now:
+                _adds.append(("JARVIS_CONTENT_MODEL", _rec))
+            if _adds:
+                with open(HERE / ".env", "a", encoding="utf-8") as _ef:
+                    for _k, _v in _adds:
+                        _ef.write(f"\n{_k}={_v}\n")
+                _ok("Lokale-KI-Tuning", ", ".join(f"{k}={v}" for k, v in _adds))
+        except Exception as _e:
+            _warn("Lokale-KI-Tuning", str(_e)[:80])
+
     # ── Node.js / npx — für MCP-Server ─────────────────────────────
     node_ok = shutil.which("node") is not None
     npx_ok  = shutil.which("npx")  is not None

@@ -811,9 +811,20 @@ function _renderLimitBanner(lim){
   if(lim && lim.limited){
     const txt = document.getElementById('claude-limit-text');
     if(txt){
+      const scope = (lim.scope === 'weekly') ? 'Weekly-Limit' : 'Session-Limit';
       const stage = lim.stage ? ` (Stufe „${lim.stage}")` : '';
       const wait  = lim.minutes_left ? ` — nächster Versuch in ~${lim.minutes_left} Min` : '';
-      txt.textContent = `Claude-Session-Limit erreicht${stage} — Webseiten-Verbesserung pausiert, läuft automatisch weiter${wait}.`;
+      txt.textContent = `Claude-${scope} erreicht${stage} — pausiert, läuft automatisch weiter${wait}.`;
+    }
+    // „Nochmal testen"-Button einmalig anhängen (manueller Retry / Limit zurücksetzen).
+    if(!document.getElementById('claude-limit-retry')){
+      const b = document.createElement('button');
+      b.id = 'claude-limit-retry';
+      b.className = 'limit-retry-btn';
+      b.textContent = '↻ Nochmal testen';
+      b.title = 'Limit-Zeichen zurücksetzen, Token-Fenster frisch starten und alle Keys freigeben';
+      b.onclick = claudeLimitRetry;
+      el.appendChild(b);
     }
     el.style.display = 'flex';
     document.body.classList.add('limit-on');
@@ -821,6 +832,19 @@ function _renderLimitBanner(lim){
     el.style.display = 'none';
     document.body.classList.remove('limit-on');
   }
+}
+
+async function claudeLimitRetry(){
+  const b = document.getElementById('claude-limit-retry');
+  if(b){ b.disabled = true; b.textContent = '↻ …'; }
+  try{ await fetch('/api/claude/reset', {method:'POST'}); }catch{}
+  _renderLimitBanner(null);            // optimistisch ausblenden
+  try{
+    const d = await(await fetch('/api/status')).json();
+    _claudeLimit = (d && d.claude_limit) || null;
+    _renderLimitBanner(_claudeLimit);
+  }catch{}
+  if(b){ b.disabled = false; b.textContent = '↻ Nochmal testen'; }
 }
 
 // Generiertes Hintergrundbild (static/img/bg_custom.png) anwenden, falls vorhanden.

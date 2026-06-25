@@ -885,6 +885,36 @@ def api_claude_status():
                     "usage": metrics.budget_status()})
 
 
+@app.route("/api/claude/limit")
+def api_claude_limit():
+    """Claude-Limit-Status (Session/Weekly, Prozent) + Mehrfach-Key-Übersicht fürs Dashboard."""
+    try:
+        import claude_limit
+        return jsonify({"ok": True, **claude_limit.status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:120]}), 500
+
+
+@app.route("/api/claude/reset", methods=["POST"])
+def api_claude_reset():
+    """„Nochmal testen": hebt das Limit-Zeichen auf, startet das Token-Fenster frisch und gibt
+    alle erschöpften Keys wieder frei (manueller Retry-Knopf)."""
+    out = {}
+    try:
+        import claude_limit
+        claude_limit.reset()
+        out["limit"] = "reset"
+    except Exception:
+        pass
+    try:
+        import claude_keys
+        claude_keys.reset()
+        out["keys"] = "reset"
+    except Exception:
+        pass
+    return jsonify({"ok": True, **out})
+
+
 @app.route("/api/metrics")
 def api_metrics():
     """Observability: Claude-Token-Verbrauch + Tool-Latenzen/Fehlerraten."""
