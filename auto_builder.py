@@ -390,8 +390,9 @@ def _cloud_hero_progress() -> bool:
         import overnight_makeover as om
         for w in _makeover_sites():
             folder = Path(w["folder"])
-            if om._read_content(folder).get("hero_source") in ("higgsfield", "openai"):
-                continue
+            if om._read_content(folder).get("hero_source") in (
+                    "higgsfield", "higgsfield_mcp", "openai"):
+                continue                          # schon ein Cloud-Hero (inkl. Abo-MCP) → Budget schonen
             meta = {"name": w.get("name", ""), "branche": w.get("branche", ""),
                     "stadt": w.get("stadt", ""), "email": w.get("kontakt_email", ""),
                     "ansprechpartner": w.get("ansprechpartner", "")}
@@ -409,18 +410,19 @@ def _cloud_hero_progress() -> bool:
 def _schedule_restart(seconds: int) -> None:
     """Beide Limits leer → nach `seconds` automatisch erneut testen & starten."""
     global _restart_timer
-    if _restart_timer is not None:
-        return
+    with _lock:                                   # Doppel-Timer/Doppel-Loop verhindern
+        if _restart_timer is not None:
+            return
 
-    def _restart():
-        global _restart_timer
-        _restart_timer = None
-        logger.info("AutoBuilder", "Wartezeit vorbei — teste & starte Night-Builder erneut.")
-        start(_resume=True)
+        def _restart():
+            global _restart_timer
+            _restart_timer = None
+            logger.info("AutoBuilder", "Wartezeit vorbei — teste & starte Night-Builder erneut.")
+            start(_resume=True)
 
-    _restart_timer = threading.Timer(seconds, _restart)
-    _restart_timer.daemon = True
-    _restart_timer.start()
+        _restart_timer = threading.Timer(seconds, _restart)
+        _restart_timer.daemon = True
+        _restart_timer.start()
     logger.warn("AutoBuilder", f"Claude- UND ChatGPT-Limit erschöpft — Builder pausiert "
                                f"{seconds // 60} Min, dann automatischer Neustart.")
 

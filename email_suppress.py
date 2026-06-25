@@ -24,8 +24,30 @@ _PATH = Path(__file__).parent / "data" / "email_optout.json"
 _lock = threading.Lock()
 
 
+_SECRET_PATH = Path(__file__).parent / "data" / "unsub_secret.txt"
+
+
 def _secret() -> bytes:
-    return (os.environ.get("JARVIS_UNSUB_SECRET") or "jarvis-unsub-default-secret").encode()
+    """Abmelde-Token-Geheimnis. Bevorzugt JARVIS_UNSUB_SECRET (.env). Fehlt es, wird EINMALIG
+    ein zufälliges Secret erzeugt und persistiert — niemals ein hartkodiertes (fälschbares) Default."""
+    env = (os.environ.get("JARVIS_UNSUB_SECRET") or "").strip()
+    if env:
+        return env.encode()
+    try:
+        if _SECRET_PATH.is_file():
+            val = _SECRET_PATH.read_text(encoding="utf-8").strip()
+            if val:
+                return val.encode()
+    except Exception:
+        pass
+    import secrets as _secrets
+    val = _secrets.token_hex(32)
+    try:
+        _SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SECRET_PATH.write_text(val, encoding="utf-8")
+    except Exception:
+        pass
+    return val.encode()
 
 
 def token_for(email: str) -> str:

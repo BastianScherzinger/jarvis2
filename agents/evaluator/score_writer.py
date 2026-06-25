@@ -260,8 +260,11 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
     if ollama_tier not in PREIS_TIERS:
         ollama_tier = None
 
-    # Privat-Zahler: Ollama oder Heuristik
-    ist_privat = data.get("ist_privat_zahler")
+    # Privat-Zahler: Ollama oder Heuristik (Ollama kann "1"/1.0/true liefern → robust casten)
+    try:
+        ist_privat = int(data.get("ist_privat_zahler"))
+    except (TypeError, ValueError):
+        ist_privat = None
     if ist_privat not in (0, 1):
         ist_privat = heur_privat
 

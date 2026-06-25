@@ -231,6 +231,8 @@ a{color:inherit;text-decoration:none}
 .wvm-txt{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .wvm-logo{height:18px;width:auto;vertical-align:middle}
 .wvm-dom{color:var(--accent);font-weight:600}
+.wvm-shop{margin-left:16px;font-size:13px;color:var(--ink-soft)}
+.wvm-shop:hover{color:var(--accent)}
 
 /* ── Mobiler Sticky-Kontaktbalken ────────────────────────────────────────── */
 .mobilebar{display:none}

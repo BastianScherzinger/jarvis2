@@ -96,12 +96,34 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
             except Exception as e:
                 logger.error("Maps", f"{region}/{branche}: {e}")
                 on_lead({"_error": f"Maps ({region}/{branche}): {e}"})
-                # Browser-Neustart bei schwerem Fehler
+                # Leichte Erholung; scheitert sie (Browser/Context komplett tot), den Browser
+                # VOLLSTÄNDIG neu aufbauen — sonst stirbt der Maps-Worker still für den Rest der Nacht.
                 try:
                     page.goto("https://www.google.de/maps", timeout=10000)
                     page.wait_for_timeout(2000)
                 except Exception:
-                    pass
+                    try:
+                        try:
+                            browser.close()
+                        except Exception:
+                            pass
+                        browser = pw.chromium.launch(
+                            headless=_headless(),
+                            args=["--disable-blink-features=AutomationControlled",
+                                  "--no-sandbox", "--disable-dev-shm-usage"])
+                        ctx = browser.new_context(
+                            locale="de-DE", viewport={"width": 1366, "height": 900},
+                            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"))
+                        page = ctx.new_page()
+                        page.add_init_script(
+                            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
+                        page.goto("https://www.google.de/maps", timeout=15000)
+                        page.wait_for_timeout(1500)
+                        logger.scrape("Maps", "Browser nach schwerem Fehler neu aufgebaut.")
+                    except Exception as e2:
+                        logger.error("Maps", f"Browser-Neuaufbau fehlgeschlagen: {e2}")
+                        stop_event.wait(30)          # kurz warten, dann nächste Combo erneut versuchen
 
         try:
             browser.close()

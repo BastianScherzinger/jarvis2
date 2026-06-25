@@ -189,6 +189,7 @@
           <span class="wvm-dom">{{ c.wvm_url|cut:"https://"|cut:"http://" }}</span>
         </span>
       </a>
+      {% if c.wvm_shop %}<a class="wvm-shop" href="{{ c.wvm_shop }}" target="_blank" rel="noopener">Shop: {{ c.wvm_shop|cut:"https://"|cut:"http://" }}</a>{% endif %}
     </div>
     <div class="wrap legal">
       {% if c.datenschutz %}<details id="datenschutz"><summary>Datenschutzerklärung</summary><div class="legal-body">{{ c.datenschutz|linebreaks }}</div></details>{% endif %}

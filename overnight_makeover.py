@@ -195,16 +195,31 @@ _ALL_KEYS = {s["key"] for s in STAGES}
 # ── content.json Helfer ─────────────────────────────────────────────────────────
 
 def _read_content(folder: Path) -> dict:
+    p = Path(folder) / "content.json"
     try:
-        return json.loads((Path(folder) / "content.json").read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as e:
+        # Korruptes JSON sichtbar machen (statt still 0 → Datenverlust). Defektes File sichern.
+        try:
+            logger.error("Makeover", f"content.json defekt ({folder.name}): {e} — wird neu aufgebaut.")
+            p.replace(p.with_suffix(".json.broken"))
+        except Exception:
+            pass
+        return {}
     except Exception:
         return {}
 
 
 def _write_content(folder: Path, content: dict) -> None:
+    """Atomar schreiben: erst in .tmp, dann os.replace — ein Crash mitten im Schreiben kann
+    content.json so nie korrumpieren (Datenverlust-Schutz im Dauerbetrieb)."""
     try:
-        (Path(folder) / "content.json").write_text(
-            json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        p = Path(folder) / "content.json"
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, p)
     except Exception:
         pass
 
@@ -640,6 +655,9 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         _write_content(folder, content0)
     except Exception:
         pass
+    # Vorbereitung (Hero-Bild, lokale Inhalte, Rechtstexte) als Commit sichern — sonst würde
+    # ein Resume sie via _reset_dirty verwerfen und das Hero-Bild (Budget!) neu erzeugen.
+    _git_commit(folder, "Vorbereitung: Hero-Bild, lokale Inhalte & Rechtstexte")
 
     done = _done_keys(folder)
     name = meta.get("name", "?")

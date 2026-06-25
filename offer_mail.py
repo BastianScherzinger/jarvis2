@@ -66,6 +66,7 @@ def _wvm() -> dict:
         "domain": dom,
         "logo": (os.environ.get("JARVIS_WVM_LOGO_URL") or "").strip(),  # öffentliche URL für E-Mail
         "person": (os.environ.get("JARVIS_WVM_PERSON") or "Bastian Scherzinger").strip(),
+        "shop": (os.environ.get("JARVIS_WVM_SHOP") or "").strip(),
     }
 
 
@@ -120,6 +121,7 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
         f"keine versteckten Kosten. Gefällt sie nicht, kostet es Sie nichts.\n\n"
         f"Antworten Sie einfach kurz auf diese Mail, dann klären wir den Rest.\n\n"
         f"Beste Grüße\n{wvm['person']}\n{wvm['name']} · {wvm['domain']}"
+        + (f"\nUnser Shop: {wvm['shop']}" if wvm.get("shop") else "")
         + (("\n\n" + rechtsfooter) if rechtsfooter else "")
     )
 
@@ -136,12 +138,16 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     wvm_logo_html = (f'<img src="{_html.escape(wvm["logo"], quote=True)}" alt="{e_wvm_name}" '
                      f'style="height:22px;width:auto;vertical-align:middle;margin-right:6px">'
                      if wvm["logo"] else "")
+    e_wvm_shop = _html.escape(wvm.get("shop", ""), quote=True)
+    e_wvm_shop_dom = _html.escape(wvm.get("shop", "").replace("https://", "").replace("http://", "").rstrip("/"))
+    shop_html = (f' · <a href="{e_wvm_shop}" style="color:#1e8eff;text-decoration:none">Shop: '
+                 f'{e_wvm_shop_dom}</a>' if wvm.get("shop") else "")
     signatur_html = (
         f'<p style="font-size:15px;color:#3a4654;margin:14px 0 0">Beste Grüße<br>'
         f'<strong>{e_wvm_person}</strong></p>'
         f'<p style="margin:10px 0 0;font-size:13px;color:#6a7c90">{wvm_logo_html}'
         f'<a href="{e_wvm_url}" style="color:#1e8eff;text-decoration:none;font-weight:600">'
-        f'{e_wvm_name} · {e_wvm_dom}</a></p>'
+        f'{e_wvm_name} · {e_wvm_dom}</a>{shop_html}</p>'
     )
 
     cta_html = (

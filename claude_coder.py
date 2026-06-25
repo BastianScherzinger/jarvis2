@@ -271,6 +271,8 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     last_text = ""
     try:
         for line in proc.stdout:                  # blockiert je Event; Watchdog killt bei Stille
+            if st["killed"]:                      # Watchdog hat abgebrochen → Leseschleife sofort verlassen
+                break
             line = line.strip()
             if not line:
                 continue

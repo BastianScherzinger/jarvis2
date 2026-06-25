@@ -78,7 +78,10 @@ def _spawn_evaluator() -> None:
     # Max Threads = CPU-Kerne des PCs (so parallelisiert die Bewertung maximal; die
     # eigentlichen Ollama-Calls bleiben durch JARVIS_OLLAMA_PARALLEL geschützt).
     _default_eval = min(32, max(4, (os.cpu_count() or 4)))
-    n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", str(_default_eval)) or _default_eval)
+    try:
+        n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", str(_default_eval)) or _default_eval)
+    except (ValueError, TypeError):
+        n_eval = _default_eval
     threading.Thread(
         target=evaluator_pipeline.run_continuous,
         args=(_on_lead, _stop_event, n_eval),

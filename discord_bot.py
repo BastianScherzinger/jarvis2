@@ -156,22 +156,37 @@ def _send_one_real(review: dict) -> tuple:
     return bool(r.get("ok")), (r.get("status") or r.get("fehler") or "")
 
 
+import threading as _threading
+_send_lock = _threading.Lock()
+
+
 def send_approved_now() -> dict:
     """Versendet sofort alle freigegebenen, noch nicht gesendeten Seiten. Gibt eine
-    Zusammenfassung zurück. (Wird vom 12-Uhr-Scheduler und manuell genutzt.)"""
-    todo = rq.approved_unsent()
-    sent, failed, lines = 0, 0, []
-    for r in todo:
-        ok, info = _send_one_real(r)
-        rq.mark_sent(r["id"], ok, info)
-        if ok:
-            sent += 1
-            lines.append(f"✅ {r.get('name','?')} → {r.get('email','?')}")
-        else:
-            failed += 1
-            lines.append(f"⚠️ {r.get('name','?')}: {info}")
-    logger.info("Discord", f"12-Uhr-Versand: {sent} gesendet, {failed} übersprungen")
-    return {"sent": sent, "failed": failed, "lines": lines, "total": len(todo)}
+    Zusammenfassung zurück. (Wird vom 12-Uhr-Scheduler und manuell genutzt.)
+    Ein Lock verhindert, dass 12-Uhr-Lauf UND manueller Aufruf gleichzeitig dieselben
+    Reviews greifen und doppelt versenden."""
+    if not _send_lock.acquire(blocking=False):
+        return {"sent": 0, "failed": 0, "lines": ["Versand läuft bereits."], "total": 0}
+    try:
+        todo = rq.approved_unsent()
+        sent, failed, lines = 0, 0, []
+        for r in todo:
+            # Pro Review erneut prüfen, ob er noch sendebereit ist (nicht zwischenzeitlich gesendet).
+            cur = rq.get(r["id"])
+            if not cur or cur.get("status") == rq.SENT or cur.get("sent_ts"):
+                continue
+            ok, info = _send_one_real(r)
+            rq.mark_sent(r["id"], ok, info)
+            if ok:
+                sent += 1
+                lines.append(f"✅ {r.get('name','?')} → {r.get('email','?')}")
+            else:
+                failed += 1
+                lines.append(f"⚠️ {r.get('name','?')}: {info}")
+        logger.info("Discord", f"{_send_hour()}-Uhr-Versand: {sent} gesendet, {failed} übersprungen")
+        return {"sent": sent, "failed": failed, "lines": lines, "total": len(todo)}
+    finally:
+        _send_lock.release()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

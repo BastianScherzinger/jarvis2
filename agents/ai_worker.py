@@ -114,7 +114,7 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             if not raw:
                 logger.warn("AI-Worker", "Ollama nicht erreichbar — Fallback")
 
-            name = (data.get("name") or title)[:120]
+            name = str(data.get("name") or title or "")[:120]
             if not name or len(name.strip()) < 3:
                 continue
 

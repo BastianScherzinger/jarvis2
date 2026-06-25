@@ -64,6 +64,7 @@ def add(name: str, stadt: str, branche: str, link: str, email: str = "",
         data = _load()
         for existing in data["reviews"]:
             if (existing.get("name", "").lower().strip() == name.lower().strip()
+                    and existing.get("stadt", "").lower().strip() == (stadt or "").lower().strip()
                     and existing.get("status") in (PENDING, APPROVED)):
                 return dict(existing)
         review = {

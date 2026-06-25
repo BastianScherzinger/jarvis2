@@ -43,15 +43,22 @@ def is_configured() -> bool:
 
 
 def _rate_ok() -> bool:
-    """Stundenlimit gegen versehentliches Massen-Senden."""
-    limit = int(os.environ.get("JARVIS_EMAIL_RATE", "20") or 20)
-    now   = time.time()
+    """Stundenlimit gegen versehentliches Massen-Senden — NUR prüfen (Slot wird erst nach
+    erfolgreichem Versand via _note_sent verbraucht, damit Fehlschläge kein Budget kosten)."""
+    try:
+        limit = int(os.environ.get("JARVIS_EMAIL_RATE", "20") or 20)
+    except Exception:
+        limit = 20
+    now = time.time()
     with _lock:
         _sent_ts[:] = [t for t in _sent_ts if now - t < 3600]
-        if len(_sent_ts) >= limit:
-            return False
-        _sent_ts.append(now)
-        return True
+        return len(_sent_ts) < limit
+
+
+def _note_sent() -> None:
+    """Verbucht eine ERFOLGREICH gesendete Mail fürs Stundenlimit."""
+    with _lock:
+        _sent_ts.append(time.time())
 
 
 def status() -> dict:
@@ -149,6 +156,7 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
                 s.ehlo(); s.starttls(context=ctx); s.ehlo()
                 s.login(user, pw)
                 s.send_message(msg)
+        _note_sent()                               # Slot erst jetzt (nach Erfolg) verbrauchen
         logger.success("Mailer", f"Mail gesendet an {to}")
         return {"ok": True, "status": "gesendet", "fehler": ""}
     except Exception as e:

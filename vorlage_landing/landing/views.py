@@ -47,6 +47,7 @@ _FALLBACK = {
     "wvm_url": "https://wvm-it.tech",
     "wvm_logo": "",
     "wvm_photo": "/static/img/wvm_person.jpg",
+    "wvm_shop": "https://www.pystore.de",
 }
 
 # Vier neutrale Mitarbeiter-Platzhalter, falls keine Team-Daten vorliegen.
@@ -95,7 +96,8 @@ def _content() -> dict:
     data["team4"] = team[:4]
     # WVM-Branding: Env-Override (zentral, ohne Rebuild) gewinnt über content.json/Default.
     for key, env in (("wvm_name", "JARVIS_WVM_NAME"), ("wvm_url", "JARVIS_WVM_URL"),
-                     ("wvm_logo", "JARVIS_WVM_LOGO"), ("wvm_photo", "JARVIS_WVM_PHOTO")):
+                     ("wvm_logo", "JARVIS_WVM_LOGO"), ("wvm_photo", "JARVIS_WVM_PHOTO"),
+                     ("wvm_shop", "JARVIS_WVM_SHOP")):
         val = os.environ.get(env, "").strip()
         if val:
             data[key] = val
