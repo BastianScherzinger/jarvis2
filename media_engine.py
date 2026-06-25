@@ -1247,48 +1247,80 @@ def hero_master_prompt(branche: str = "", name: str = "", stadt: str = "",
     )
 
 
-def hero_prompt_smart(branche: str = "", name: str = "", stadt: str = "",
-                      beschreibung: str = "", akzent: str = "", leistungen: "list | None" = None) -> str:
-    """Erzeugt einen PRÄZISEN Hero-Bild-Prompt. Philosophie „Claude/Ollama plant den Prompt,
-    die Bild-KI baut": zuerst lokal über Ollama verfeinern (kostenlos, GPU/CPU), sonst das
-    branchengenaue Master-Template (hero_master_prompt). Best-effort — fällt nie aus."""
-    base = hero_master_prompt(branche=branche, name=name, stadt=stadt,
-                              beschreibung=beschreibung, akzent=akzent)
-    # Lokale Verfeinerung nur, wenn aktiviert (Default an) und Ollama erreichbar ist.
-    if _env("JARVIS_HERO_PROMPT_LOCAL", "1") == "0":
-        return base
-    try:
-        from scrapers._http import ask_ollama
-    except Exception:
-        return base
+def _hero_prompt_inputs(branche, name, stadt, beschreibung, leistungen):
     leist = ", ".join(str(x.get("titel", "")).strip() if isinstance(x, dict) else str(x)
                       for x in (leistungen or [])[:5] if x)
-    sys = ("You are a world-class art director writing prompts for a photorealistic text-to-image "
-           "model. Output ONE single English prompt line for a website hero banner photo. No text in "
-           "the image, no logos, no watermarks. Be concrete and specific to the exact trade and "
-           "scene. 60-90 words. Answer with the prompt ONLY, no preface, no quotes.")
-    ask = (f"Business: {name or '(local business)'} — trade: {branche or 'local services'} — "
+    sysmsg = ("You are a world-class advertising art director writing a single prompt for a "
+              "photorealistic text-to-image model (Higgsfield Soul). Output ONE English prompt "
+              "line for a premium website hero banner photo. Be concrete and specific to the exact "
+              "trade and scene, with camera/lens/light direction. CRITICAL: the image must contain "
+              "ZERO text/words/letters/logos/watermarks and keep clean negative space on the LEFT "
+              "third for an HTML headline overlay. 60-90 words. Answer with the prompt ONLY.")
+    usr = (f"Business: {name or '(local business)'} — trade: {branche or 'local services'} — "
            f"city: {stadt or 'Germany'}.\nServices: {leist or '(general)'}\n"
            f"Owner description: {(beschreibung or '')[:240]}\n"
            f"Reference scene to build on: {_hero_scene(branche)}\n"
            "Write the precise hero-image prompt now.")
-    try:
-        to = int(_env("JARVIS_HERO_PROMPT_TIMEOUT", "60") or "60")
-    except Exception:
-        to = 60
-    try:
-        out = (ask_ollama(ask, system=sys, timeout=to) or "").strip()
-    except Exception:
-        return base
-    # Erste nicht-leere Zeile, Anführungszeichen weg, plausible Länge erzwingen.
-    line = next((l.strip().strip('"').strip() for l in out.splitlines() if l.strip()), "")
+    return sysmsg, usr
+
+
+def _finalize_hero_line(line: str, base: str) -> str:
+    line = next((l.strip().strip('"').strip() for l in (line or "").splitlines() if l.strip()), "")
     if len(line) < 40:
         return base
-    # Negativ-/No-Text-Sicherung anhängen, falls das Modell sie vergessen hat.
     if "no text" not in line.lower():
-        line += (" 16:9 landscape, photorealistic, cinematic, negative space on the left for a "
-                 "headline. Absolutely no text, no words, no logos, no watermarks.")
+        line += (" 16:9 landscape, photorealistic, cinematic, negative space on the left for an "
+                 "HTML headline. Absolutely no text, no words, no letters, no logos, no watermarks.")
     return line[:900]
+
+
+def hero_prompt_smart(branche: str = "", name: str = "", stadt: str = "",
+                      beschreibung: str = "", akzent: str = "", leistungen: "list | None" = None) -> str:
+    """Erzeugt einen PRÄZISEN Hero-Bild-Prompt. Philosophie „Claude plant den Prompt, Higgsfield
+    baut das Bild": der Prompt wird per CLAUDE (günstiger Haiku-One-Shot) art-direktet, da das
+    visuelle Aushängeschild Claude-Qualität verdient. Fällt auf das deterministische, sehr starke
+    Master-Template zurück (Claude aus/limitiert) oder optional Ollama. Best-effort — nie ein Fehler."""
+    base = hero_master_prompt(branche=branche, name=name, stadt=stadt,
+                              beschreibung=beschreibung, akzent=akzent)
+    sysmsg, usr = _hero_prompt_inputs(branche, name, stadt, beschreibung, leistungen)
+
+    # 1) Claude-One-Shot (Standard) — klein & günstig (Haiku), echte Art-Direction.
+    if _env("JARVIS_HERO_PROMPT_CLAUDE", "1") != "0":
+        try:
+            import anthropic
+            import config
+            key = config.get_api_key()
+            if key:
+                model = _env("JARVIS_HERO_PROMPT_MODEL", "claude-haiku-4-5-20251001")
+                client = anthropic.Anthropic(api_key=key)
+                msg = client.messages.create(
+                    model=model, max_tokens=320, system=sysmsg,
+                    messages=[{"role": "user", "content": usr}])
+                try:
+                    import cost_tracker
+                    cost_tracker.track_message(model, msg, "hero_prompt", name)
+                except Exception:
+                    pass
+                txt = "".join(getattr(b, "text", "") for b in msg.content
+                              if getattr(b, "type", "") == "text")
+                line = _finalize_hero_line(txt, base)
+                if line != base:
+                    return line
+        except Exception as e:
+            _mlog("warn", "Hero", f"Claude-Hero-Prompt nicht möglich ({type(e).__name__}) → Master-Template.")
+
+    # 2) Optionaler Ollama-Fallback (nur wenn ausdrücklich aktiviert).
+    if _env("JARVIS_HERO_PROMPT_LOCAL", "0") != "0":
+        try:
+            from scrapers._http import ask_ollama
+            to = int(_env("JARVIS_HERO_PROMPT_TIMEOUT", "60") or "60")
+            out = (ask_ollama(usr, system=sysmsg, timeout=to) or "").strip()
+            return _finalize_hero_line(out, base)
+        except Exception:
+            return base
+
+    # 3) Deterministisches Master-Template (kostenlos, sehr stark).
+    return base
 
 
 def generate_image_openai(prompt: str, output_dir: "Path | None" = None,

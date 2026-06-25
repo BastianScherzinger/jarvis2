@@ -94,15 +94,15 @@ STAGES: list[dict] = [
     {
         "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _LANDING,
         "task": (
-            "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN aus. Schreibe einen glaubwürdigen, "
-            "betriebsgenauen Einleitungssatz (was der Betrieb macht, für wen, warum gut) und stelle "
-            "4–6 KONKRETE, branchenspezifische Leistungen als saubere Karten in einem übersichtlichen "
-            "Grid dar — je mit klarem Titel, kurzem Nutzen-Text und einem konsistenten Inline-SVG-Icon "
-            "(1.5px stroke, currentColor — KEINE Emojis). Integriere dezent ein Mockup-/Platzhalterbild, "
-            "falls vorhanden (sonst sauberer Platzhalter mit aspect-ratio, nie ein gebrochenes <img>). "
-            "Nutze die dokumentierten Lead-Details (Beschreibung, Stärken, Leistungen) — nichts "
-            "erfinden, keine Floskeln. Bearbeite templates/index.html + CSS wirklich; content.json-"
-            "Felder (leistungen) konsistent halten."
+            "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN. Die Inhalte stehen BEREITS in "
+            "content.json: `leistungen` (4–6 Einträge mit titel/text) und `faq`. NICHT neu "
+            "erfinden oder umschreiben — übernimm die vorhandenen Texte 1:1 und BAUE sie sauber "
+            "ein: ein kurzer Einleitungssatz, dann die Leistungen als übersichtliches Karten-Grid "
+            "(je Titel, Nutzen-Text und ein konsistentes Inline-SVG-Icon, 1.5px stroke, currentColor "
+            "— KEINE Emojis), darunter eine FAQ-Sektion aus `faq`. Integriere dezent ein Mockup-/"
+            "Platzhalterbild, falls vorhanden (sonst sauberer Platzhalter mit aspect-ratio, nie ein "
+            "gebrochenes <img>). Dein Fokus ist LAYOUT + DESIGN, nicht Texten. Bearbeite "
+            "templates/index.html + CSS wirklich."
         ),
     },
     {
@@ -112,8 +112,10 @@ STAGES: list[dict] = [
             "1) KONTAKT-BAND direkt zwischen Leistungen und Über uns: ein schmaler Streifen in "
             "Akzent-Tönung mit einer klaren Conversion-Zeile und zwei Buttons (WhatsApp via wa.me + "
             "Anrufen via tel:). Zweiter Conversion-Punkt der Seite.\n"
-            "2) ÜBER UNS überzeugend ausbauen: glaubwürdige Geschichte/Positionierung (Region, "
-            "Erfahrung, Werte). Oben/links ein PLATZHALTER für das Foto des Inhabers (Label 'Inhaber', "
+            "2) ÜBER UNS überzeugend ausbauen: die Geschichte steht BEREITS in content.json "
+            "(`ueber_text`) und die Trust-Signale in `trust` — übernimm sie 1:1 (nicht neu "
+            "schreiben), Fokus ist Layout/Design. Oben/links ein PLATZHALTER für das Foto des "
+            "Inhabers (Label 'Inhaber', "
             "sauberes Bild-Placeholder mit aspect-ratio + dezentem Icon). Darunter ein TEAM-GRID mit "
             "GENAU 4 Mitarbeiter-Platzhaltern (rundes Avatar-Placeholder + '[Name]' / '[Position]'). "
             "Daneben eine echte Trust-/USP-Liste (Garantien, Referenzen, Erreichbarkeit, "
@@ -521,6 +523,76 @@ def _ensure_legal(folder: Path, meta: dict) -> None:
     _write_content(folder, content)
 
 
+def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
+    """Reichert content.json VOR dem Makeover LOKAL über Ollama an (kostenlos, 32-GB-Maschine):
+    4–6 betriebsgenaue Leistungen, eine glaubwürdige Über-uns-Geschichte, 4–5 FAQ und Trust-
+    Signale. So muss der teure Headless-Claude in den Stufen die Texte nur noch EINBAUEN/GESTALTEN
+    statt selbst zu schreiben → deutlich weniger Tokens (≥3 Seiten pro Session). Idempotent über
+    das Flag content['content_enriched']; per JARVIS_MAKEOVER_PREFILL=0 abschaltbar. Best-effort."""
+    if os.environ.get("JARVIS_MAKEOVER_PREFILL", "1") == "0":
+        return
+    content = _read_content(folder)
+    if content.get("content_enriched"):
+        return
+    try:
+        from scrapers._http import ask_ollama
+    except Exception:
+        return
+    d = _doc_details(folder, meta)
+    name    = meta.get("name") or content.get("site_name") or "Der Betrieb"
+    branche = meta.get("branche") or content.get("branche") or d.get("branche", "")
+    stadt   = meta.get("stadt") or content.get("stadt") or d.get("stadt", "")
+    beschr  = d.get("beschreibung") or content.get("ueber_text", "")
+    if say:
+        say(7, f"Inhalte lokal anreichern (Ollama, spart Tokens) — {name}…")
+    sys = ("Du bist Senior-Texter (design-pro) für lokale Handwerks-/Dienstleister-Landingpages. "
+           "Schreibe betriebsgenau, seriös, konkret, deutsch — KEIN Fülltext, KEINE Floskeln, "
+           "nichts erfinden, was den Daten widerspricht. Antworte AUSSCHLIESSLICH mit JSON.")
+    usr = (f"Betrieb: {name}\nBranche: {branche}\nStadt/Region: {stadt}\n"
+           f"Beschreibung (Recherche): {str(beschr)[:400]}\n\n"
+           "Erzeuge JSON mit GENAU diesen Feldern:\n{\n"
+           '  "leistungen": [{"titel":"…","text":"1 konkreter Nutzen-Satz"} … 4 bis 6 '
+           "branchenspezifische Leistungen],\n"
+           '  "ueber_text": "3-4 Sätze glaubwürdige Über-uns-Geschichte (Region, Erfahrung, Werte)",\n'
+           '  "faq": [{"frage":"…","antwort":"…"} … 4 bis 5 echte, branchentypische Fragen],\n'
+           '  "trust": ["3-5 kurze Vertrauenssignale, z.B. Erreichbarkeit, Garantie, Region"]\n}\n'
+           "Nur das JSON.")
+    try:
+        out = ask_ollama(usr, system=sys, timeout=int(os.environ.get("JARVIS_PREFILL_TIMEOUT", "180") or "180"))
+    except Exception:
+        return
+    try:
+        import website_builder
+        data = website_builder._extract_json(out or "")
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        return
+    content = _read_content(folder)                      # frisch lesen
+    # Leistungen: nur ersetzen, wenn lokal mehr/bessere geliefert wurden.
+    leist = [{"titel": str(x.get("titel", "")).strip(), "text": str(x.get("text", "")).strip()}
+             for x in (data.get("leistungen") or []) if isinstance(x, dict) and x.get("titel")]
+    if len(leist) >= 4:
+        content["leistungen"] = leist[:6]
+    ueber = str(data.get("ueber_text", "")).strip()
+    if len(ueber) > len(str(content.get("ueber_text", ""))):
+        content["ueber_text"] = ueber
+    faq = [{"frage": str(x.get("frage", "")).strip(), "antwort": str(x.get("antwort", "")).strip()}
+           for x in (data.get("faq") or []) if isinstance(x, dict) and x.get("frage")]
+    if faq and not content.get("faq"):
+        content["faq"] = faq[:5]
+    trust = [str(x).strip() for x in (data.get("trust") or []) if str(x).strip()]
+    if trust and not content.get("trust"):
+        content["trust"] = trust[:5]
+    content["content_enriched"] = True
+    _write_content(folder, content)
+    try:
+        logger.info("Makeover", f"Inhalte lokal angereichert (Ollama): {len(leist)} Leistungen, "
+                                f"{len(faq)} FAQ — {name}")
+    except Exception:
+        pass
+
+
 def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
                  on_stage_done=None) -> dict:
     """Fährt die Seite durch alle noch offenen Makeover-Stufen (resume-fähig).
@@ -554,6 +626,10 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         _ensure_hero(folder, meta, say)
     # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
     _ensure_legal(folder, meta)
+    # Inhalte (Leistungen/Über-uns/FAQ/Trust) LOKAL über Ollama anreichern (0 Claude-Tokens),
+    # damit die teuren Stufen nur noch einbauen/gestalten statt zu schreiben → ≥3 Seiten/Session.
+    if not (stop and stop()):
+        _prefill_content_local(folder, meta, say)
     # Leere Bild-Slots mit Referenz-Platzhaltern füllen (auch für ältere Seiten ohne
     # about/Galerie), damit die Design-Stufen auf vollständigen Inhalten aufbauen.
     try:

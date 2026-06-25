@@ -375,7 +375,7 @@ def test_offer_email_enthaelt_link_und_preis():
     import offer_mail
     _p = str(offer_mail._price(0))                 # fairer Standardpreis (Default 299 €)
     assert _p in text and _p in html               # Angebot
-    assert "Bastian Scherzinger" in text
+    assert offer_mail._wvm()["person"] in text     # konfigurierter Absender (WVM-IT)
 
 
 def test_db_websites_kontakt_email(tmp_path, monkeypatch):

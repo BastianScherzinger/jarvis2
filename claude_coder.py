@@ -42,8 +42,10 @@ _TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "1200") or "1200")
 # stehen. 300 s (vorher 600): echte Hänger werden doppelt so schnell erkannt — der Balken steht
 # nie 10 Min still und es wird kein Token an einem toten Lauf verschwendet. Pro .env justierbar.
 _INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "300") or "300")
-# Harte Obergrenze an Agenten-Runden je Stufe (verhindert Endlosschleifen). 0 = aus.
-_MAX_TURNS  = int(os.environ.get("JARVIS_CLAUDE_MAX_TURNS", "80") or "80")
+# Harte Obergrenze an Agenten-Runden je Stufe (verhindert Endlosschleifen + deckelt Tokens). 0 = aus.
+# 50 (vorher 80): Inhalte werden vorab lokal (Ollama) befüllt, daher müssen die Stufen nur noch
+# einbauen/gestalten — weniger Runden = weniger Tokens = ≥3 Seiten pro Claude-Session.
+_MAX_TURNS  = int(os.environ.get("JARVIS_CLAUDE_MAX_TURNS", "50") or "50")
 
 # Wird als zusätzlicher System-Prompt mitgegeben. Schützt davor, dass ein im (oder über
 # dem) Zielordner gefundenes CLAUDE.md (z.B. die JARVIS-Persona mit „erst nach Guten

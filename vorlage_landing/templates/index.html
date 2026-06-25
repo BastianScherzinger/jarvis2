@@ -69,6 +69,13 @@
           </article>
           {% endfor %}
         </div>
+        {% if c.faq %}
+        <div class="faq">
+          {% for f in c.faq %}
+          <details class="faq-item"><summary>{{ f.frage }}</summary><div class="faq-a">{{ f.antwort }}</div></details>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -96,9 +103,12 @@
           <h2 class="section-t">{{ c.ueber_titel }}</h2>
           <p class="about-text">{{ c.ueber_text }}</p>
           <ul class="trust">
+            {% if c.trust %}{% for t in c.trust %}<li><span>{{ t }}</span></li>{% endfor %}
+            {% else %}
             <li><strong>Regional</strong><span>aus {{ c.stadt|default:"Ihrer Region" }}</span></li>
             <li><strong>Zuverlässig</strong><span>termintreu &amp; sauber</span></li>
             <li><strong>Persönlich</strong><span>fester Ansprechpartner</span></li>
+            {% endif %}
           </ul>
           <a class="btn btn-ghost" href="#kontakt">Lernen Sie uns kennen</a>
         </div>
