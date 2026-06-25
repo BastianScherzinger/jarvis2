@@ -179,8 +179,13 @@ STAGES_ONEPASS: list[dict] = [
             "Link (wvm_shop) erhalten. Perfekt mobil (echte Breakpoints, Sticky-Anruf/WhatsApp, Touch "
             "≥ 44 px, keine Überläufe), SEO-Grundgerüst intakt. Am Ende MUSS das Template fehlerfrei "
             "rendern. KEINE Blindtexte/Platzhalter im sichtbaren Text.\n\n"
-            "Arbeite EFFIZIENT: jede Datei höchstens einmal lesen, in wenigen gezielten Edits, keine "
-            "Probe-Renders, kein endloses Polishing — fertig, sobald es sauber rendert."
+            "BILDER: Echte Lead-Fotos stehen in content.fotos (bereits nach Qualität sortiert — die "
+            "ersten sind die besten) und ggf. content.about_image; baue sie sinnvoll ein (Galerie/"
+            "Über-uns), KEINE Doppelung des Hero-Bilds. Sind nur SVG-Platzhalter vorhanden, lass sie.\n\n"
+            "Arbeite EFFIZIENT (knappes Token-Budget): surgische Edits über eindeutige Anker/Selektoren, "
+            "lies große Dateien NUR im betroffenen Ausschnitt (nie komplett für eine Kleinigkeit), bündle "
+            "Änderungen je Datei in EINEM MultiEdit statt vieler Einzel-Edits, KEINE Probe-Renders, kein "
+            "endloses Polishing — fertig, sobald es sauber rendert."
         ),
     },
 ]
@@ -590,12 +595,46 @@ def _content_model() -> str:
         return ""
 
 
+def _grade_fotos_once(folder: Path, meta: dict, say=None) -> None:
+    """Bewertet die Lead-Fotos der Seite LOKAL (Logos/Karten/unscharfe verwerfen) und ordnet
+    Galerie + Über-uns-Bild neu — auch für Seiten, die vor der Bewertung gebaut wurden.
+    Lässt ein bereits gesetztes Hero unangetastet. Idempotent über content['fotos_graded']."""
+    try:
+        content = _read_content(folder)
+    except Exception:
+        return
+    if content.get("fotos_graded"):
+        return
+    fotos = content.get("fotos") or []
+    try:
+        import lead_images
+        branche = meta.get("branche") or content.get("branche") or ""
+        arr = lead_images.evaluate_and_arrange(fotos, folder, branche)
+        ev = arr.get("evaluated") or []
+        if ev:                              # es gab echte Rasterfotos → Ergebnis übernehmen
+            content["fotos"] = arr.get("gallery") or []
+            about = arr.get("about")
+            cur_about = (content.get("about_image") or "")
+            if about and (not cur_about or cur_about.endswith("about_ph.svg")):
+                content["about_image"] = about
+            if arr.get("captions"):
+                content["foto_captions"] = arr["captions"]
+            if say:
+                gut = sum(1 for r in ev if r.get("ok"))
+                say(6, f"{gut}/{len(ev)} Lead-Foto(s) lokal bewertet & eingeordnet.")
+        content["fotos_graded"] = True
+        _write_content(folder, content)
+    except Exception:
+        pass
+
+
 def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     """Reichert content.json VOR dem Makeover LOKAL über Ollama an (kostenlos, 32-GB-Maschine):
     4–6 betriebsgenaue Leistungen, eine glaubwürdige Über-uns-Geschichte, 4–5 FAQ und Trust-
     Signale. So muss der teure Headless-Claude in den Stufen die Texte nur noch EINBAUEN/GESTALTEN
     statt selbst zu schreiben → deutlich weniger Tokens (≥3 Seiten pro Session). Idempotent über
     das Flag content['content_enriched']; per JARVIS_MAKEOVER_PREFILL=0 abschaltbar. Best-effort."""
+    _grade_fotos_once(folder, meta, say)        # Lead-Fotos lokal bewerten (immer, idempotent)
     if os.environ.get("JARVIS_MAKEOVER_PREFILL", "1") == "0":
         return
     content = _read_content(folder)

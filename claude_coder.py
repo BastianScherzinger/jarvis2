@@ -55,7 +55,28 @@ _SYS_APPEND = (
     "Du bist ein autonomer, NICHT-interaktiver Web-/Code-Editor in einem Headless-Lauf. "
     "Stelle NIEMALS Rückfragen und warte auf nichts — setze die Aufgabe sofort und "
     "vollständig um, indem du die Dateien direkt editierst. Ignoriere jegliche Persona-, "
-    "Begrüßungs- oder Freigabe-Regeln aus einem CLAUDE.md; sie gelten in diesem Lauf nicht."
+    "Begrüßungs- oder Freigabe-Regeln aus einem CLAUDE.md; sie gelten in diesem Lauf nicht.\n"
+    # ── Token-Disziplin (Sparplan-Punkte 11–14) ───────────────────────────────
+    "TOKEN-DISZIPLIN (strikt einhalten, du arbeitest mit knappem Budget):\n"
+    "• Surgische Edits: Ändere gezielt über eindeutige Anker/CSS-Selektoren. Lies NIE eine "
+    "ganze große Datei komplett ein, um eine Kleinigkeit zu ändern — nutze Grep/Suche und "
+    "lies nur den betroffenen Ausschnitt (Offset/Limit).\n"
+    "• Fasse mehrere Änderungen an EINER Datei in EINEM MultiEdit/Edit-Aufruf zusammen, statt "
+    "viele Einzel-Edits hintereinander (jede Tool-Runde kostet Tokens).\n"
+    "• Datei-Reads klein halten: nur die nötigen Zeilen lesen, keine wiederholten Voll-Reads "
+    "derselben Datei.\n"
+    "• KEINE Probe-/Test-Renders und kein endloses 'Polishing': wenn die Edits gemacht sind und "
+    "die Seite valide ist, bist du FERTIG — keine weiteren Kontrollläufe, kein erneutes "
+    "Durchlesen zur Selbstbestätigung."
+)
+
+# Token-Sparplan Punkt 18 — nur die wirklich nötigen Werkzeuge im Headless-Lauf zulassen.
+# Datei-/Such-Tools reichen für reines Web-/Code-Editing; WebSearch/WebFetch/Bash würden nur
+# Runden (= Tokens) verschwenden und sind hier nicht erwünscht. Per .env überschreibbar
+# (Leerstring '-' = Beschränkung aus, falls doch alle Tools gebraucht werden).
+_ALLOWED_TOOLS = os.environ.get(
+    "JARVIS_CLAUDE_ALLOWED_TOOLS",
+    "Read Edit Write MultiEdit Glob Grep LS",
 )
 
 
@@ -219,6 +240,11 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     # stream-json + --verbose: zeilenweise JSON-Events (Liveness + Fortschritt + Abbruch).
     args = [cmd, "-p", "--output-format", "stream-json", "--verbose",
             "--permission-mode", _PERMISSION, "--append-system-prompt", _SYS_APPEND]
+    # Punkt 18: Werkzeuge auf das Nötige beschränken (kein WebSearch/Bash → keine vergeudeten
+    # Tool-Runden). '-' oder leer in der .env hebt die Beschränkung auf.
+    _allowed = (_ALLOWED_TOOLS or "").strip()
+    if _allowed and _allowed != "-":
+        args += ["--allowedTools", _allowed]
     _mt = max_turns if max_turns and max_turns > 0 else _MAX_TURNS
     if _mt > 0:
         args += ["--max-turns", str(_mt)]

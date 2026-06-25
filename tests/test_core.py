@@ -961,6 +961,45 @@ def test_improve_qa_behaelt_assets():
     assert 'src="{{ c.logo_image }}"' in src and "c.hero_image" in src
 
 
+# ── Lokale Lead-Foto-Bewertung (Logos raus, Rollen sinnvoll) ──────────────────
+def _mk_img(path, w, h, *, gray=False):
+    """Hilfsfunktion: synthetisches Testbild schreiben (bunt-scharf oder grau-flach)."""
+    import numpy as np
+    from PIL import Image
+    if gray:
+        arr = np.full((h, w, 3), 200, "uint8"); arr[h//3:2*h//3, w//3:2*w//3] = 30
+    else:
+        arr = (np.random.rand(h, w, 3) * 255).astype("uint8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(arr).save(path, quality=90)
+
+
+def test_lead_images_verwirft_logo_und_ordnet_rollen(tmp_path):
+    import lead_images
+    lead = tmp_path / "static" / "img" / "lead"
+    _mk_img(lead / "1.jpg", 1600, 900)            # gut, quer  → Hero
+    _mk_img(lead / "2.png", 120, 120, gray=True)  # winziges Logo → verworfen
+    _mk_img(lead / "3.jpg", 700, 1200)            # gut, hoch  → Über-uns
+    arr = lead_images.evaluate_and_arrange(
+        ["/static/img/lead/1.jpg", "/static/img/lead/2.png", "/static/img/lead/3.jpg"],
+        tmp_path, "maler")
+    by = {r["path"]: r for r in arr["evaluated"]}
+    assert by["/static/img/lead/2.png"]["ok"] is False         # Logo erkannt
+    assert by["/static/img/lead/1.jpg"]["ok"] is True
+    assert arr["hero"] == "/static/img/lead/1.jpg"             # Querformat → Hero
+    assert arr["about"] == "/static/img/lead/3.jpg"            # Hochformat → Über-uns
+    assert "/static/img/lead/2.png" not in arr["gallery"]      # verworfen, nicht in Galerie
+
+
+def test_lead_images_robust_ohne_dateien(tmp_path):
+    # Keine echten Dateien → Eingaben unverändert als Galerie, kein Crash.
+    import lead_images
+    arr = lead_images.evaluate_and_arrange(["/static/img/lead/x.jpg"], tmp_path, "kfz")
+    assert arr["hero"] == "" and arr["gallery"] == ["/static/img/lead/x.jpg"]
+    # SVG-Platzhalter werden nie als Lead-Foto bewertet
+    assert lead_images._to_fs("/static/img/hero_ph.svg", tmp_path) is None
+
+
 # ── Railway: bestehenden Service wiederverwenden (Link trotzdem zeigen) ────────
 def test_railway_find_service_parst_domain(monkeypatch):
     import agent_railway as ar

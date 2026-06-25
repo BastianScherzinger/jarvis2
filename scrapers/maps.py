@@ -249,19 +249,36 @@ def _extract_entry(page, entry, region: str, branche: str, stop_event) -> dict |
             "div[aria-label*='Fotos']"
         ))
 
-        # Mehrere Maps-Bilder sammeln (öffenbarer Bilder-Ordner im Modal)
+        # Mehrere Maps-Bilder sammeln + auf HOHE Auflösung hochrechnen (Google liefert nur
+        # Thumbnails mit Größen-Suffix '=w###-h###-…'; den ersetzen wir durch eine große
+        # Variante). Dedup über die Basis-URL, damit nicht dasselbe Bild mehrfach (in
+        # verschiedenen Größen) landet → brauchbare, scharfe Fotos für die Kundenseite.
+        def _hires(u: str) -> str:
+            return re.sub(r"=[swh]\d.*$", "=w1280-h960-k-no", u) if re.search(r"=[swh]\d", u) else u
+
+        def _base(u: str) -> str:
+            return re.sub(r"=[swh]\d.*$", "", u)
+
         foto_urls: list[str] = []
-        if foto_url:
-            foto_urls.append(foto_url)
+        seen_bases: set = set()
+        kandidaten = [foto_url] if foto_url else []
         try:
-            for img in page.query_selector_all("img[src*='googleusercontent']"):
-                src = (img.get_attribute("src") or "").strip()
-                if src and "googleusercontent" in src and src not in foto_urls:
-                    foto_urls.append(src)
-                if len(foto_urls) >= 8:
-                    break
+            kandidaten += [(img.get_attribute("src") or "").strip()
+                           for img in page.query_selector_all("img[src*='googleusercontent']")]
         except Exception:
             pass
+        for src in kandidaten:
+            if not src or "googleusercontent" not in src:
+                continue
+            b = _base(src)
+            if b in seen_bases:
+                continue
+            seen_bases.add(b)
+            foto_urls.append(_hires(src))
+            if len(foto_urls) >= 8:
+                break
+        if foto_urls:
+            foto_url = foto_urls[0]            # Hero-Kandidat ebenfalls in hoher Auflösung
 
         adresse = _text(
             page,

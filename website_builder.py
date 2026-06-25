@@ -695,6 +695,22 @@ def _run(job_id: str) -> None:
             p = 12 + int((geladen / max(gesamt, 1)) * 18)   # 12 → 30
             _step(job_id, p, f"Foto {geladen}/{gesamt} eingebaut…")
         fotos = _download_photos(list(raw_fotos), target, on_progress=_foto_fortschritt)
+        # 2b) Lead-Fotos LOKAL bewerten (Logos/Karten/unscharfe/winzige verwerfen) und
+        # sinnvoll einordnen — bestes Querformat → Hero (spart ein Higgsfield-Bild),
+        # bestes Hochformat → Über-uns, Rest → Galerie (nach Qualität sortiert).
+        lead_hero = lead_about = ""
+        lead_captions: dict = {}
+        try:
+            import lead_images
+            arr = lead_images.evaluate_and_arrange(fotos, target, lead.get("branche", ""))
+            fotos = arr.get("gallery") or fotos
+            lead_hero, lead_about = arr.get("hero", ""), arr.get("about", "")
+            lead_captions = arr.get("captions") or {}
+            gut = sum(1 for r in (arr.get("evaluated") or []) if r.get("ok"))
+            if arr.get("evaluated"):
+                _step(job_id, 32, f"{gut} brauchbare Lead-Foto(s) bewertet & eingeordnet.")
+        except Exception:
+            pass
         _step(job_id, 32, f"{len(fotos)} Foto(s) eingebaut.")
 
         # 3) Claude textet + designt -----------------------------------------
@@ -705,6 +721,24 @@ def _run(job_id: str) -> None:
             if (lead.get(k) or "").strip():
                 content[k] = str(lead[k]).strip()
         _apply_custom_assets(target, content, lead)      # Logo + ggf. hochgeladenes Hero
+        # Bewertete Lead-Fotos in ihre Rollen übernehmen (sinnvoll eingebaut).
+        if lead_about:
+            content["about_image"] = lead_about
+        if lead_captions:
+            content["foto_captions"] = lead_captions
+        # Bestes echtes Querformat-Foto wird Hero — nur wenn kein eigenes Hero hochgeladen wurde.
+        # Spart ein Higgsfield-Bild (hero_source='lead_foto' überspringt die Generierung unten).
+        hero_png = target / "static" / "img" / "hero.png"
+        if lead_hero and not hero_png.exists():
+            try:
+                src = target / lead_hero.lstrip("/")
+                if src.is_file():
+                    shutil.copyfile(src, hero_png)
+                    content["hero_image"]  = "/static/img/hero.png"
+                    content["hero_source"] = "lead_foto"
+                    _step(job_id, 55, "Bestes Lead-Foto als Hero gewählt (Higgsfield gespart).")
+            except Exception:
+                pass
         try:
             import site_meta
             content["site_version"] = site_meta.SITE_VERSION
