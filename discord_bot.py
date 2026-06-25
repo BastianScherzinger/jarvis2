@@ -81,13 +81,38 @@ def status() -> dict:
 
 # ── E-Mail-Versand der freigegebenen Seiten (Standardbibliothek, threadsicher) ──
 
+def link_is_live(url: str, timeout: int = 8) -> bool:
+    """True, wenn die URL wirklich erreichbar ist (HTTP < 400). Verhindert, dass eine Mail
+    mit totem Live-Link rausgeht. Leere/relative URLs gelten als nicht live."""
+    url = (url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return False
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(url, method="GET", headers={"User-Agent": "Mozilla/5.0 JARVIS"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return getattr(r, "status", 200) < 400
+    except urllib.error.HTTPError as e:
+        return e.code < 400
+    except Exception:
+        return False
+
+
 def _send_one_real(review: dict) -> tuple:
     """Schickt eine freigegebene Seite an den/die echten Empfänger. (ok, info).
     Bei einer Empfängerliste (Custom-Modus, 11+) geht das Angebot an JEDE Adresse."""
     import mailer
     import offer_mail
+    # Link-Garantie: nur einen WIRKLICH erreichbaren Live-Link in die Mail nehmen — sonst
+    # baut offer_mail die ehrliche Variante ohne (kaputten) Button.
+    raw_link = (review.get("link") or "").strip()
+    safe_link = raw_link if link_is_live(raw_link) else ""
+    if raw_link and not safe_link:
+        logger.warn("Discord", f"Live-Link nicht erreichbar ({raw_link[:80]}) — "
+                               "Mail ohne Link-Button versendet.")
     betreff, text, html = offer_mail.build(
-        review.get("name", ""), review.get("link", ""), review.get("branche", ""),
+        review.get("name", ""), safe_link, review.get("branche", ""),
         review.get("stadt", ""), review.get("ansprechpartner", ""))
 
     recipients = [e.strip() for e in (review.get("recipients") or []) if "@" in (e or "")]

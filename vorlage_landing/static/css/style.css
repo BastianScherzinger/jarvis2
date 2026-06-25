@@ -211,6 +211,18 @@ a{color:inherit;text-decoration:none}
 .legal summary{cursor:pointer;padding:12px 16px;font-weight:600;font-size:14px}
 .legal-body{padding:0 16px 16px;font-size:13px;color:var(--ink-soft);line-height:1.6}
 
+/* „Erstellt von WVM-IT"-Credit */
+.wvm-credit{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.wvm-link{display:inline-flex;align-items:center;gap:12px;color:var(--ink-soft);font-size:13px}
+.wvm-link:hover{color:var(--accent)}
+.wvm-photo{width:38px;height:38px;border-radius:50%;object-fit:cover;flex:0 0 auto}
+.wvm-photo.ph{display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 8%,var(--surface));
+  border:1px dashed var(--line);color:color-mix(in srgb,var(--accent) 55%,var(--ink-soft))}
+.wvm-photo.ph svg{width:20px;height:20px}
+.wvm-txt{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.wvm-logo{height:18px;width:auto;vertical-align:middle}
+.wvm-dom{color:var(--accent);font-weight:600}
+
 /* ── Mobiler Sticky-Kontaktbalken ────────────────────────────────────────── */
 .mobilebar{display:none}
 .mobilebar a{flex:1;text-align:center;padding:14px 8px;font-weight:600;font-size:15px;

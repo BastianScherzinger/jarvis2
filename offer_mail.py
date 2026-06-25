@@ -55,6 +55,20 @@ def _anrede(ansprechpartner: str) -> str:
     return "Guten Tag,"
 
 
+def _wvm() -> dict:
+    """WVM-IT-Absenderdaten für die Signatur (per Env überschreibbar)."""
+    import os
+    url = (os.environ.get("JARVIS_WVM_URL") or "https://wvm-it.at").strip()
+    dom = url.replace("https://", "").replace("http://", "").rstrip("/")
+    return {
+        "name": (os.environ.get("JARVIS_WVM_NAME") or "WVM-IT").strip(),
+        "url": url,
+        "domain": dom,
+        "logo": (os.environ.get("JARVIS_WVM_LOGO_URL") or "").strip(),  # öffentliche URL für E-Mail
+        "person": (os.environ.get("JARVIS_WVM_PERSON") or "Bastian Scherzinger").strip(),
+    }
+
+
 def build(name: str, link: str, branche: str = "", stadt: str = "",
           ansprechpartner: str = "") -> tuple:
     """Gibt (betreff, text, html). Komplettpreis 350 €, alles anpassbar, Live-Link.
@@ -66,24 +80,22 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     fach = branche or "Ihr Betrieb"
     anrede = _anrede(ansprechpartner)
     betreff = _subject(name, branche, stadt, bool(url))
+    wvm = _wvm()
 
-    # ── Plain-Text ──────────────────────────────────────────────────────────
-    linkblock = (f"Sie ist bereits online:\n\n{url}\n\n" if url
-                 else "Den Live-Link senden wir Ihnen auf eine kurze Antwort hin sofort zu.\n\n")
+    # ── Plain-Text — kurz, menschlich, freundlich ───────────────────────────
+    linkblock = (f"Hier ist sie, schon online:\n{url}\n\n" if url
+                 else "Den Live-Link schicke ich Ihnen auf eine kurze Antwort hin sofort zu.\n\n")
     text = (
         f"{anrede}\n\n"
-        f"wir sind auf {name}{region} aufmerksam geworden – ein Betrieb mit gutem Ruf, "
-        f"aber bislang ohne professionellen Webauftritt. Deshalb haben wir Ihnen "
-        f"unverbindlich eine moderne Webseite erstellt. {linkblock}"
-        f"Unser Angebot, ehrlich und einfach:\n"
-        f"• Komplette, professionelle Webseite zum Festpreis von 350 € – keine versteckten Kosten.\n"
-        f"• Modernes, mobiloptimiertes Design, passend zu {fach}.\n"
-        f"• Alles individuell anpassbar: Texte, Farben, Bilder, Inhalte – ganz nach Ihren Wünschen.\n"
-        f"• Schnell startklar und sofort online.\n\n"
-        f"Schauen Sie in Ruhe rein. Gefällt sie Ihnen, übernehmen wir sie für Sie und passen "
-        f"jedes Detail an. Sie entscheiden, was bleibt und was sich ändert.\n\n"
-        f"Antworten Sie einfach auf diese Mail – wir besprechen die Details unverbindlich.\n\n"
-        f"Beste Grüße\nBastian Scherzinger"
+        f"ich bin auf {name}{region} gestoßen und fand schade, dass ein Betrieb mit so gutem "
+        f"Ruf online kaum sichtbar ist. Also habe ich Ihnen einfach mal eine moderne Webseite "
+        f"gebaut – ganz unverbindlich.\n\n"
+        f"{linkblock}"
+        f"Gefällt sie Ihnen? Dann übernehme ich sie für Sie und passe jedes Detail an Ihre "
+        f"Wünsche an – Texte, Farben, Bilder. Komplett fertig für 350 € einmalig, kein Abo, "
+        f"keine versteckten Kosten. Gefällt sie nicht, kostet es Sie nichts.\n\n"
+        f"Antworten Sie einfach kurz auf diese Mail, dann klären wir den Rest.\n\n"
+        f"Beste Grüße\n{wvm['person']}\n{wvm['name']} · {wvm['domain']}"
     )
 
     # ── HTML (alle dynamischen Werte escaped) ───────────────────────────────
@@ -92,6 +104,20 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     e_fach = _html.escape(fach)
     e_anrede = _html.escape(anrede)
     e_url = _html.escape(url, quote=True)
+    e_wvm_url = _html.escape(wvm["url"], quote=True)
+    e_wvm_name = _html.escape(wvm["name"])
+    e_wvm_dom = _html.escape(wvm["domain"])
+    e_wvm_person = _html.escape(wvm["person"])
+    wvm_logo_html = (f'<img src="{_html.escape(wvm["logo"], quote=True)}" alt="{e_wvm_name}" '
+                     f'style="height:22px;width:auto;vertical-align:middle;margin-right:6px">'
+                     if wvm["logo"] else "")
+    signatur_html = (
+        f'<p style="font-size:15px;color:#3a4654;margin:14px 0 0">Beste Grüße<br>'
+        f'<strong>{e_wvm_person}</strong></p>'
+        f'<p style="margin:10px 0 0;font-size:13px;color:#6a7c90">{wvm_logo_html}'
+        f'<a href="{e_wvm_url}" style="color:#1e8eff;text-decoration:none;font-weight:600">'
+        f'{e_wvm_name} · {e_wvm_dom}</a></p>'
+    )
 
     cta_html = (
         f"""<p style="margin:22px 0 6px">
@@ -140,7 +166,7 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
         nach Ihren Wünschen an. Gefällt sie nicht? Dann kostet Sie das nichts — Sie haben sie
         ja schon gesehen.</div>
       <p style="font-size:15px;color:#3a4654;margin:0 0 4px">Klingt gut? Antworten Sie einfach kurz auf diese Mail.</p>
-      <p style="font-size:15px;color:#3a4654;margin:14px 0 0">Beste Grüße<br><strong>Bastian Scherzinger</strong></p>
+      {signatur_html}
     </div>
     {foot_link}
   </div>

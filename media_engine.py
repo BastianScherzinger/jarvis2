@@ -963,7 +963,8 @@ def _hf_poll(rid: str, key: str) -> dict:
 
 
 def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
-                              filename: str = "", width: int = 1280, height: int = 720) -> dict:
+                              filename: str = "", width: int = 1280, height: int = 720,
+                              enhance: "bool | None" = None) -> dict:
     """
     Bild via Higgsfield Soul (Cloud). Für schwache Hardware (CPU) gedacht, wenn lokale
     Generierung zu langsam ist. Wirft bei jedem Problem eine Exception — der Aufrufer
@@ -981,8 +982,13 @@ def generate_image_higgsfield(prompt: str, output_dir: "Path | None" = None,
 
     size = _hf_valid_size(width, height)
     quality = os.environ.get("JARVIS_HF_IMAGE_QUALITY", "1080p")
+    # enhance_prompt lässt Higgsfield den Prompt umschreiben — das kann unsere strikte
+    # No-Text-Anweisung aushebeln und Text/Logos ins Bild bringen. Für Hero-Bilder daher AUS
+    # (enhance=False). Default global über JARVIS_HF_ENHANCE (Default "0").
+    if enhance is None:
+        enhance = (_env("JARVIS_HF_ENHANCE", "0") or "0").strip().lower() in ("1", "true", "yes", "ja")
     payload = {"params": {"prompt": prompt, "width_and_height": size,
-                          "quality": quality, "batch_size": 1, "enhance_prompt": True}}
+                          "quality": quality, "batch_size": 1, "enhance_prompt": bool(enhance)}}
 
     t0 = time.time()
     req = urllib.request.Request(
@@ -1108,6 +1114,51 @@ def openai_quota_left() -> int:
     return max(0, mx - _openai_used_today())
 
 
+# ── Hero-Bild-Tageslimit (Higgsfield-Abo-Budget schonen) ─────────────────────
+# Das ~40 €-Higgsfield-Abo reicht für grob ~5 hochwertige Hero-Bilder pro Tag. Da der
+# Nightbuilder 5 Seiten/Tag baut (je 1 Hero) und Re-Makeover das Hero NICHT neu erzeugt,
+# passt ein hartes Tageslimit von 5 exakt und verhindert Budget-Überraschungen.
+_HERO_USAGE_PATH = _BASE / "data" / "hero_image_usage.json"
+
+
+def hero_daily_max() -> int:
+    """Maximale Cloud-Hero-Bilder pro Tag (Abo-Budget). 0 = unbegrenzt."""
+    try:
+        return int(_env("JARVIS_HERO_DAILY_MAX", "5") or "5")
+    except Exception:
+        return 5
+
+
+def _hero_used_today() -> int:
+    try:
+        import json
+        d = json.loads(_HERO_USAGE_PATH.read_text(encoding="utf-8"))
+        return int(d.get("count", 0)) if d.get("date") == time.strftime("%Y-%m-%d") else 0
+    except Exception:
+        return 0
+
+
+def _hero_bump() -> None:
+    """Erhöht den Hero-Tageszähler (rollt bei Tageswechsel auf 0 zurück)."""
+    try:
+        import json
+        used = _hero_used_today()
+        _HERO_USAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _HERO_USAGE_PATH.write_text(
+            json.dumps({"date": time.strftime("%Y-%m-%d"), "count": used + 1}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+
+
+def hero_quota_left() -> int:
+    """Verbleibende Cloud-Hero-Bilder heute. max<=0 → unbegrenzt (großer Wert)."""
+    mx = hero_daily_max()
+    if mx <= 0:
+        return 1_000_000
+    return max(0, mx - _hero_used_today())
+
+
 # Branchen-Szenen-Lexikon: konkrete, fotografisch verwertbare Bildmotive je Gewerk.
 # Macht den Hero-Prompt „krass genau" (echtes Werkzeug/echte Umgebung statt generisch),
 # auch ohne ein KI-Modell zur Prompt-Verfeinerung. Key = Teilstring der Branche (lower).
@@ -1164,15 +1215,21 @@ def hero_master_prompt(branche: str = "", name: str = "", stadt: str = "",
     extra = f" Tailor the details to this specific business: {desc[:240]}." if desc else ""
     acc   = f" Subtle brand accent color {akzent} present in the scene (clothing/signage/props), never as text." if akzent else ""
     return (
-        f"Ultra-realistic editorial commercial photograph — hero banner for the website of a "
+        f"Ultra-realistic editorial commercial photograph — premium website hero banner for a "
         f"German {br} business in {ort}. Scene: {scene}.{extra} "
-        "Shot on a full-frame camera with a wide lens, natural bright daylight, soft realistic "
-        "shadows, shallow depth of field, cinematic color grading, high dynamic range, crisp "
-        "focus, magazine-grade quality. Clean modern composition with intentional negative space "
-        "on the left third for a headline text overlay. The scene must immediately communicate "
-        "trust, competence and quality for this exact trade. 16:9 landscape." + acc +
-        " Absolutely NO text, NO words, NO letters, NO logos, NO watermarks, NO UI elements, "
-        "no distorted hands, no extra limbs, no collage, no frames, photorealistic only."
+        "Shot on a full-frame camera (35mm f/1.8), natural bright daylight or warm golden-hour "
+        "light, soft realistic shadows, shallow depth of field with creamy bokeh, cinematic color "
+        "grading, high dynamic range, crisp tack-sharp focus, immaculate styling, award-winning "
+        "advertising photography, magazine-grade quality. Real authentic people and genuine tools "
+        "of this exact trade, candid professional moment, trustworthy and competent mood. Clean "
+        "modern composition following rule of thirds, generous clean NEGATIVE SPACE on the LEFT "
+        "third (an HTML headline is overlaid there later by code), uncluttered background. "
+        "16:9 landscape orientation." + acc +
+        " The image must be a PURE PHOTOGRAPH with ZERO graphics overlaid. ABSOLUTELY NO text, "
+        "no words, no letters, no numbers, no captions, no signage with writing, no labels, no "
+        "logos, no brand marks, no watermarks, no UI, no buttons, no posters, no banners with "
+        "writing. No distorted hands, no extra limbs, no collage, no borders or frames. "
+        "Photorealistic only. If any text would appear, leave that area empty instead."
     )
 
 
@@ -1335,6 +1392,11 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
         "local":           [],                  # 'local' → keine Cloud (Aufrufer rendert lokal)
         "auto":            ["higgsfield_mcp", "higgsfield", "openai"],
     }.get(hero_engine(), ["higgsfield_mcp", "higgsfield", "openai"])
+    # Hartes Tageslimit fürs Abo-Budget (Default 5). Erschöpft → klar werfen, der Aufrufer
+    # (_ensure_hero) behält das bestehende Bild bzw. den Gradient.
+    if hero_quota_left() <= 0:
+        raise RuntimeError(f"Hero-Tageslimit erreicht ({_hero_used_today()}/{hero_daily_max()}) "
+                           "— Budget-Deckel. Morgen wieder oder JARVIS_HERO_DAILY_MAX erhöhen.")
     errs: list[str] = []
     for e in order:
         try:
@@ -1349,18 +1411,22 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
                     web_url = f"/workspace/media/images/{rel.as_posix()}"
                 except Exception:
                     web_url = ""
+                _hero_bump()
                 return {"path": r["path"], "web_url": web_url,
                         "model": "Higgsfield Soul (MCP/Abo)", "prompt": prompt,
                         "engine": "higgsfield_mcp"}
             if e == "higgsfield" and higgsfield_available():
                 r = generate_image_higgsfield(prompt, output_dir=output_dir,
-                                              filename=filename, width=width, height=height)
+                                              filename=filename, width=width, height=height,
+                                              enhance=False)
                 r["engine"] = "higgsfield"
+                _hero_bump()
                 return r
             if e == "openai" and openai_available() and openai_quota_left() > 0:
                 r = generate_image_openai(prompt, output_dir=output_dir, filename=filename,
                                           width=width, height=height, name=name)
                 r["engine"] = "openai"
+                _hero_bump()
                 return r
         except Exception as ex:
             errs.append(f"{e}:{type(ex).__name__}")

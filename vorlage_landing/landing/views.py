@@ -5,6 +5,7 @@ content.json wird vom JARVIS-Website-Builder mit den echten Lead-Daten gefüllt.
 Fehlt sie, greift ein neutraler Fallback, damit die Seite nie crasht.
 """
 import json
+import os
 import re
 from pathlib import Path
 
@@ -39,6 +40,12 @@ _FALLBACK = {
     "datenschutz": "",
     "impressum": "",
     "agb": "",
+    # „Erstellt von WVM-IT"-Branding (Agentur-Credit im Footer). Platzhalter; per content.json
+    # oder Env (JARVIS_WVM_*) überschreibbar. Logo/Foto leer → dezenter Text-/Foto-Platzhalter.
+    "wvm_name": "WVM-IT",
+    "wvm_url": "https://wvm-it.at",
+    "wvm_logo": "",
+    "wvm_photo": "",
 }
 
 # Vier neutrale Mitarbeiter-Platzhalter, falls keine Team-Daten vorliegen.
@@ -78,6 +85,12 @@ def _content() -> dict:
     if not team:
         team = list(_TEAM_FALLBACK)
     data["team4"] = team[:4]
+    # WVM-Branding: Env-Override (zentral, ohne Rebuild) gewinnt über content.json/Default.
+    for key, env in (("wvm_name", "JARVIS_WVM_NAME"), ("wvm_url", "JARVIS_WVM_URL"),
+                     ("wvm_logo", "JARVIS_WVM_LOGO"), ("wvm_photo", "JARVIS_WVM_PHOTO")):
+        val = os.environ.get(env, "").strip()
+        if val:
+            data[key] = val
     return data
 
 

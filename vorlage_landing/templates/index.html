@@ -168,6 +168,17 @@
         <span class="foot-sub">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
       </div>
     </div>
+    <!-- Erstellt von WVM-IT (Agentur-Credit) -->
+    <div class="wrap wvm-credit">
+      <a class="wvm-link" href="{{ c.wvm_url }}" target="_blank" rel="noopener">
+        {% if c.wvm_photo %}<img class="wvm-photo" src="{{ c.wvm_photo }}" alt="{{ c.wvm_name }}">
+        {% else %}<span class="wvm-photo ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></span>{% endif %}
+        <span class="wvm-txt">Erstellt von
+          {% if c.wvm_logo %}<img class="wvm-logo" src="{{ c.wvm_logo }}" alt="{{ c.wvm_name }}">{% else %}<strong>{{ c.wvm_name }}</strong>{% endif %}
+          <span class="wvm-dom">{{ c.wvm_url|cut:"https://"|cut:"http://" }}</span>
+        </span>
+      </a>
+    </div>
     <div class="wrap legal">
       {% if c.datenschutz %}<details id="datenschutz"><summary>Datenschutzerklärung</summary><div class="legal-body">{{ c.datenschutz|linebreaks }}</div></details>{% endif %}
       {% if c.impressum %}<details id="impressum"><summary>Impressum</summary><div class="legal-body">{{ c.impressum|linebreaks }}</div></details>{% endif %}
