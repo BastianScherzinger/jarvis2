@@ -172,7 +172,7 @@ async function archiveAllAndStart(){
   const ok = confirm(
     '⚡ Neu starten\n\n'
     + 'Das archiviert alle aktuellen Webseiten (sie bleiben unter „Alte Webseiten" sichtbar) '
-    + 'und startet den Night-Builder neu — er baut dann 10 neue Seiten, verbessert jede mit dem '
+    + 'und startet den Night-Builder neu — er baut dann 5 neue Seiten, verbessert jede mit dem '
     + '7-Stufen-Makeover und schickt jede fertige Seite zur Freigabe in Discord.\n\n'
     + 'Leads werden nicht doppelt gebaut.\n\nFortfahren?'
   );
@@ -352,13 +352,20 @@ function _wsCard(w){
       ${integrate}
     </div>`;
 
+  const verBadge = w.site_version
+    ? `<span class="ws-badge ver" title="Bau-/Update-Level dieser Seite">Update ${_wse(w.site_version)}</span>`
+    : '';
+  const stagesBadge = w.stages_total
+    ? `<span class="ws-badge stages ${(w.stages_done>=w.stages_total)?'full':''}" title="Makeover-Stufen fertig">${(w.stages_done||0)}/${w.stages_total} Stufen</span>`
+    : '';
+
   return `<div class="ws-card ${st.cls}">
     <div class="ws-card-head">
       <div class="ws-card-titlewrap">
         <div class="ws-card-title">${_wse(w.name || 'Unbenannt')}</div>
         ${meta ? `<div class="ws-card-meta">${meta}</div>` : ''}
       </div>
-      <span class="ws-badge ${st.cls}">${_wse(st.lbl)}</span>
+      <div class="ws-card-badges">${verBadge}${stagesBadge}<span class="ws-badge ${st.cls}">${_wse(st.lbl)}</span></div>
     </div>
     ${prog}
     ${linkRow}
@@ -370,7 +377,7 @@ function _wsCard(w){
       <button class="ws-act" onclick='wsAdImages(${w.id})' title="5 Werbe-Bilder für diesen Betrieb generieren">🖼 Werbebilder</button>
       <button class="ws-act" onclick='wsAdVideo(${w.id})' title="Werbevideo für diesen Betrieb generieren">🎬 Werbevideo</button>
       <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
-      <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail (350 €) zum Test an dich senden">✉ Test an mich</button>
+      <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail zum Test an dich senden">✉ Test an mich</button>
       ${w.kontakt_email
         ? `<button class="ws-act mail" onclick='wsSendOffer(${w.id}, "real")' title="An ${_wse(w.kontakt_email)} senden">✉ An Kunde senden</button>`
         : `<button class="ws-act" onclick='wsFindContact(${w.id}, this)' title="Kontaktadresse des Betriebs aktiv suchen (Impressum / Google)">🔎 Kontakt finden</button>`}

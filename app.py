@@ -355,9 +355,31 @@ def api_websites_grouped():
     today = _time.strftime("%Y-%m-%d")
     all_sites = db_websites.get_all()          # archived=0 (Standard)
 
+    try:
+        import overnight_makeover as _om
+        import site_meta as _sm
+        _stage_total = len(_om.STAGES)
+    except Exception:
+        _om = None
+        _stage_total = 7
+
     for s in all_sites:
         ts = s.get("created") or 0
         s["build_date"] = _time.strftime("%Y-%m-%d", _time.localtime(ts)) if ts else "unbekannt"
+        # Update-Level (Version) + Makeover-Stufen-Stand je Seite fürs Dashboard-Badge.
+        folder = s.get("folder") or ""
+        s["stages_total"] = _stage_total
+        try:
+            if _om and folder:
+                c = _om._read_content(folder)
+                s["site_version"] = c.get("site_version", "")
+                s["stages_done"] = _stage_total - _om.open_stages(folder)
+            else:
+                s["site_version"] = ""
+                s["stages_done"] = 0
+        except Exception:
+            s["site_version"] = ""
+            s["stages_done"] = 0
 
     days_dict: dict = {}
     for s in all_sites:

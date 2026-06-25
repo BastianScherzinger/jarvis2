@@ -695,6 +695,11 @@ def _run(job_id: str) -> None:
             if (lead.get(k) or "").strip():
                 content[k] = str(lead[k]).strip()
         _apply_custom_assets(target, content, lead)      # Logo + ggf. hochgeladenes Hero
+        try:
+            import site_meta
+            content["site_version"] = site_meta.SITE_VERSION
+        except Exception:
+            pass
         (target / "content.json").write_text(
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
         _step(job_id, 56, f"Texte & Design erstellt: {content.get('headline','')[:40]}")

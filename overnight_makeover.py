@@ -93,6 +93,7 @@ STAGES: list[dict] = [
     },
     {
         "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _LANDING,
+        "model": _MODEL_LITE,        # Inhalte vorgefüllt → reines Arrangieren → günstiges Modell
         "task": (
             "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN. Die Inhalte stehen BEREITS in "
             "content.json: `leistungen` (4–6 Einträge mit titel/text) und `faq`. NICHT neu "
@@ -107,6 +108,7 @@ STAGES: list[dict] = [
     },
     {
         "key": "ueber", "label": "Über uns, Team & Kontakt-Band", "skill": _LANDING,
+        "model": _MODEL_LITE,        # Inhalte vorgefüllt → reines Arrangieren → günstiges Modell
         "task": (
             "Zwei Dinge in dieser Reihenfolge:\n"
             "1) KONTAKT-BAND direkt zwischen Leistungen und Über uns: ein schmaler Streifen in "
@@ -125,6 +127,7 @@ STAGES: list[dict] = [
     },
     {
         "key": "kontakt", "label": "Kontakt-Bereich", "skill": _LANDING,
+        "model": _MODEL_LITE,        # mechanisch (Kontaktdaten/Karte/CTAs) → günstiges Modell
         "task": (
             "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (klickbarer "
             "tel:-Link), WhatsApp-Button (wa.me), E-Mail (mailto:), vollständige Adresse, "
@@ -246,6 +249,11 @@ def _mark_done(folder: Path, key: str) -> None:
         done.append(key)
     content["makeover_stages"] = done
     content["makeover_version"] = _MAKEOVER_VERSION
+    try:
+        import site_meta
+        content["site_version"] = site_meta.SITE_VERSION
+    except Exception:
+        pass
     _write_content(folder, content)
 
 
