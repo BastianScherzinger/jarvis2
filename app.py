@@ -514,19 +514,37 @@ def api_website_add_image(wid):
     return jsonify({"ok": True, "website": updated})
 
 
-@app.route("/api/websites/<int:wid>", methods=["DELETE"])
-def api_website_delete(wid):
-    """Löscht eine generierte Webseite: DB-Eintrag immer; lokalen Ordner (folder=1)
-    und remote GitHub-Repo + Railway-Service (remote=1) best-effort."""
-    import shutil
-    row = db_websites.get(wid)
-    if not row:
-        return jsonify({"ok": False, "reason": "not_found"}), 404
-    del_folder = request.args.get("folder", "1") not in ("0", "false", "no")
-    del_remote = request.args.get("remote", "0") in ("1", "true", "yes")
+def _website_teardown_remote(row: dict) -> list:
+    """GitHub-Repo + Railway-Service einer Seite abbauen (best-effort). Gibt report-Liste."""
     report = []
+    repo = (row.get("repo_url") or "").strip()
+    if not repo:
+        return report
+    full = repo.split("github.com/", 1)[-1].strip("/").removesuffix(".git")
+    if "/" not in full:
+        return report
+    try:
+        import agent_github
+        gr = agent_github.delete_repo(full)
+        report.append("GitHub-Repo gelöscht" if gr.get("ok")
+                      else f"GitHub: {gr.get('error', '')[:60]}")
+    except Exception as e:
+        report.append(f"GitHub-Fehler: {type(e).__name__}")
+    try:
+        import agent_railway
+        svc = full.split("/")[-1]                 # Service-Name = Repo-Name (web-<slug>)
+        rr = agent_railway.service_delete_by_name(svc)
+        report.append("Railway-Service gelöscht" if rr.get("ok")
+                      else f"Railway: {rr.get('error', '')[:60]}")
+    except Exception as e:
+        report.append(f"Railway-Fehler: {type(e).__name__}")
+    return report
 
-    # 1) Lokalen Ordner löschen (nur sichere web_-Ordner unterhalb der Shop-Basis)
+
+def _website_delete_local(row: dict, del_folder: bool = True) -> list:
+    """Lokalen Ordner (nur sichere web_-Ordner) + Cloud-Eintrag + DB-Zeile entfernen. Schnell."""
+    import shutil
+    report = []
     folder = (row.get("folder") or "").strip()
     if del_folder and folder:
         try:
@@ -538,36 +556,73 @@ def api_website_delete(wid):
                 report.append("Ordner übersprungen (unsicherer Pfad)")
         except Exception as e:
             report.append(f"Ordner-Fehler: {type(e).__name__}")
-
-    # 2) Remote (GitHub-Repo + Railway-Service) — best-effort
-    if del_remote and row.get("repo_url"):
-        full = row["repo_url"].split("github.com/", 1)[-1].strip("/").removesuffix(".git")
-        if "/" in full:
-            try:
-                import agent_github
-                gr = agent_github.delete_repo(full)
-                report.append("GitHub-Repo gelöscht" if gr.get("ok")
-                              else f"GitHub: {gr.get('error', '')[:60]}")
-            except Exception as e:
-                report.append(f"GitHub-Fehler: {type(e).__name__}")
-            try:
-                import agent_railway
-                svc = full.split("/")[-1]            # Service-Name = Repo-Name (web-<slug>)
-                rr = agent_railway.service_delete_by_name(svc)
-                report.append("Railway-Service gelöscht" if rr.get("ok")
-                              else f"Railway: {rr.get('error', '')[:60]}")
-            except Exception as e:
-                report.append(f"Railway-Fehler: {type(e).__name__}")
-
-    # 3) Cloud-Eintrag entfernen (Cross-PC) + lokalen DB-Eintrag (immer)
     try:
         import cloud_sync_websites
         cloud_sync_websites.delete_remote(row.get("name", ""), row.get("stadt", ""))
     except Exception:
         pass
-    db_websites.delete(wid)
+    db_websites.delete(row["id"])
     report.append("Eintrag entfernt")
+    return report
+
+
+@app.route("/api/websites/<int:wid>", methods=["DELETE"])
+def api_website_delete(wid):
+    """Löscht eine generierte Webseite: DB-Eintrag immer; lokalen Ordner (folder=1)
+    und remote GitHub-Repo + Railway-Service (remote=1) best-effort."""
+    row = db_websites.get(wid)
+    if not row:
+        return jsonify({"ok": False, "reason": "not_found"}), 404
+    del_folder = request.args.get("folder", "1") not in ("0", "false", "no")
+    del_remote = request.args.get("remote", "0") in ("1", "true", "yes")
+    report = []
+    if del_remote:
+        report += _website_teardown_remote(row)
+    report += _website_delete_local(row, del_folder)
     return jsonify({"ok": True, "report": report})
+
+
+@app.route("/api/websites/day/<date>", methods=["DELETE"])
+def api_websites_delete_day(date):
+    """Löscht ALLE Seiten EINES Bautags in einem Rutsch. Lokale Ordner + DB-Einträge werden
+    sofort entfernt (UI aktualisiert sofort); der langsamere GitHub+Railway-Abbau (remote=1,
+    Default an) läuft im Hintergrund, damit der Request nicht hängt."""
+    import time as _time
+    import threading
+    del_folder = request.args.get("folder", "1") not in ("0", "false", "no")
+    del_remote = request.args.get("remote", "1") not in ("0", "false", "no")   # Default: Railway weg
+
+    targets = []
+    for s in db_websites.get_all():                 # aktive (nicht archivierte) Seiten = was angezeigt wird
+        ts = s.get("created") or 0
+        bd = _time.strftime("%Y-%m-%d", _time.localtime(ts)) if ts else "unbekannt"
+        if bd == date:
+            targets.append(s)
+    if not targets:
+        return jsonify({"ok": False, "reason": "no_sites"}), 404
+
+    # Für den Hintergrund-Abbau eine Kopie der Remote-Infos sichern, BEVOR die Zeilen weg sind.
+    remote_rows = [dict(s) for s in targets] if del_remote else []
+    # Lokal + DB sofort entfernen.
+    for s in targets:
+        try:
+            _website_delete_local(s, del_folder)
+        except Exception:
+            pass
+    # GitHub + Railway im Hintergrund abbauen (kann je Seite 1-3 s dauern).
+    if remote_rows:
+        def _bg():
+            for r in remote_rows:
+                try:
+                    rep = _website_teardown_remote(r)
+                    _logger.info("Websites", f"Tag {date}: {r.get('name','?')} → {', '.join(rep) or 'kein Remote'}")
+                except Exception as e:
+                    _logger.warn("Websites", f"Remote-Abbau {r.get('name','?')}: {type(e).__name__}")
+            _logger.success("Websites", f"Tag {date}: Railway/GitHub-Abbau abgeschlossen ({len(remote_rows)} Seiten).")
+        threading.Thread(target=_bg, name="DayTeardown", daemon=True).start()
+
+    return jsonify({"ok": True, "deleted": len(targets),
+                    "remote": "im Hintergrund" if remote_rows else "übersprungen"})
 
 
 @app.route("/api/websites/<int:wid>/asset/<path:fname>")

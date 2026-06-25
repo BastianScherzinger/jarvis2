@@ -259,6 +259,11 @@ function _wsDayFolder(day){
       <div class="ws-day-pills">
         ${progBadge}${extraBadge}${liveBadge}
       </div>
+      <button class="ws-day-del" title="Ganzen Tag löschen (inkl. Railway)"
+        aria-label="Ganzen Tag ${_wse(day.date)} löschen"
+        onclick="event.stopPropagation(); wsDeleteDay('${_wse(day.date)}', ${count})">
+        <svg viewBox="0 0 18 18" width="15" height="15" fill="none"><path d="M3 5h12M7 5V3.5A1.5 1.5 0 018.5 2h1A1.5 1.5 0 0111 3.5V5M5.5 5l.5 9a1.5 1.5 0 001.5 1.4h3a1.5 1.5 0 001.5-1.4l.5-9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       ${bar}
     </div>
     <div class="ws-day-body" ${bodyStyle}>
@@ -398,6 +403,25 @@ async function wsDelete(wid, name){
     const r = await(await fetch(`/api/websites/${wid}?folder=1&remote=1`, {method:'DELETE'})).json();
     if(r && r.ok){ loadWebsites(true); }
     else alert('Löschen fehlgeschlagen: ' + ((r && r.reason) || 'unbekannt'));
+  }catch(e){ alert('Löschen fehlgeschlagen: ' + e); }
+}
+
+async function wsDeleteDay(date, count){
+  const ok = confirm(`Den ganzen Tag ${date} mit ${count} Webseite(n) löschen?\n\n`
+    + 'Das entfernt die lokalen Ordner, die GitHub-Repos UND die Railway-Services '
+    + 'aller Seiten dieses Tages.\n\n'
+    + 'Das lässt sich NICHT rückgängig machen. Fortfahren?');
+  if(!ok) return;
+  try{
+    const r = await(await fetch(`/api/websites/day/${encodeURIComponent(date)}?folder=1&remote=1`,
+      {method:'DELETE'})).json();
+    if(r && r.ok){
+      loadWebsites(true);
+      if(typeof toast === 'function')
+        toast(`Tag ${date}: ${r.deleted} Seite(n) gelöscht — Railway-Abbau läuft im Hintergrund.`);
+    } else {
+      alert('Löschen fehlgeschlagen: ' + ((r && r.reason) || 'unbekannt'));
+    }
   }catch(e){ alert('Löschen fehlgeschlagen: ' + e); }
 }
 

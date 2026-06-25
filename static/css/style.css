@@ -1725,6 +1725,19 @@ input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
 /* relativer Wrapper damit der Balken unten ankert */
 .ws-day-head{ position:relative; }
 
+/* Ganzen Tag löschen (inkl. Railway) — dezenter Icon-Button rechts im Kopf, auch
+   sichtbar/bedienbar wenn der Tag eingeklappt ist. */
+.ws-day-del{
+  flex-shrink:0; margin-left:8px; width:30px; height:30px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid var(--bdr2); border-radius:8px; background:transparent;
+  color:var(--tx2); cursor:pointer;
+  transition:color .15s, border-color .15s, background .15s;
+}
+.ws-day-del:hover{ color:#ff6b6b; border-color:rgba(255,107,107,.5); background:rgba(255,107,107,.09); }
+.ws-day-del:focus-visible{ outline:2px solid #ff6b6b; outline-offset:2px; }
+.ws-day-del:active{ transform:scale(.94); }
+
 .ws-day-barfill{
   height:100%; background:linear-gradient(90deg, var(--c), var(--g));
   transition:width .5s ease-out; min-width:0;
