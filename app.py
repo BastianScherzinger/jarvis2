@@ -351,7 +351,7 @@ def api_websites():
 def api_websites_grouped():
     """Aktive (nicht archivierte) Websites gruppiert nach Bautag."""
     import time as _time
-    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
     today = _time.strftime("%Y-%m-%d")
     all_sites = db_websites.get_all()          # archived=0 (Standard)
 
@@ -388,7 +388,7 @@ def api_websites_grouped():
 def api_websites_archived():
     """Archivierte Websites — für den 'Alte Webseiten'-Bereich."""
     import time as _time
-    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+    daily_limit = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
     sites = db_websites.get_archived()
 
     for s in sites:

@@ -5,6 +5,7 @@ content.json wird vom JARVIS-Website-Builder mit den echten Lead-Daten gefüllt.
 Fehlt sie, greift ein neutraler Fallback, damit die Seite nie crasht.
 """
 import json
+import re
 from pathlib import Path
 
 from django.http import HttpResponse
@@ -31,17 +32,53 @@ _FALLBACK = {
     "seo_title": "Ihre Firma",
     "seo_desc": "Qualität aus Ihrer Region.",
     "jahr": 2026,
+    # Team: Inhaber + bis zu 4 Mitarbeiter (Platzhalter, vom Inhaber später ersetzbar).
+    "inhaber_name": "",
+    "team": [],
+    # Rechtstexte (deterministisch von legal_pages befüllt; sonst leer → Hinweis).
+    "datenschutz": "",
+    "impressum": "",
+    "agb": "",
 }
+
+# Vier neutrale Mitarbeiter-Platzhalter, falls keine Team-Daten vorliegen.
+_TEAM_FALLBACK = [
+    {"name": "[Name]", "rolle": "Meister"},
+    {"name": "[Name]", "rolle": "Geselle"},
+    {"name": "[Name]", "rolle": "Projektleitung"},
+    {"name": "[Name]", "rolle": "Büro & Kontakt"},
+]
+
+
+def _whatsapp(tel: str) -> str:
+    """Telefonnummer → wa.me-Ziffern (Ländervorwahl 49, ohne 0/+/Leerzeichen). '' = ungültig."""
+    digits = re.sub(r"\D", "", tel or "")
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    elif digits.startswith("0"):
+        digits = "49" + digits[1:]
+    elif not digits.startswith("49"):
+        digits = "49" + digits
+    return digits if len(digits) >= 8 else ""
 
 
 def _content() -> dict:
+    data = dict(_FALLBACK)
     try:
-        data = json.loads(_CONTENT.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return {**_FALLBACK, **data}
+        loaded = json.loads(_CONTENT.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            data.update(loaded)
     except Exception:
         pass
-    return dict(_FALLBACK)
+    # Abgeleitete Felder fürs Template (WhatsApp + Team immer 4 Slots).
+    data["whatsapp"] = _whatsapp(data.get("telefon", ""))
+    team = list(data.get("team") or [])
+    if not team:
+        team = list(_TEAM_FALLBACK)
+    data["team4"] = team[:4]
+    return data
 
 
 def index(request):

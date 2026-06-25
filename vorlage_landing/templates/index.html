@@ -23,68 +23,47 @@
         <a href="#ueber">Über uns</a>
         <a href="#kontakt">Kontakt</a>
       </nav>
-      {% if c.telefon %}<a class="btn btn-sm" href="tel:{{ c.telefon }}">Anrufen</a>{% endif %}
+      <a class="btn btn-sm" href="#kontakt">{{ c.cta_text }}</a>
     </div>
   </header>
 
   <main id="top">
-    <!-- HERO -->
-    {% comment %} Bildquelle in Priorität: hero_image (KI) > fotos.0 > kein Bild (Gradient). {% endcomment %}
-    {% if c.hero_image %}
-      {% with hero_src=c.hero_image %}
-    <section class="hero hero-banner" style="--hero-img:url('{{ hero_src }}')">
+    <!-- HERO — Higgsfield-Bild als Hintergrund, Texte ausschließlich als HTML-Overlay -->
+    {% if c.hero_image %}{% with hero_src=c.hero_image %}<section class="hero hero-banner" style="--hero-img:url('{{ hero_src }}')">{% endwith %}
+    {% elif c.fotos %}<section class="hero hero-banner" style="--hero-img:url('{{ c.fotos.0 }}')">
+    {% else %}<section class="hero hero-plain">{% endif %}
       <div class="wrap hero-in">
         <div class="hero-copy">
-          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
+          <span class="eyebrow">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
           <h1>{{ c.headline }}</h1>
           <p class="lead">{{ c.subline }}</p>
           <div class="hero-cta">
             <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
+            {% if c.whatsapp %}<a class="btn btn-wa" href="https://wa.me/{{ c.whatsapp }}?text=Hallo%2C%20ich%20interessiere%20mich%20f%C3%BCr%20Ihre%20Leistungen." target="_blank" rel="noopener"><svg class="ic-wa" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 18.13h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.21 8.21 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.2 8.2 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.48c-.16 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.14-1.18-.06-.1-.22-.16-.47-.28Z"/></svg> WhatsApp</a>{% endif %}
+            {% if c.email %}<a class="btn btn-ghost btn-on-dark" href="mailto:{{ c.email }}">E-Mail</a>{% endif %}
             {% if c.telefon %}<a class="btn btn-ghost btn-on-dark" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
           </div>
+          <ul class="hero-trust">
+            <li>★★★★★ <span>Top bewertet in der Region</span></li>
+            <li><span>Schnell erreichbar &amp; termintreu</span></li>
+            {% if c.stadt %}<li><span>Persönlich vor Ort in {{ c.stadt }}</span></li>{% endif %}
+          </ul>
         </div>
       </div>
     </section>
-      {% endwith %}
-    {% elif c.fotos %}
-    <section class="hero hero-banner" style="--hero-img:url('{{ c.fotos.0 }}')">
-      <div class="wrap hero-in">
-        <div class="hero-copy">
-          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
-          <h1>{{ c.headline }}</h1>
-          <p class="lead">{{ c.subline }}</p>
-          <div class="hero-cta">
-            <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
-            {% if c.telefon %}<a class="btn btn-ghost btn-on-dark" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
-          </div>
-        </div>
-      </div>
-    </section>
-    {% else %}
-    <section class="hero hero-plain">
-      <div class="wrap hero-in">
-        <div class="hero-copy">
-          {% if c.stadt %}<span class="eyebrow">{{ c.branche }} · {{ c.stadt }}</span>{% endif %}
-          <h1>{{ c.headline }}</h1>
-          <p class="lead">{{ c.subline }}</p>
-          <div class="hero-cta">
-            <a class="btn" href="#kontakt">{{ c.cta_text }}</a>
-            {% if c.telefon %}<a class="btn btn-ghost" href="tel:{{ c.telefon }}">{{ c.telefon }}</a>{% endif %}
-          </div>
-        </div>
-      </div>
-    </section>
-    {% endif %}
 
     <!-- LEISTUNGEN -->
     {% if c.leistungen %}
     <section id="leistungen" class="section">
       <div class="wrap">
         <h2 class="section-t">Was wir für Sie tun</h2>
+        <p class="section-lead">Klare Leistungen, sauber ausgeführt — vom ersten Gespräch bis zur Abnahme.</p>
         <div class="grid">
           {% for s in c.leistungen %}
           <article class="card">
-            <div class="card-mark" aria-hidden="true"></div>
+            <div class="card-ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
             <h3>{{ s.titel }}</h3>
             <p>{{ s.text }}</p>
           </article>
@@ -94,9 +73,54 @@
     </section>
     {% endif %}
 
+    <!-- KONTAKT-BAND (zweiter Conversion-Punkt) -->
+    <section class="band">
+      <div class="wrap band-in">
+        <p class="band-t">Fragen oder direkt ein Angebot? Wir sind für Sie da.</p>
+        <div class="band-actions">
+          {% if c.whatsapp %}<a class="btn btn-wa" href="https://wa.me/{{ c.whatsapp }}?text=Hallo%2C%20ich%20h%C3%A4tte%20gerne%20ein%20Angebot." target="_blank" rel="noopener"><svg class="ic-wa" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 18.13h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.21 8.21 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.2 8.2 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.48c-.16 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.14-1.18-.06-.1-.22-.16-.47-.28Z"/></svg> WhatsApp schreiben</a>{% endif %}
+          {% if c.telefon %}<a class="btn btn-light" href="tel:{{ c.telefon }}">☎ {{ c.telefon }}</a>{% endif %}
+        </div>
+      </div>
+    </section>
+
+    <!-- ÜBER UNS + TEAM -->
+    <section id="ueber" class="section section-tint">
+      <div class="wrap about">
+        <div class="about-media">
+          {% if c.about_image %}<img class="about-photo" src="{{ c.about_image }}" alt="Inhaber {{ c.site_name }}">
+          {% else %}<div class="ph ph-portrait"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><span>Inhaber · Foto folgt</span></div>{% endif %}
+          <span class="about-cap">{% if c.inhaber_name %}{{ c.inhaber_name }}{% else %}Inhaber{% endif %}</span>
+        </div>
+        <div class="about-body">
+          <h2 class="section-t">{{ c.ueber_titel }}</h2>
+          <p class="about-text">{{ c.ueber_text }}</p>
+          <ul class="trust">
+            <li><strong>Regional</strong><span>aus {{ c.stadt|default:"Ihrer Region" }}</span></li>
+            <li><strong>Zuverlässig</strong><span>termintreu &amp; sauber</span></li>
+            <li><strong>Persönlich</strong><span>fester Ansprechpartner</span></li>
+          </ul>
+          <a class="btn btn-ghost" href="#kontakt">Lernen Sie uns kennen</a>
+        </div>
+      </div>
+
+      <div class="wrap team-wrap">
+        <h3 class="team-t">Ihr Team</h3>
+        <div class="team">
+          {% for m in c.team4 %}
+          <figure class="member">
+            {% if m.foto %}<img class="member-img" src="{{ m.foto }}" alt="{{ m.name }}">
+            {% else %}<div class="ph ph-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>{% endif %}
+            <figcaption><strong>{{ m.name }}</strong><span>{{ m.rolle }}</span></figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
     <!-- GALERIE -->
     {% if c.fotos|length > 1 %}
-    <section class="section section-tint">
+    <section class="section">
       <div class="wrap">
         <h2 class="section-t">Einblicke</h2>
         <div class="gallery">
@@ -106,40 +130,55 @@
     </section>
     {% endif %}
 
-    <!-- ÜBER -->
-    <section id="ueber" class="section">
-      <div class="wrap about">
-        <div>
-          <h2 class="section-t">{{ c.ueber_titel }}</h2>
-          <p class="about-text">{{ c.ueber_text }}</p>
+    <!-- KONTAKT + FORMULAR -->
+    <section id="kontakt" class="section">
+      <div class="wrap contact">
+        <div class="contact-info">
+          <h2 class="section-t">{{ c.cta_text }}</h2>
+          <p class="section-lead">Wir melden uns kurzfristig zurück — versprochen.</p>
+          <ul class="contact-list">
+            {% if c.telefon %}<li><span>Telefon</span><a href="tel:{{ c.telefon }}">{{ c.telefon }}</a></li>{% endif %}
+            {% if c.whatsapp %}<li><span>WhatsApp</span><a href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">Nachricht senden</a></li>{% endif %}
+            {% if c.email %}<li><span>E-Mail</span><a href="mailto:{{ c.email }}">{{ c.email }}</a></li>{% endif %}
+            {% if c.adresse %}<li><span>Adresse</span><span>{{ c.adresse }}</span></li>{% endif %}
+          </ul>
         </div>
-        <ul class="trust">
-          <li><strong>Regional</strong><span>aus {{ c.stadt|default:"Ihrer Region" }}</span></li>
-          <li><strong>Zuverlässig</strong><span>termintreu &amp; sauber</span></li>
-          <li><strong>Persönlich</strong><span>fester Ansprechpartner</span></li>
-        </ul>
-      </div>
-    </section>
-
-    <!-- KONTAKT -->
-    <section id="kontakt" class="section cta">
-      <div class="wrap cta-in">
-        <h2>{{ c.cta_text }}</h2>
-        <p>Wir melden uns kurzfristig zurück — versprochen.</p>
-        <div class="cta-actions">
-          {% if c.telefon %}<a class="btn btn-light" href="tel:{{ c.telefon }}">☎ {{ c.telefon }}</a>{% endif %}
-          {% if c.email %}<a class="btn btn-light" href="mailto:{{ c.email }}">✉ {{ c.email }}</a>{% endif %}
-        </div>
-        {% if c.adresse %}<p class="cta-adr">{{ c.adresse }}</p>{% endif %}
+        <form class="contact-form" method="post" action="#kontakt">
+          {% csrf_token %}
+          <label>Name<input type="text" name="name" required autocomplete="name"></label>
+          <label>E-Mail<input type="email" name="email" required autocomplete="email"></label>
+          <label>Telefon<input type="tel" name="telefon" autocomplete="tel"></label>
+          <label>Nachricht<textarea name="nachricht" rows="4" required></textarea></label>
+          <label class="check"><input type="checkbox" name="einwilligung" required> Ich habe die <a href="#datenschutz">Datenschutzerklärung</a> gelesen und stimme zu.</label>
+          <button class="btn" type="submit">Anfrage absenden</button>
+        </form>
       </div>
     </section>
   </main>
 
   <footer class="foot">
     <div class="wrap foot-in">
-      <span>© {{ c.jahr }} {{ c.site_name }}</span>
-      <span class="foot-sub">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
+      <div class="foot-legal">
+        <a href="#datenschutz">Datenschutz</a>
+        <a href="#impressum">Impressum</a>
+        <a href="#agb">AGB</a>
+      </div>
+      <div class="foot-meta">
+        <span>© {{ c.jahr }} {{ c.site_name }}</span>
+        <span class="foot-sub">{{ c.branche }}{% if c.stadt %} · {{ c.stadt }}{% endif %}</span>
+      </div>
+    </div>
+    <div class="wrap legal">
+      {% if c.datenschutz %}<details id="datenschutz"><summary>Datenschutzerklärung</summary><div class="legal-body">{{ c.datenschutz|linebreaks }}</div></details>{% endif %}
+      {% if c.impressum %}<details id="impressum"><summary>Impressum</summary><div class="legal-body">{{ c.impressum|linebreaks }}</div></details>{% endif %}
+      {% if c.agb %}<details id="agb"><summary>AGB</summary><div class="legal-body">{{ c.agb|linebreaks }}</div></details>{% endif %}
     </div>
   </footer>
+
+  <!-- Mobiler Sticky-Kontaktbalken -->
+  <div class="mobilebar">
+    {% if c.telefon %}<a href="tel:{{ c.telefon }}">☎ Anrufen</a>{% endif %}
+    {% if c.whatsapp %}<a class="mb-wa" href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %}
+  </div>
 </body>
 </html>

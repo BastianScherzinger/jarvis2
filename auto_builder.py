@@ -2,11 +2,11 @@
 auto_builder.py — Täglicher Auto-Website-Builder + Nightly-Improver.
 
 Tagesrhythmus (läuft ab Start und ab 0 Uhr jeden Tag neu):
-  Phase 1  Bauen   — bis zu JARVIS_DAILY_SITES (Default 10) neue Seiten für die
+  Phase 1  Bauen   — bis zu JARVIS_DAILY_SITES (Default 5) neue Seiten für die
                      besten Leads OHNE Website: bauen → deployen → verbessern →
                      E-Mail an Bastian. Jede gebaute Seite wird in der Tages-
                      Historie (data/daily_builds.json) gespeichert.
-  Phase 2  Verbessern — sind die 10 gebaut (oder keine Leads mehr offen), werden bis
+  Phase 2  Verbessern — sind die 5 gebaut (oder keine Leads mehr offen), werden bis
                      zur Cutoff-Stunde (JARVIS_IMPROVE_UNTIL_HOUR, Default 10 = 10:00)
                      bestehende Seiten rundlaufend weiter verbessert (lokal auf der GPU).
   Phase 3  Pause   — danach Leerlauf bis Mitternacht; um 0 Uhr beginnt Phase 1 neu.
@@ -28,7 +28,7 @@ _BASTIAN = "bastian.scherzinger05@gmail.com"
 _BASE     = Path(__file__).parent
 _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
-_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "10") or "10")
+_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
 # Die Cutoff-Stunde ist ein Konzept für den unbeaufsichtigten Dauerbetrieb. Ein
 # MANUELLER Start soll sofort arbeiten — sonst „passiert nichts", wenn Sir den

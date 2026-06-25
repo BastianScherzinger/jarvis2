@@ -37,9 +37,11 @@ def _lg(level: str, msg: str) -> None:
 _PERMISSION = os.environ.get("JARVIS_CLAUDE_PERMISSION", "acceptEdits")
 _TIMEOUT    = int(os.environ.get("JARVIS_CLAUDE_TIMEOUT", "1200") or "1200")
 # Inaktivitäts-Watchdog: kommt aus dem headless-Lauf so lange KEIN Lebenszeichen (kein
-# Stream-Event), gilt er als hängend und wird abgebrochen → die Stufe rollt zurück und die
-# Pipeline läuft weiter, statt ewig bei „Stufe 1" zu stehen. Pro .env justierbar.
-_INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "600") or "600")
+# Stream-Event), gilt er als hängend und wird abgebrochen → die Stufe behält ihr Teil-Ergebnis
+# (falls es rendert) bzw. rollt zurück, die Pipeline läuft weiter, statt ewig bei „Stufe 1" zu
+# stehen. 300 s (vorher 600): echte Hänger werden doppelt so schnell erkannt — der Balken steht
+# nie 10 Min still und es wird kein Token an einem toten Lauf verschwendet. Pro .env justierbar.
+_INACTIVITY = int(os.environ.get("JARVIS_CLAUDE_INACTIVITY", "300") or "300")
 # Harte Obergrenze an Agenten-Runden je Stufe (verhindert Endlosschleifen). 0 = aus.
 _MAX_TURNS  = int(os.environ.get("JARVIS_CLAUDE_MAX_TURNS", "80") or "80")
 
@@ -309,11 +311,24 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     dur = round(time.time() - start, 1)
 
     if st["killed"]:
-        if tools and snap:
-            tools.restore(snap)
         grund = ("Hänger (kein Lebenszeichen > %ds)" % _INACTIVITY if st["killed"] == "inactivity"
                  else f"Zeitlimit {hard_to}s erreicht")
         tail = ("".join(err_buf))[-300:].strip()
+        # Abgebrochen, ABER Claude hat schon echte Edits gemacht und die Seite rendert sauber →
+        # die Arbeit NICHT wegwerfen. Sonst sind die verbrauchten Tokens verbrannt und die Stufe
+        # käme nie über „1/7" hinaus (genau der Hänger-Fall). Nur bei kaputtem Render zurückrollen.
+        if st["edits"] > 0:
+            ok_r, _fehler_r = _render_ok(folder)
+            if ok_r:
+                if data is not None:
+                    _track_cost(data, model, task, name)
+                _lg("warn", f"⚠ {fname} · {grund} nach {dur}s — aber {st['edits']} Edits rendern "
+                            f"sauber → Teil-Ergebnis behalten ({st['tools']} Tools).")
+                return {"ok": True, "render_ok": True, "partial": True,
+                        "summary": (summary or last_text[:200]
+                                    or "Teil-Ergebnis behalten (Lauf abgebrochen, Seite rendert).")}
+        if tools and snap:
+            tools.restore(snap)
         _lg("error", f"✕ {fname} · {grund} nach {dur}s — abgebrochen & zurückgerollt "
                      f"({st['tools']} Tools, {st['edits']} Edits)"
                      + (f" · stderr: {tail[-160:]}" if tail else ""))

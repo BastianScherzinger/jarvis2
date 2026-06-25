@@ -295,7 +295,7 @@ if _HAS_DISCORD:
                 import auto_builder as _ab
                 state = _ab.status()
                 today = state.get("today_count", 0)
-                limit = state.get("daily_limit", 10)
+                limit = state.get("daily_limit", 5)
                 builder_info = f"{today}/{limit} Seiten heute gebaut"
                 is_running   = _ab.is_running()
             except Exception:

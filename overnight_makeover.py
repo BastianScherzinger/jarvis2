@@ -53,69 +53,87 @@ _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "36
 
 
 # ── Die 7 Stufen ───────────────────────────────────────────────────────────────
-# TOKEN-SPARSAM (seit 24.06.2026): Der headless Makeover-Claude lädt das referenzierte
-# Skill bei jeder Stufe komplett in den Kontext. ui-ux-pro-max (45 KB) und taste (88 KB)
-# je Stufe × 7 × 10 Seiten haben das Claude-Code-Session-Limit in Minuten geleert
-# (Symptom: „hängt bei ~100 % nach Stufe 1"). Lösung:
-#   _PRO   = «design-pro» (5 KB) — kompakter Bündel-Skill (ui-ux-pro-max/impeccable/taste/
-#            frontend-pro/shadcn destilliert) → Standard für fast alle Stufen.
-#   _TASTE = «design-taste-frontend» (88 KB) — nur EINMAL, in der großen Design-Stufe,
-#            wo die Anti-Slop-Tiefe den Token-Preis wert ist.
-# So sinkt der Skill-Token-Aufwand pro Seite von ~318 KB auf ~118 KB.
-_TASTE = "design-taste-frontend"
-_PRO   = "design-pro"
+# TOKEN-SPARSAM (seit 25.06.2026): Der headless Makeover-Claude lädt das referenzierte
+# Skill bei jeder Stufe in den Kontext. taste (88 KB) + ui-ux-pro-max (45 KB) je Stufe ×
+# 7 × Seiten haben das Claude-Session-Limit in Minuten geleert (Symptom: „hängt bei Stufe 1").
+# Lösung — ein EIGENER, kompakter Skill statt der großen:
+#   _LANDING = «premium-landing» (~12 KB, skills/premium-landing/SKILL.md) — destilliert
+#              taste/design-pro/ui-ux-pro-max auf GENAU dieses Seiten-Rezept (Tokens, Fonts,
+#              Spacing, Sektions-Bauplan inkl. WhatsApp, Team-/Foto-Platzhalter, Footer-Recht).
+#              Standard für ALLE Sektions-Stufen → gleiche Qualität, ein Bruchteil der Tokens.
+#   _TASTE   = «design-taste-frontend» (88 KB) — nur EINMAL, im großen Design-Durchgang,
+#              wo die volle Anti-Slop-Tiefe für Farb-/Font-/Typo-Feinschliff den Preis wert ist.
+_TASTE   = "design-taste-frontend"
+_LANDING = "premium-landing"
+
+# Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der
+# Builder bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen
+# Bauplan neu — so werden nach einem Update die heute gebauten Seiten überall aktualisiert.
+_MAKEOVER_VERSION = 2
 
 STAGES: list[dict] = [
     {
-        "key": "hero", "label": "Hero-Bereich", "skill": _PRO,
+        "key": "hero", "label": "Hero-Bereich", "skill": _LANDING,
         "task": (
             "Baue den HERO-BEREICH (Above-the-fold) zu einem echten Premium-Eyecatcher um. "
-            "In 5 Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun. "
-            "Enthalten: das vorhandene Hero-Bild stark in Szene gesetzt (hero_image NICHT "
-            "entfernen), eine kraftvolle, betriebsgenaue Headline mit konkretem Nutzenversprechen "
-            "+ Subline, EIN dominanter primärer CTA («Kostenlose Anfrage»/«Termin anfragen» statt "
-            "«Senden»), ein leiser sekundärer CTA (z. B. «Anrufen» mit der echten Telefonnummer) "
-            "und sichtbare Vertrauenssignale (Bewertung, Erreichbarkeit, Region, Jahre Erfahrung). "
-            "Starke visuelle Hierarchie, klares Spacing, lesbarer Text-Overlay-Kontrast. Bearbeite "
-            "den Hero-Block in templates/index.html und das zugehörige CSS wirklich."
+            "In 5 Sekunden muss klar sein: Was ist das, was bringt es mir, was soll ich tun.\n"
+            "WICHTIG zum Bild: Das Hero-Bild (content.json.hero_image, von Higgsfield erzeugt) "
+            "enthält NIEMALS Text, Wörter, Buchstaben oder Logos — es ist ein reines Foto. Die "
+            "Headline & alle Texte sind ausschließlich HTML-Text in einem .hero-copy-Overlay ÜBER "
+            "dem Bild; sichere die Lesbarkeit über einen Scrim/Gradient. hero_image NICHT entfernen.\n"
+            "Inhalt: Eyebrow (Branche · Stadt), kraftvolle betriebsgenaue Headline mit konkretem "
+            "Nutzenversprechen + Subline, dann eine Button-Reihe: primärer CTA («Kostenlose Anfrage» "
+            "/«Termin anfragen»), ein WhatsApp-Button (https://wa.me/<Telefon nur Ziffern, Länder-"
+            "vorwahl 49 ohne führende 0 und ohne +/Leerzeichen>?text=Hallo%2C%20ich%20interessiere"
+            "%20mich%20f%C3%BCr…), ein E-Mail-Button (mailto:) und ein Anruf-Button (tel:). Primär "
+            "dominant, der Rest leiser (Ghost-Stil). Darunter dezente Vertrauenssignale (Bewertung, "
+            "Erreichbarkeit, Region, Jahre Erfahrung). Bearbeite den Hero-Block in "
+            "templates/index.html und das zugehörige CSS wirklich."
         ),
     },
     {
-        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _PRO,
+        "key": "leistungen", "label": "Beschreibung & Dienstleistungen", "skill": _LANDING,
         "task": (
             "Baue die Sektion BESCHREIBUNG & DIENSTLEISTUNGEN aus. Schreibe einen glaubwürdigen, "
-            "betriebsgenauen Einleitungstext (was der Betrieb macht, für wen, warum gut) und "
-            "stelle 4–6 KONKRETE, branchenspezifische Leistungen als saubere Karten/Grid dar — "
-            "je mit klarem Titel, kurzem Nutzen-Text und einem konsistenten Inline-SVG-Icon "
-            "(keine Emojis). Nutze die dokumentierten Lead-Details (Beschreibung, Stärken, "
-            "Leistungen) — nichts erfinden, keine Floskeln. Ergänze 4–5 branchenspezifische FAQ. "
-            "Bearbeite templates/index.html + CSS wirklich; content.json-Felder konsistent halten."
+            "betriebsgenauen Einleitungssatz (was der Betrieb macht, für wen, warum gut) und stelle "
+            "4–6 KONKRETE, branchenspezifische Leistungen als saubere Karten in einem übersichtlichen "
+            "Grid dar — je mit klarem Titel, kurzem Nutzen-Text und einem konsistenten Inline-SVG-Icon "
+            "(1.5px stroke, currentColor — KEINE Emojis). Integriere dezent ein Mockup-/Platzhalterbild, "
+            "falls vorhanden (sonst sauberer Platzhalter mit aspect-ratio, nie ein gebrochenes <img>). "
+            "Nutze die dokumentierten Lead-Details (Beschreibung, Stärken, Leistungen) — nichts "
+            "erfinden, keine Floskeln. Bearbeite templates/index.html + CSS wirklich; content.json-"
+            "Felder (leistungen) konsistent halten."
         ),
     },
     {
-        "key": "ueber", "label": "Über uns & Vertrauen", "skill": _PRO,
+        "key": "ueber", "label": "Über uns, Team & Kontakt-Band", "skill": _LANDING,
         "task": (
-            "Baue die Sektion ÜBER UNS überzeugend aus: eine glaubwürdige Geschichte/Positionierung "
-            "des Betriebs (Region, Erfahrung, Werte, Ansprechpartner falls dokumentiert), das "
-            "vorhandene about_image sinnvoll einsetzen (nicht entfernen). Ergänze echte "
-            "Vertrauenssignale: Bewertungen/Referenzen-Block, USP-Liste, Garantien, Mitgliedschaften/"
-            "Zertifikate falls passend zur Branche. Alles betriebsgenau aus den Lead-Details, kein "
-            "Geschwurbel. Bearbeite templates/index.html + CSS wirklich."
-        ),
-    },
-    {
-        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _PRO,
-        "task": (
-            "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (als "
-            "klickbarer tel:-Link), E-Mail (mailto:), vollständige Adresse, Öffnungszeiten (falls "
-            "dokumentiert, sonst plausibel branchentypisch), Anfahrt/Region. Wenn eine Adresse "
-            "vorhanden ist, eine eingebettete Karte (OpenStreetMap-iframe, KEIN API-Key) ergänzen. "
-            "Klare CTAs zum Anrufen und Schreiben. Sauberes, gut lesbares Layout. Bearbeite "
+            "Zwei Dinge in dieser Reihenfolge:\n"
+            "1) KONTAKT-BAND direkt zwischen Leistungen und Über uns: ein schmaler Streifen in "
+            "Akzent-Tönung mit einer klaren Conversion-Zeile und zwei Buttons (WhatsApp via wa.me + "
+            "Anrufen via tel:). Zweiter Conversion-Punkt der Seite.\n"
+            "2) ÜBER UNS überzeugend ausbauen: glaubwürdige Geschichte/Positionierung (Region, "
+            "Erfahrung, Werte). Oben/links ein PLATZHALTER für das Foto des Inhabers (Label 'Inhaber', "
+            "sauberes Bild-Placeholder mit aspect-ratio + dezentem Icon). Darunter ein TEAM-GRID mit "
+            "GENAU 4 Mitarbeiter-Platzhaltern (rundes Avatar-Placeholder + '[Name]' / '[Position]'). "
+            "Daneben eine echte Trust-/USP-Liste (Garantien, Referenzen, Erreichbarkeit, "
+            "Mitgliedschaften falls branchenpassend). Alles betriebsgenau, kein Geschwurbel. Bearbeite "
             "templates/index.html + CSS wirklich."
         ),
     },
     {
-        "key": "formular", "label": "Kontakt-Formular", "skill": _PRO,
+        "key": "kontakt", "label": "Kontakt-Bereich", "skill": _LANDING,
+        "task": (
+            "Baue den KONTAKT-BEREICH vollständig aus: gut sichtbare echte Telefonnummer (klickbarer "
+            "tel:-Link), WhatsApp-Button (wa.me), E-Mail (mailto:), vollständige Adresse, "
+            "Öffnungszeiten (falls dokumentiert, sonst plausibel branchentypisch), Anfahrt/Region. "
+            "Wenn eine Adresse vorhanden ist, eine eingebettete Karte (OpenStreetMap-iframe, KEIN "
+            "API-Key) ergänzen. Klare CTAs zum Anrufen, WhatsApp und Schreiben. Sauberes, gut "
+            "lesbares Layout. Bearbeite templates/index.html + CSS wirklich."
+        ),
+    },
+    {
+        "key": "formular", "label": "Kontakt-Formular", "skill": _LANDING,
         "model": _MODEL_LITE,        # mechanisch (Felder/csrf/tel-mailto/Focus) → günstiges Modell
         "task": (
             "Baue ein funktionsfähiges, schön gestaltetes KONTAKT-FORMULAR (Name, E-Mail, Telefon, "
@@ -131,21 +149,21 @@ STAGES: list[dict] = [
         "key": "design", "label": "Komplett-Design (taste)", "skill": _TASTE,
         "task": (
             "Großer DESIGN-DURCHGANG über die GESAMTE Seite mit dem Skill «design-taste-frontend» "
-            "(taste) — plus ui-ux-pro-max-Prinzipien und design-pro. Ziel: sieht aus wie von einer "
-            "preisgekrönten Agentur, nicht templated/KI-generiert. Vereinheitliche das System: EINE "
-            "Akzentfarbe konsequent + leicht getönte Neutrals als CSS-Tokens (--background "
-            "--foreground --card --muted --border --primary --accent --ring), WCAG-AA-Kontraste. "
-            "Charakterstarker Display-Font + ruhiger Body-Font (Google Fonts), fluide Typo-Skala mit "
-            "clamp(). Feste Spacing-Skala (4/8/12/16/24/32/48/72), rhythmischer Weißraum, konsistente "
-            "Radien/Stroke-Breiten, WEICHE mehrschichtige Schatten (kein harter Glow), ein Icon-Set "
-            "(Inline-SVG, keine Emojis). Dezente, performante Motion (nur transform/opacity, "
-            "150–500 ms, ease-out; prefers-reduced-motion respektieren). Alle Zustände vollständig "
-            "(hover, focus-visible, active, disabled). Weniger, aber besser — entferne alles Billige/"
-            "KI-haft Wirkende. Bearbeite static/css/style.css + templates/index.html durchgreifend."
+            "(taste). Ziel: sieht aus wie von einer preisgekrönten Agentur, seriös aber farbig-"
+            "schlicht, nicht templated/KI-generiert. Wähle mit taste eine stimmige Farbwelt um die "
+            "Akzentfarbe + leicht getönte Neutrals als CSS-Tokens (--accent --bg --surface --ink "
+            "--muted --line --ring), WCAG-AA-Kontraste. Wähle ein charakterstarkes, passendes "
+            "Display-/Body-Font-Pairing (Google Fonts) und eine fluide Typo-Skala mit clamp(). Feste "
+            "Spacing-Skala (4/8/12/16/24/32/48/72), rhythmischer Weißraum, konsistente Radien/Stroke-"
+            "Breiten, WEICHE mehrschichtige Schatten (kein harter Glow), ein Icon-Set (Inline-SVG). "
+            "Dezente, performante Motion (nur transform/opacity, 150–400 ms, ease-out; prefers-"
+            "reduced-motion respektieren). Alle Zustände vollständig (hover, focus-visible, active, "
+            "disabled). Weniger, aber besser — entferne alles Billige/KI-haft Wirkende. Bearbeite "
+            "static/css/style.css + templates/index.html durchgreifend."
         ),
     },
     {
-        "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _PRO,
+        "key": "qa_recht", "label": "QA, Datenschutz, AGB & Impressum", "skill": _LANDING,
         "model": _MODEL_LITE,        # mechanisch (Rechtstexte rendern + QA) → günstiges Modell
         "task": (
             "ABSCHLUSS-DURCHGANG in zwei Teilen.\n"
@@ -153,12 +171,12 @@ STAGES: list[dict] = [
             "`impressum`, `datenschutz` und `agb`. Erfinde KEINE neuen Texte und kürze sie nicht — "
             "RENDERE genau diese Texte als drei eigene, sauber gestaltete Unterseiten bzw. "
             "ausklappbare Abschnitte (Absätze/Zeilenumbrüche erhalten) und verlinke sie gut sichtbar "
-            "im Footer. Das Kontaktformular verweist auf die Datenschutzerklärung. (Falls die Felder "
-            "ausnahmsweise fehlen: knappe DSGVO/DDG-konforme Standardtexte, fehlende Daten als "
-            "«[bitte ergänzen]».)\n"
+            "UNTEN LINKS im Footer (Datenschutz · Impressum · AGB). Das Kontaktformular verweist auf "
+            "die Datenschutzerklärung. (Falls die Felder ausnahmsweise fehlen: knappe DSGVO/DDG-"
+            "konforme Standardtexte, fehlende Daten als «[bitte ergänzen]».)\n"
             "2) QA / RESPONSIVE: Perfekte Mobil-Darstellung (echte Breakpoints), ein mobiler "
-            "Sticky-Anruf/CTA, Touch-Ziele ≥ 44 px, keine horizontalen Überläufe, kein CLS, alle "
-            "Links/Buttons/Anker funktionieren, SEO-Grundstruktur (title, meta description, "
+            "Sticky-Anruf/WhatsApp-Balken, Touch-Ziele ≥ 44 px, keine horizontalen Überläufe, kein "
+            "CLS, alle Links/Buttons/Anker funktionieren, SEO-Grundstruktur (title, meta description, "
             "Überschriften-Hierarchie, alt-Texte) intakt. Es MUSS `python manage.py check` "
             "fehlerfrei sein und das Template ohne Fehler rendern."
         ),
@@ -185,13 +203,28 @@ def _write_content(folder: Path, content: dict) -> None:
         pass
 
 
+def _done_keys(folder: Path) -> set:
+    """Erledigte Stufen einer Seite — UNTER Berücksichtigung der Struktur-Version. Wurde die
+    Seite mit einer älteren _MAKEOVER_VERSION makeovert, gilt sie als KOMPLETT offen (leere
+    Menge), damit der neue Bauplan voll durchläuft (Neu-Makeover heute gebauter Seiten)."""
+    c = _read_content(Path(folder))
+    if int(c.get("makeover_version") or 0) < _MAKEOVER_VERSION:
+        return set()
+    return set(c.get("makeover_stages") or [])
+
+
 def _mark_done(folder: Path, key: str) -> None:
-    """Markiert eine Stufe als erledigt (frisch lesen — die KI hat content.json verändert)."""
+    """Markiert eine Stufe als erledigt (frisch lesen — die KI hat content.json verändert) und
+    schreibt die aktuelle Struktur-Version fest."""
     content = _read_content(folder)
     done = list(content.get("makeover_stages") or [])
+    # Alte Version → vorherige (zum alten Bauplan gehörende) Markierungen verwerfen.
+    if int(content.get("makeover_version") or 0) < _MAKEOVER_VERSION:
+        done = []
     if key not in done:
         done.append(key)
     content["makeover_stages"] = done
+    content["makeover_version"] = _MAKEOVER_VERSION
     _write_content(folder, content)
 
 
@@ -223,9 +256,9 @@ def _looks_limited(text: str) -> bool:
 
 
 def open_stages(folder: "str | Path") -> int:
-    """Anzahl noch offener Makeover-Stufen einer Seite (für die Auswahl im Night-Builder)."""
-    done = set(_read_content(Path(folder)).get("makeover_stages") or [])
-    return len(_ALL_KEYS - done)
+    """Anzahl noch offener Makeover-Stufen einer Seite (für die Auswahl im Night-Builder).
+    Berücksichtigt die Struktur-Version: ältere Seiten zählen als voll offen."""
+    return len(_ALL_KEYS - _done_keys(Path(folder)))
 
 
 def all_done(folder: "str | Path") -> bool:
@@ -306,6 +339,22 @@ def _doc_details(folder: Path, meta: dict) -> dict:
     return out
 
 
+def _wa_number(tel: str) -> str:
+    """Deutsche Telefonnummer → wa.me-Format (nur Ziffern, Ländervorwahl 49, ohne führende 0).
+    Leerstring, wenn keine plausible Nummer vorliegt."""
+    import re
+    digits = re.sub(r"\D", "", tel or "")
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    elif digits.startswith("0"):
+        digits = "49" + digits[1:]
+    elif not digits.startswith("49"):
+        digits = "49" + digits
+    return digits if len(digits) >= 8 else ""
+
+
 def _context_block(folder: Path, meta: dict) -> str:
     """Kompakte, angereicherte Fakten zu Seite/Lead — bewusst OHNE content.json-Dump
     (Claude liest content.json selbst aus dem Ordner; das spart pro Stufe ~3,5 KB Tokens)."""
@@ -332,6 +381,9 @@ def _context_block(folder: Path, meta: dict) -> str:
         f"- Ansprechpartner: {pick('ansprechpartner')}",
         f"- Akzentfarbe: {c.get('akzent') or '#c8102e'}",
     ]
+    wa = _wa_number(pick('telefon'))
+    if wa:
+        lines.append(f"- WhatsApp-Link: https://wa.me/{wa} (für den WhatsApp-Button verwenden)")
     if d.get("beschreibung"):
         lines.append(f"- Beschreibung (Recherche): {str(d['beschreibung'])[:280]}")
     if d.get("pitch_hook"):
@@ -355,8 +407,11 @@ def _build_stage_prompt(folder: Path, meta: dict, stage: dict, idx: int, total: 
         "REGELN: Sofort autonom umsetzen, KEINE Rückfragen. content.json + templates/index.html + "
         "static/css/style.css bei Bedarf direkt aus dem Ordner lesen und WIRKLICH editieren (echtes "
         "Design, nicht nur Text). content.json bleibt valides JSON; hero_image/logo_image/fotos "
-        "erhalten, vorhandene Keys nicht löschen. Deutsch, konkret, betriebsgenau — kein Platzhalter, "
-        "kein Geschwurbel. Auf den Vorstufen AUFBAUEN, minimaler gezielter Diff. Am Ende MUSS das "
+        "erhalten, vorhandene Keys nicht löschen. Deutsch, konkret, betriebsgenau — kein Geschwurbel "
+        "(echte Lead-Daten; fehlende Bilder als saubere Platzhalter, nie ein gebrochenes <img>). "
+        "Auf den Vorstufen AUFBAUEN, minimaler gezielter Diff. "
+        "ARBEITE EFFIZIENT (Token-Budget): jede Datei höchstens EINMAL lesen, in wenigen gezielten "
+        "Edits umsetzen, KEINE Endlos-Iterationen, keine unnötigen Probe-Renders. Am Ende MUSS das "
         "Template fehlerfrei rendern. Schließe mit genau einem Satz, was du geändert hast."
     )
 
@@ -503,7 +558,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     except Exception:
         pass
 
-    done = set(_read_content(folder).get("makeover_stages") or [])
+    done = _done_keys(folder)
     name = meta.get("name", "?")
     new_done: list[str] = []
     total = len(STAGES)
@@ -601,7 +656,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         logger.success("Makeover", f"━━ {name}: KOMPLETT — alle {total} Stufen fertig "
                                    f"(+{len(new_done)} in diesem Lauf, {total_dur}s).")
     else:
-        rest = [s["label"] for s in STAGES if s["key"] not in set(_read_content(folder).get("makeover_stages") or [])]
+        rest = [s["label"] for s in STAGES if s["key"] not in _done_keys(folder)]
         logger.info("Makeover", f"━━ {name}: Lauf-Ende +{len(new_done)} Stufen in {total_dur}s · "
                                 f"noch offen: {', '.join(rest) or '—'}")
     return {"ok": True, "stages_done": new_done, "all_done": fertig}
