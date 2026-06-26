@@ -69,7 +69,8 @@ _DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).str
 # bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen Bauplan neu.
 # 3 = Umstellung von 7 auf 3 Stufen (heute gebaute Seiten laufen einmal neu durch).
 # 5 = bessere Branchenfarben + Hero-Szenen + Lead-Foto-Bewertung → heutige Seiten laufen neu durch.
-_MAKEOVER_VERSION = 5
+# 6 = Hero: Headline LINKS + Kostenrechner-Karte rechts + Bild ohne Text + frisches Higgsfield-Hero.
+_MAKEOVER_VERSION = 6
 
 STAGES_MULTI: list[dict] = [
     {
@@ -156,10 +157,17 @@ STAGES_ONEPASS: list[dict] = [
             "Rechtstexte); übernimm sie 1:1, schreibe sie NICHT neu, dein Fokus ist Layout + Design. "
             "Die Basis-Vorlage rendert die Sektionen schon — mach sie betriebsgenau und premium.\n\n"
             "A) AUFBAU/SEKTIONEN:\n"
-            "1) HERO: content.hero_image als Hintergrund (enthält NIE Text/Logos; alle Texte sind "
-            "HTML-Overlay über Scrim/Gradient). Eyebrow (Branche·Stadt), Headline + Subline, Button-"
-            "Reihe: primärer CTA, WhatsApp (https://wa.me/<Tel nur Ziffern, 49 statt führender 0>), "
-            "E-Mail (mailto:), Anruf (tel:); dezente Vertrauenssignale.\n"
+            "1) HERO — ZWEI Spalten: content.hero_image als Hintergrund (enthält NIE Text/Logos; alle "
+            "Texte sind HTML-Overlay über Scrim/Gradient).\n"
+            "   • LINKE Spalte (Text), strikt LINKSBÜNDIG — NIEMALS zentriert: Eyebrow (Branche·Stadt), "
+            "Headline + Subline, Button-Reihe (primärer CTA, WhatsApp https://wa.me/<Tel nur Ziffern, 49 "
+            "statt führender 0>, E-Mail mailto:, Anruf tel:), dezente Vertrauenssignale.\n"
+            "   • RECHTE Spalte: eine KOSTENRECHNER-Karte (helle Karte über dem Bild). Sie MUSS gebaut "
+            "werden und funktionieren: <select> der Posten aus content.rechner.posten, ein Umfang-"
+            "Schieber (klein/mittel/groß) und ein Ergebnisfeld 'ca. AB – BIS €' + CTA-Button zu #kontakt. "
+            "Daten via Django {{ c.rechner|json_script:'rechner-data' }} ausgeben und die mitgelieferte "
+            "Datei static/js/kostenrechner.js per <script src defer> einbinden (NICHT neu erfinden — sie "
+            "liest #rechner-data und rechnet). Auf Mobil stapeln (Text oben, Rechner darunter, Touch ≥ 44 px).\n"
             "2) LEISTUNGEN: content.leistungen als Karten-Grid (Inline-SVG-Icons, KEINE Emojis) + "
             "FAQ-Sektion aus content.faq.\n"
             "3) KONTAKT-BAND (Akzent-Streifen, WhatsApp + Anruf) zwischen Leistungen und Über uns.\n"
@@ -654,6 +662,59 @@ def _ensure_akzent(folder: Path, meta: dict, say=None) -> None:
             say(5, f"Akzentfarbe an Branche angepasst ({akz}).")
 
 
+_VORLAGE_RECHNER_JS = Path(__file__).resolve().parent / "vorlage_landing" / "static" / "js" / "kostenrechner.js"
+
+
+def _ensure_rechner(folder: Path, meta: dict, say=None) -> None:
+    """Stellt sicher, dass die Seite einen branchengerechten Kostenrechner-Datensatz
+    (content.rechner) UND die kostenrechner.js besitzt — auch ältere Seiten, die ohne den
+    Hero-Rechner gebaut wurden. Idempotent."""
+    try:
+        content = _read_content(folder)
+    except Exception:
+        return
+    rech = content.get("rechner")
+    if not (isinstance(rech, dict) and rech.get("posten")):
+        try:
+            import website_builder
+            branche = meta.get("branche") or content.get("branche") or ""
+            content["rechner"] = website_builder.rechner_for(branche, content.get("leistungen"))
+            _write_content(folder, content)
+            if say:
+                say(5, "Kostenrechner-Daten ergänzt.")
+        except Exception:
+            pass
+    # kostenrechner.js in die Seite kopieren, falls noch nicht vorhanden (für den Makeover-Einbau).
+    try:
+        dst = folder / "static" / "js" / "kostenrechner.js"
+        if not dst.exists() and _VORLAGE_RECHNER_JS.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copyfile(_VORLAGE_RECHNER_JS, dst)
+    except Exception:
+        pass
+
+
+def _refresh_hero_on_upgrade(folder: Path) -> None:
+    """Beim Re-Makeover wegen einer NEUEN _MAKEOVER_VERSION einmalig ein frisches Higgsfield-
+    Hero erzwingen: nur hero_source zurücksetzen, damit _ensure_hero ein neues Bild erzeugt
+    (im Tagesbudget). hero_image bleibt als Fallback erhalten (falls das Budget erschöpft ist).
+    Vom Inhaber hochgeladenes Hero (hero_custom) bleibt unangetastet. Idempotent pro Version."""
+    try:
+        content = _read_content(folder)
+    except Exception:
+        return
+    if content.get("hero_custom"):
+        return
+    if int(content.get("makeover_version") or 0) >= _MAKEOVER_VERSION:
+        return                                      # kein Upgrade → kein erzwungenes Neu-Hero
+    if int(content.get("hero_refresh_version") or 0) >= _MAKEOVER_VERSION:
+        return                                      # für diese Version schon erneuert
+    content["hero_source"] = ""                      # _ensure_hero erzeugt jetzt frisch (Higgsfield)
+    content["hero_refresh_version"] = _MAKEOVER_VERSION
+    _write_content(folder, content)
+
+
 def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     """Reichert content.json VOR dem Makeover LOKAL über Ollama an (kostenlos, 32-GB-Maschine):
     4–6 betriebsgenaue Leistungen, eine glaubwürdige Über-uns-Geschichte, 4–5 FAQ und Trust-
@@ -662,6 +723,7 @@ def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     das Flag content['content_enriched']; per JARVIS_MAKEOVER_PREFILL=0 abschaltbar. Best-effort."""
     _grade_fotos_once(folder, meta, say)        # Lead-Fotos lokal bewerten (immer, idempotent)
     _ensure_akzent(folder, meta, say)           # Farbe branchengerecht nachziehen (immer)
+    _ensure_rechner(folder, meta, say)          # Kostenrechner-Daten + JS sicherstellen (immer)
     if os.environ.get("JARVIS_MAKEOVER_PREFILL", "1") == "0":
         return
     content = _read_content(folder)
@@ -765,6 +827,7 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     # Hero-Bild zuerst frisch erzeugen (einmal je Seite, Default Higgsfield), damit die
     # folgenden Design-Stufen auf dem hochwertigen Bild aufbauen.
     if not (stop and stop()):
+        _refresh_hero_on_upgrade(folder)        # neue Version → frisches Higgsfield-Hero erzwingen
         _ensure_hero(folder, meta, say)
     # Rechtstexte lokal vorbefüllen (0 Claude-Tokens) — die QA-Stufe rendert sie nur noch.
     _ensure_legal(folder, meta)

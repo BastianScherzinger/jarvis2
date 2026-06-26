@@ -1253,24 +1253,25 @@ def hero_master_prompt(branche: str = "", name: str = "", stadt: str = "",
     ort   = (stadt or "Deutschland").strip()
     desc  = (beschreibung or "").strip()
     scene = _hero_scene(br)
-    extra = f" Tailor the details to this specific business: {desc[:240]}." if desc else ""
-    acc   = f" Subtle brand accent color {akzent} present in the scene (clothing/signage/props), never as text." if akzent else ""
+    extra = f" Context: {desc[:160]}." if desc else ""
+    acc   = (f" A subtle hint of the brand color {akzent} may appear in objects or the environment, "
+             "never as text or a logo.") if akzent else ""
+    # Bewusst straff & realismus-/no-text-lastig: frühe UND späte No-Text-Klausel, klar weniger
+    # Personen/Hände (Hauptquelle für deformierte/„komische" Bilder), ruhiger Negativraum links.
     return (
-        f"Ultra-realistic editorial commercial photograph — premium website hero banner for a "
-        f"German {br} business in {ort}. Scene: {scene}.{extra} "
-        "Shot on a full-frame camera (35mm f/1.8), natural bright daylight or warm golden-hour "
-        "light, soft realistic shadows, shallow depth of field with creamy bokeh, cinematic color "
-        "grading, high dynamic range, crisp tack-sharp focus, immaculate styling, award-winning "
-        "advertising photography, magazine-grade quality. Real authentic people and genuine tools "
-        "of this exact trade, candid professional moment, trustworthy and competent mood. Clean "
-        "modern composition following rule of thirds, generous clean NEGATIVE SPACE on the LEFT "
-        "third (an HTML headline is overlaid there later by code), uncluttered background. "
-        "16:9 landscape orientation." + acc +
-        " The image must be a PURE PHOTOGRAPH with ZERO graphics overlaid. ABSOLUTELY NO text, "
-        "no words, no letters, no numbers, no captions, no signage with writing, no labels, no "
-        "logos, no brand marks, no watermarks, no UI, no buttons, no posters, no banners with "
-        "writing. No distorted hands, no extra limbs, no collage, no borders or frames. "
-        "Photorealistic only. If any text would appear, leave that area empty instead."
+        f"Professional photorealistic advertising photograph for the website hero banner of a German "
+        f"{br} business in {ort}. NO text anywhere in the image. Scene: {scene}.{extra} "
+        "Real-world documentary style, shot on a full-frame DSLR with a 35mm lens, natural daylight, "
+        "soft realistic shadows, shallow depth of field, true-to-life colours, crisp sharp focus, a "
+        "clean tidy professional environment, fine detail, magazine-grade quality. "
+        "Composition: wide 16:9 landscape; keep the LEFT THIRD calm and uncluttered (empty negative "
+        "space) so a headline can be placed there by code." + acc +
+        " The picture MUST be a clean photograph with ZERO text of any kind: no words, no letters, no "
+        "numbers, no captions, no signs or signage with writing, no labels, no posters, no logos, no "
+        "brand marks, no watermarks, no UI. Prefer scenes WITHOUT people in the foreground; if a person "
+        "appears, keep them natural and at a distance with correct anatomy — NO close-up hands, no "
+        "deformed hands, no extra fingers or limbs, no distortion, no collage, no border or frame. "
+        "Photorealistic only — leave any area empty rather than adding text or a logo."
     )
 
 

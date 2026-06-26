@@ -48,6 +48,9 @@ _FALLBACK = {
     "wvm_logo": "",
     "wvm_photo": "/static/img/wvm_person.jpg",
     "wvm_shop": "https://www.pystore.de",
+    # Kostenrechner (Hero-Karte). Wird beim Bau/Makeover branchengerecht befüllt; hier nur
+    # Platzhalter — der Fallback unten erzeugt immer einen funktionierenden Datensatz.
+    "rechner": {},
 }
 
 # Vier neutrale Mitarbeiter-Platzhalter, falls keine Team-Daten vorliegen.
@@ -106,6 +109,24 @@ def _content() -> dict:
     if not team:
         team = list(_TEAM_FALLBACK)
     data["team4"] = team[:4]
+    # Kostenrechner: aus content.json nehmen; sonst generischen Datensatz bauen (rendert IMMER).
+    rech = data.get("rechner")
+    if not (isinstance(rech, dict) and rech.get("posten")):
+        leist = [str(l.get("titel", "")).strip() for l in (data.get("leistungen") or [])
+                 if isinstance(l, dict) and l.get("titel")]
+        if leist:
+            posten = [{"name": t, "ab": 150, "bis": 1500} for t in leist[:5]]
+        else:
+            posten = [
+                {"name": "Kleiner Auftrag", "ab": 150, "bis": 600},
+                {"name": "Mittleres Projekt", "ab": 600, "bis": 3000},
+                {"name": "Großes Projekt", "ab": 3000, "bis": 15000},
+            ]
+        data["rechner"] = {
+            "titel": "Kostenrechner", "untertitel": "Unverbindliche Sofort-Schätzung",
+            "posten": posten,
+            "hinweis": "Grobe Orientierung — Ihr genaues Angebot ist kostenlos.",
+        }
     # WVM-Branding: Env-Override (zentral, ohne Rebuild) gewinnt über content.json/Default.
     for key, env in (("wvm_name", "JARVIS_WVM_NAME"), ("wvm_url", "JARVIS_WVM_URL"),
                      ("wvm_logo", "JARVIS_WVM_LOGO"), ("wvm_photo", "JARVIS_WVM_PHOTO"),

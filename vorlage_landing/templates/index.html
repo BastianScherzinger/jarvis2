@@ -49,6 +49,27 @@
             {% if c.stadt %}<li><span>Persönlich vor Ort in {{ c.stadt }}</span></li>{% endif %}
           </ul>
         </div>
+
+        <!-- KOSTENRECHNER (rechte Hero-Spalte) — unverbindliche Sofort-Schätzung -->
+        <aside class="hero-rechner" aria-label="Kostenrechner">
+          <div class="hr-head">
+            <strong class="hr-title">{% if c.rechner.titel %}{{ c.rechner.titel }}{% else %}Kostenrechner{% endif %}</strong>
+            <span class="hr-sub">{% if c.rechner.untertitel %}{{ c.rechner.untertitel }}{% else %}Unverbindliche Sofort-Schätzung{% endif %}</span>
+          </div>
+          <label class="hr-field" for="hr-leistung">Leistung
+            <select id="hr-leistung"></select>
+          </label>
+          <label class="hr-field" for="hr-umfang">Umfang: <span class="hr-umfang-lbl" id="hr-umfang-lbl">mittel</span>
+            <input id="hr-umfang" type="range" min="1" max="3" step="1" value="2">
+          </label>
+          <div class="hr-result">
+            <span class="hr-result-lbl">Geschätzte Kosten</span>
+            <span class="hr-result-val" id="hr-result">—</span>
+          </div>
+          <a class="btn hr-cta" href="#kontakt">Genaues Angebot anfragen</a>
+          <p class="hr-note">{% if c.rechner.hinweis %}{{ c.rechner.hinweis }}{% else %}Grobe Orientierung — Ihr genaues Angebot ist kostenlos.{% endif %}</p>
+          {{ c.rechner|json_script:"rechner-data" }}
+        </aside>
       </div>
     </section>
 
@@ -204,5 +225,7 @@
     {% if c.telefon %}<a href="tel:{{ c.telefon }}">☎ Anrufen</a>{% endif %}
     {% if c.whatsapp %}<a class="mb-wa" href="https://wa.me/{{ c.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %}
   </div>
+
+  <script src="{% static 'js/kostenrechner.js' %}" defer></script>
 </body>
 </html>

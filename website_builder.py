@@ -97,6 +97,117 @@ def akzent_for(branche: str) -> str:
     return _AKZENT_DEFAULT
 
 
+# Kostenrechner-Posten je Branche (grobe, ehrliche Richtwerte in €). Reihenfolge zählt:
+# spezifische Schlüssel vor generischen. Generischer Fallback = Stufen-Schätzung.
+_RECHNER_DEFAULT = [
+    {"name": "Kleiner Auftrag", "ab": 150, "bis": 600},
+    {"name": "Mittleres Projekt", "ab": 600, "bis": 3000},
+    {"name": "Großes Projekt", "ab": 3000, "bis": 15000},
+]
+_RECHNER = {
+    "zahnarzt":  [{"name": "Professionelle Zahnreinigung", "ab": 80, "bis": 150},
+                  {"name": "Bleaching", "ab": 300, "bis": 700},
+                  {"name": "Implantat (Richtwert)", "ab": 1800, "bis": 3500}],
+    "physio":    [{"name": "Einzelbehandlung", "ab": 30, "bis": 80},
+                  {"name": "Massage", "ab": 35, "bis": 90},
+                  {"name": "10er-Karte", "ab": 250, "bis": 600}],
+    "steuer":    [{"name": "Einkommensteuererklärung", "ab": 150, "bis": 600},
+                  {"name": "Lohnbuchhaltung (pro Monat)", "ab": 80, "bis": 300},
+                  {"name": "Jahresabschluss", "ab": 800, "bis": 3000}],
+    "anwalt":    [{"name": "Erstberatung", "ab": 100, "bis": 250},
+                  {"name": "Beratung (pro Stunde)", "ab": 150, "bis": 300},
+                  {"name": "Vertretung (Richtwert)", "ab": 500, "bis": 3000}],
+    "kanzlei":   [{"name": "Erstberatung", "ab": 100, "bis": 250},
+                  {"name": "Beratung (pro Stunde)", "ab": 150, "bis": 300}],
+    "dachdecker":[{"name": "Dachreparatur", "ab": 300, "bis": 1500},
+                  {"name": "Dachfenster einbauen", "ab": 900, "bis": 2500},
+                  {"name": "Dachrinne erneuern", "ab": 400, "bis": 1400},
+                  {"name": "Dachsanierung (komplett)", "ab": 7000, "bis": 28000}],
+    "maler":     [{"name": "Raum streichen", "ab": 250, "bis": 900},
+                  {"name": "Wohnung komplett", "ab": 1200, "bis": 4500},
+                  {"name": "Fassadenanstrich", "ab": 3000, "bis": 12000},
+                  {"name": "Tapezieren", "ab": 400, "bis": 1600}],
+    "elektr":    [{"name": "E-Check", "ab": 100, "bis": 250},
+                  {"name": "Steckdose/Schalter setzen", "ab": 60, "bis": 200},
+                  {"name": "Verteilerkasten erneuern", "ab": 700, "bis": 2200},
+                  {"name": "Wallbox installieren", "ab": 900, "bis": 2400}],
+    "sanitär":   [{"name": "Reparatur / Notdienst", "ab": 120, "bis": 450},
+                  {"name": "Armatur / WC tauschen", "ab": 200, "bis": 800},
+                  {"name": "Badsanierung", "ab": 6000, "bis": 20000}],
+    "heizung":   [{"name": "Heizungswartung", "ab": 120, "bis": 260},
+                  {"name": "Heizkörper tauschen", "ab": 400, "bis": 1200},
+                  {"name": "Heizung erneuern", "ab": 8000, "bis": 18000}],
+    "metallbau": [{"name": "Geländer / Treppe", "ab": 800, "bis": 4000},
+                  {"name": "Tor / Zaun", "ab": 1200, "bis": 6000},
+                  {"name": "Reparatur / Schweißarbeit", "ab": 150, "bis": 700}],
+    "galabau":   [{"name": "Gartenpflege (Einsatz)", "ab": 150, "bis": 600},
+                  {"name": "Pflasterarbeiten", "ab": 2500, "bis": 12000},
+                  {"name": "Hecke / Baumschnitt", "ab": 120, "bis": 500}],
+    "garten":    [{"name": "Gartenpflege (Einsatz)", "ab": 150, "bis": 600},
+                  {"name": "Pflasterarbeiten", "ab": 2500, "bis": 12000},
+                  {"name": "Hecke / Baumschnitt", "ab": 120, "bis": 500}],
+    "fliesen":   [{"name": "Fliesen verlegen (pro m²)", "ab": 35, "bis": 90},
+                  {"name": "Bad fliesen", "ab": 3000, "bis": 9000}],
+    "boden":     [{"name": "Boden verlegen (pro m²)", "ab": 30, "bis": 80},
+                  {"name": "Steinboden sanieren", "ab": 1500, "bis": 8000}],
+    "tischler":  [{"name": "Möbel nach Maß", "ab": 800, "bis": 5000},
+                  {"name": "Einbauschrank", "ab": 1200, "bis": 4000},
+                  {"name": "Innentür / Reparatur", "ab": 150, "bis": 800}],
+    "schreiner": [{"name": "Möbel nach Maß", "ab": 800, "bis": 5000},
+                  {"name": "Einbauschrank", "ab": 1200, "bis": 4000}],
+    "fenster":   [{"name": "Fenster austauschen (pro Stück)", "ab": 400, "bis": 1200},
+                  {"name": "Haustür", "ab": 1200, "bis": 4000},
+                  {"name": "Rollladen", "ab": 300, "bis": 900}],
+    "autohaus":  [{"name": "Inspektion", "ab": 150, "bis": 450},
+                  {"name": "HU / AU", "ab": 120, "bis": 180},
+                  {"name": "Reifenwechsel", "ab": 30, "bis": 90},
+                  {"name": "Bremsen erneuern", "ab": 200, "bis": 650}],
+    "kfz":       [{"name": "Inspektion", "ab": 150, "bis": 450},
+                  {"name": "HU / AU", "ab": 120, "bis": 180},
+                  {"name": "Reifenwechsel", "ab": 30, "bis": 90},
+                  {"name": "Bremsen erneuern", "ab": 200, "bis": 650}],
+    "auto":      [{"name": "Inspektion", "ab": 150, "bis": 450},
+                  {"name": "Reifenwechsel", "ab": 30, "bis": 90},
+                  {"name": "Bremsen erneuern", "ab": 200, "bis": 650}],
+    "friseur":   [{"name": "Schnitt Damen", "ab": 35, "bis": 75},
+                  {"name": "Schnitt Herren", "ab": 20, "bis": 40},
+                  {"name": "Färben / Strähnen", "ab": 60, "bis": 160},
+                  {"name": "Hochsteckfrisur", "ab": 50, "bis": 120}],
+    "kosmetik":  [{"name": "Gesichtsbehandlung", "ab": 40, "bis": 120},
+                  {"name": "Maniküre / Pediküre", "ab": 25, "bis": 70}],
+    "reinig":    [{"name": "Unterhaltsreinigung (pro Std.)", "ab": 25, "bis": 45},
+                  {"name": "Fensterreinigung", "ab": 80, "bis": 300},
+                  {"name": "Grundreinigung", "ab": 150, "bis": 700}],
+    "umzug":     [{"name": "1–2-Zimmer-Wohnung", "ab": 600, "bis": 1400},
+                  {"name": "3–4-Zimmer-Wohnung", "ab": 1000, "bis": 2400},
+                  {"name": "Einzelstück / Klaviertransport", "ab": 120, "bis": 400}],
+    "restaurant":[{"name": "Catering (pro Person)", "ab": 15, "bis": 45},
+                  {"name": "Veranstaltung / Buffet", "ab": 300, "bis": 3000}],
+    "bau":       [{"name": "Kleinere Arbeiten", "ab": 300, "bis": 1500},
+                  {"name": "Umbau / Renovierung", "ab": 3000, "bis": 20000},
+                  {"name": "Rohbau (Richtwert)", "ab": 20000, "bis": 120000}],
+}
+
+
+def rechner_for(branche: str = "", leistungen: "list | None" = None) -> dict:
+    """Branchengerechter Kostenrechner-Datensatz (Posten mit ehrlichen Richtwert-Spannen) +
+    Begleittexte. Erster Teilstring-Treffer gewinnt; sonst generische Stufen-Schätzung."""
+    low = (branche or "").lower()
+    posten = None
+    for k, v in _RECHNER.items():
+        if k in low:
+            posten = v
+            break
+    if not posten:
+        posten = _RECHNER_DEFAULT
+    return {
+        "titel": "Kostenrechner",
+        "untertitel": "Unverbindliche Sofort-Schätzung",
+        "posten": [dict(p) for p in posten],
+        "hinweis": "Grobe Orientierung — Ihr genaues, kostenloses Angebot erstellen wir nach kurzer Rücksprache.",
+    }
+
+
 def is_available() -> bool:
     return _VORLAGE.exists()
 
@@ -783,6 +894,9 @@ def _run(job_id: str) -> None:
                     _step(job_id, 55, "Bestes Lead-Foto als Hero gewählt (Higgsfield gespart).")
             except Exception:
                 pass
+        # Kostenrechner-Daten für die Hero-Karte (branchengerecht, deterministisch).
+        if not content.get("rechner"):
+            content["rechner"] = rechner_for(lead.get("branche", ""), content.get("leistungen"))
         try:
             import site_meta
             content["site_version"] = site_meta.SITE_VERSION

@@ -1057,3 +1057,27 @@ def test_video_backend_higgsfield_explizit(monkeypatch):
                         lambda prompt, **k: (seen.update(p=prompt), {"web_url": "/c"})[1])
     monkeypatch.setenv("JARVIS_VIDEO_BACKEND", "higgsfield")
     assert me.generate_video("y")["web_url"] == "/c" and seen["p"] == "y"
+
+
+# ── Kostenrechner: branchengerechte Posten + Vorlage-Einbau ───────────────────
+def test_rechner_for_branche_und_fallback():
+    import website_builder as wb
+    r = wb.rechner_for("Dachdeckermeisterbetrieb", [])
+    namen = [p["name"] for p in r["posten"]]
+    assert r["posten"] and any("Dach" in n for n in namen)
+    assert all("ab" in p and "bis" in p and p["bis"] >= p["ab"] for p in r["posten"])
+    # unbekannte Branche → generische 3-Stufen-Schätzung
+    g = wb.rechner_for("Etwas Exotisches ohne Match", [])
+    assert len(g["posten"]) == 3 and g["posten"][0]["ab"] == 150
+
+
+def test_vorlage_hero_rechner_und_headline_links():
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "vorlage_landing"
+    tpl = (base / "templates" / "index.html").read_text(encoding="utf-8")
+    assert "hero-rechner" in tpl                      # Kostenrechner-Karte im Hero
+    assert 'json_script:"rechner-data"' in tpl        # Daten für die JS
+    assert "kostenrechner.js" in tpl                  # JS eingebunden
+    assert (base / "static" / "js" / "kostenrechner.js").is_file()
+    css = (base / "static" / "css" / "style.css").read_text(encoding="utf-8")
+    assert ".hero h1{" in css and "text-align:left" in css   # Headline linksbündig, nicht zentriert
