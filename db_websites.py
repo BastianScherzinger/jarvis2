@@ -22,6 +22,7 @@ _lock   = threading.Lock()
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
     "kontakt_email", "site_key", "ansprechpartner", "archived",
+    "email_sent", "email_sent_ts",
 }
 
 
@@ -87,6 +88,8 @@ def init_db() -> None:
             ansprechpartner TEXT,
             site_key      TEXT,
             archived      INTEGER DEFAULT 0,
+            email_sent    INTEGER DEFAULT 0,
+            email_sent_ts REAL    DEFAULT 0,
             created       REAL,
             updated       REAL
         )
@@ -105,6 +108,10 @@ def init_db() -> None:
             c.execute("ALTER TABLE websites ADD COLUMN site_key TEXT")
         if "archived" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN archived INTEGER DEFAULT 0")
+        if "email_sent" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN email_sent INTEGER DEFAULT 0")
+        if "email_sent_ts" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN email_sent_ts REAL DEFAULT 0")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_sitekey ON websites(site_key)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_archived ON websites(archived)")
         for r in c.execute("SELECT id, name, stadt FROM websites WHERE site_key IS NULL OR site_key=''").fetchall():

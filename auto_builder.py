@@ -28,8 +28,11 @@ _BASTIAN = "bastian.scherzinger05@gmail.com"
 _BASE     = Path(__file__).parent
 _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
-_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
+_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "7") or "7")
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
+# 2× täglich bauen: erste Session 00:00–_PM_START, zweite Session _PM_START–23:59.
+# Jede Session hat ihr eigenes Tageslimit (_DAILY_LIMIT). Default: Mittagsstart um 12:00.
+_PM_START      = int(os.environ.get("JARVIS_PM_START", "12") or "12")
 # Die Cutoff-Stunde ist ein Konzept für den unbeaufsichtigten Dauerbetrieb. Ein
 # MANUELLER Start soll sofort arbeiten — sonst „passiert nichts", wenn Sir den
 # Builder tagsüber startet. Mit JARVIS_IMPROVE_RESPECT_CUTOFF=1 gilt wieder die
@@ -47,7 +50,7 @@ _NIGHTLY_DEEP  = os.environ.get("JARVIS_NIGHTLY_DEEP", "off").strip().lower()
 
 _state = {
     "running": False, "current": "", "phase": "", "done": 0, "failed": 0,
-    "last": "", "started": 0.0, "day": "", "today_count": 0,
+    "last": "", "started": 0.0, "day": "", "session": "", "today_count": 0,
     "daily_limit": _DAILY_LIMIT, "improve_until_hour": _IMPROVE_UNTIL, "mode": "",
     "nightly_deep": _NIGHTLY_DEEP, "last_feature": "",
 }
@@ -144,8 +147,12 @@ def stop() -> dict:
 
 
 def resume_if_needed() -> bool:
-    """Beim App-Start aufrufen: war der Night-Builder beim letzten Mal an, läuft er
-    automatisch wieder an (genau da weiter — Pro-Seite-Stufen liegen in content.json)."""
+    """Beim App-Start aufrufen: veraltete Demos abbauen (7-Tage-Regel) + Night-Builder
+    fortsetzen wenn er beim letzten Mal lief."""
+    try:
+        teardown_stale_demos()
+    except Exception as e:
+        logger.warn("AutoBuilder", f"Startup-Teardown: {type(e).__name__}")
     if _persisted_running() and not is_running():
         logger.info("AutoBuilder", "Vorheriger Lauf war aktiv → automatische Fortsetzung")
         start(_resume=True)
@@ -157,6 +164,13 @@ def resume_if_needed() -> bool:
 
 def _today() -> str:
     return date.today().isoformat()
+
+
+def _session() -> str:
+    """Aktuelle Bau-Session (2× täglich): '{datum}_am' (00:00–_PM_START) oder '{datum}_pm'.
+    Wird statt _today() für Bau-Zählung genutzt — so startet nach _PM_START eine 2. Runde."""
+    h = datetime.now().hour
+    return _today() + ("_am" if h < _PM_START else "_pm")
 
 
 def _load_log() -> dict:
@@ -175,12 +189,11 @@ def _save_log(log: dict) -> None:
 
 
 def _count_today() -> int:
-    """Heute gebaute Seiten, die NOCH AKTIV im Dashboard sind (nicht gelöscht UND nicht
-    archiviert). So füllt der Builder nach „Löschen" ODER „Neu starten" (= alle archivieren)
-    automatisch wieder bis auf das Tageslimit auf — er baut sofort weiter, statt fälschlich in
-    Pause zu gehen. WICHTIG: NICHT nach Ordner-Existenz zählen (ein archivierter Ordner liegt
-    noch auf der Platte → würde sonst mitgezählt → Builder dächte „fertig" und baut nichts)."""
-    entries = _load_log().get(_today(), [])
+    """Aktive Seiten in der AKTUELLEN Bau-Session (am/pm). Nicht gelöscht, nicht archiviert.
+    Zählt per Session, damit nach _PM_START eine zweite Runde mit frischem Limit startet.
+    WICHTIG: NICHT nach Ordner-Existenz zählen (archivierter Ordner liegt noch auf der
+    Platte → würde sonst mitgezählt → Builder dächte „fertig" und baut nichts)."""
+    entries = _load_log().get(_session(), [])
     if not entries:
         return 0
     # Aktive (nicht-archivierte) Ordner aus der Webseiten-DB — NUR diese zählen als „vorhanden".
@@ -211,19 +224,28 @@ def _count_today() -> int:
 
 
 def _record(entry: dict) -> None:
-    """Speichert eine gebaute Seite in der Tages-Historie (data/daily_builds.json)."""
+    """Speichert eine gebaute Seite in der Session-Historie (data/daily_builds.json)."""
     log = _load_log()
-    log.setdefault(_today(), []).append(entry)
+    sess = _session()
+    log.setdefault(sess, []).append(entry)
     _save_log(log)
-    _set(today_count=len(log[_today()]))
+    _set(today_count=len(log[sess]))
 
 
 def daily_log(days: int = 14) -> dict:
-    """Tages-Historie (neueste Tage zuerst, begrenzt) für die UI."""
+    """Tages-Historie (neueste Tage zuerst, begrenzt) für die UI.
+    Session-Schlüssel (_am/_pm) werden nach echtem Datum gruppiert."""
     log = _load_log()
-    tage = sorted(log.keys(), reverse=True)[:max(1, days)]
+    from collections import defaultdict
+    grouped: dict = defaultdict(list)
+    for k, entries in log.items():
+        # '_am'/'_pm'-Suffix abschneiden → echtes Datum als Gruppenkey
+        date_k = k.rsplit("_", 1)[0] if k.endswith(("_am", "_pm")) else k
+        grouped[date_k].extend(entries)
+    tage = sorted(grouped.keys(), reverse=True)[:max(1, days)]
     return {"today": _today(), "daily_limit": _DAILY_LIMIT,
-            "days": [{"date": t, "sites": log[t]} for t in tage]}
+            "sessions_per_day": 2, "pm_start_hour": _PM_START,
+            "days": [{"date": t, "sites": grouped[t]} for t in tage]}
 
 
 # ── Lead-Auswahl ──────────────────────────────────────────────────────────────
@@ -276,15 +298,19 @@ _IMPROVE_TODAY_ONLY = (os.environ.get("JARVIS_IMPROVE_TODAY_ONLY", "1").strip().
 
 
 def _today_folders() -> set:
-    """Ordner-Pfade aller HEUTE in der Tages-Historie gebauten Seiten (normalisiert)."""
+    """Ordner-Pfade ALLER heute gebauten Seiten (beide Sessions am+pm, normalisiert).
+    Der Improver soll Seiten aus beiden Sessions nachziehen — nicht nur der aktuellen."""
     out: set = set()
-    for e in _load_log().get(_today(), []):
-        f = (e.get("folder") or "").strip()
-        if f:
-            try:
-                out.add(os.path.normcase(os.path.abspath(f)))
-            except Exception:
-                out.add(f)
+    log = _load_log()
+    today = _today()
+    for key in (today, f"{today}_am", f"{today}_pm"):
+        for e in log.get(key, []):
+            f = (e.get("folder") or "").strip()
+            if f:
+                try:
+                    out.add(os.path.normcase(os.path.abspath(f)))
+                except Exception:
+                    out.add(f)
     return out
 
 
@@ -998,7 +1024,7 @@ def _sync_one(job_id: str) -> None:
         pass
 
 
-_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "10") or "10")
+_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "7") or "7")
 
 
 def _lead_converted(lead_id) -> bool:
@@ -1055,14 +1081,22 @@ def teardown_stale_demos(max_age_days: int = 0) -> int:
 def _loop() -> None:
     while is_running():
         today = _today()
+        cur_session = _session()
         with _lock:
-            neuer_tag = _state["day"] != today
-            if neuer_tag:                            # neuer Tag → Zähler/Phase zurück
-                _state["day"] = today
-                _makeover_stuck.clear()              # täglich zurücksetzen
+            neuer_tag     = _state["day"] != today
+            neuer_session = _state.get("session", "") != cur_session
+            if neuer_tag or neuer_session:
+                _state["day"]     = today
+                _state["session"] = cur_session
+                _makeover_stuck.clear()              # je Session zurücksetzen
                 _rescue_tries.clear()
-                globals()["_farewell_sent"] = False  # neuer Tag → wieder verabschiedbar
-                logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
+                globals()["_farewell_sent"] = False
+                if neuer_tag:
+                    logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
+                else:
+                    sess_label = cur_session.split("_")[-1].upper()
+                    logger.info("AutoBuilder",
+                                f"Neue Bau-Session ({sess_label}) — {_DAILY_LIMIT} Seiten")
         if neuer_tag:                                # einmal je Tag: alte Demos abbauen (best-effort)
             try:
                 teardown_stale_demos()

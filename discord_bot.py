@@ -238,6 +238,42 @@ import threading as _threading
 _send_lock = _threading.Lock()
 
 
+def _archive_lead_after_send(review: dict) -> None:
+    """Nach erfolgreichem Kundenversand: Lead archivieren (verhindert Neu-Bau derselben Seite)
+    + db_websites als 'E-Mail versendet' markieren."""
+    name  = (review.get("name") or "").strip()
+    stadt = (review.get("stadt") or "").strip()
+    if not name:
+        return
+    # Lead in db_evaluated archivieren
+    try:
+        import db_evaluated
+        from leadkey import lead_key as _lk
+        lk = _lk(name, stadt)
+        for lead in db_evaluated.get_all(limit=5000):
+            if (lead.get("lead_key") == lk or
+                    (lead.get("name") or "").strip().lower() == name.lower()):
+                db_evaluated.archive_lead(int(lead["id"]), "E-Mail an Kunden versandt — kein Neubau")
+                logger.info("Discord", f"Lead archiviert nach Versand: {name}")
+                break
+    except Exception as e:
+        logger.warn("Discord", f"Lead-Archivierung fehlgeschlagen: {type(e).__name__}")
+    # Website-Zeile in db_websites als gesendet markieren
+    try:
+        import db_websites
+        import time as _t
+        folder = (review.get("folder") or "").strip()
+        if folder:
+            row = db_websites.get_by_folder(folder)
+            if row:
+                db_websites.update(row["job_id"],
+                                   email_sent=1,
+                                   email_sent_ts=_t.time(),
+                                   step="✅ E-Mail an Kunden versandt")
+    except Exception as e:
+        logger.warn("Discord", f"Website-Versand-Markierung: {type(e).__name__}")
+
+
 def send_approved_now() -> dict:
     """Versendet sofort alle freigegebenen, noch nicht gesendeten Seiten. Gibt eine
     Zusammenfassung zurück. (Wird vom 12-Uhr-Scheduler und manuell genutzt.)
@@ -258,6 +294,7 @@ def send_approved_now() -> dict:
             if ok:
                 sent += 1
                 lines.append(f"✅ {r.get('name','?')} → {r.get('email','?')}")
+                _archive_lead_after_send(r)          # Lead archivieren → kein Neubau
             else:
                 failed += 1
                 lines.append(f"⚠️ {r.get('name','?')}: {info}")

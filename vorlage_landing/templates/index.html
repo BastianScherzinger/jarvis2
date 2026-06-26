@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="{{ c.akzent }}">
   <title>{{ c.seo_title }}</title>
   <meta name="description" content="{{ c.seo_desc }}">
   <meta property="og:title" content="{{ c.seo_title }}">
@@ -21,12 +22,16 @@
   <header class="nav">
     <div class="wrap nav-in">
       <a class="brand" href="#top">{% if c.logo_image %}<img class="brand-logo" src="{{ c.logo_image }}" alt="{{ c.site_name }}">{% else %}{{ c.site_name }}{% endif %}</a>
-      <nav class="nav-links">
+      <nav class="nav-links" id="nav-links">
         <a href="#leistungen">Leistungen</a>
         <a href="#ueber">Über uns</a>
         <a href="#kontakt">Kontakt</a>
+        <a class="btn btn-sm" href="#kontakt" style="display:none" id="nav-cta-mobile">{{ c.cta_text }}</a>
       </nav>
       <a class="btn btn-sm" href="#kontakt">{{ c.cta_text }}</a>
+      <button class="nav-burger" id="nav-burger" aria-label="Menü öffnen" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
     </div>
   </header>
 
@@ -230,5 +235,27 @@
   </div>
 
   <script src="{% static 'js/kostenrechner.js' %}" defer></script>
+  <script>
+    (function(){
+      var btn=document.getElementById('nav-burger');
+      var nav=document.getElementById('nav-links');
+      var cta=document.getElementById('nav-cta-mobile');
+      if(!btn||!nav)return;
+      btn.addEventListener('click',function(){
+        var open=btn.getAttribute('aria-expanded')==='true';
+        btn.setAttribute('aria-expanded',open?'false':'true');
+        nav.classList.toggle('open',!open);
+        if(cta)cta.style.display=open?'none':'block';
+      });
+      // Schließen wenn Link geklickt
+      nav.querySelectorAll('a').forEach(function(a){
+        a.addEventListener('click',function(){
+          btn.setAttribute('aria-expanded','false');
+          nav.classList.remove('open');
+          if(cta)cta.style.display='none';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
