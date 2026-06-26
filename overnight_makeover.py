@@ -64,6 +64,10 @@ _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "36
 _TASTE   = "design-taste-frontend"
 _LANDING = "premium-landing"
 _DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).strip() or _LANDING
+# Die EINE Claude-Politur nutzt standardmäßig das VOLLE taste-Skill (Sirs Wunsch „mehr /taste");
+# es ist der einzige Claude-Schritt → die zusätzliche Token-Last fällt nur einmal je Seite an.
+# Per JARVIS_POLITUR_SKILL auf 'premium-landing' (token-ärmer) umschaltbar.
+_POLITUR_SKILL = (os.environ.get("JARVIS_POLITUR_SKILL") or _TASTE).strip() or _TASTE
 
 # ── Makeover-Engine (Token-Disziplin, Stand 26.06.2026) ─────────────────────────
 # Die Basis-Vorlage rendert alle Blöcke bereits aus content.json (Templates = 0 Tokens) und
@@ -225,23 +229,39 @@ _STAGE_LOKAL: dict = {
 # gestaltet (Palette/Fonts via tokens.css). Claude darf NUR noch surgisch feinschleifen —
 # knappes Budget (15 Runden, 10 Min), kein Neuaufbau, keine Farb-/Font-Umschreibung.
 _STAGE_POLITUR: dict = {
-    "key": "politur", "skill": _LANDING, "max_turns": 15, "timeout": 600,
-    "label": "Feinschliff (Claude, knapp)",
+    "key": "politur", "skill": _POLITUR_SKILL, "max_turns": 22, "timeout": 720,
+    "label": "Feinschliff & Anordnung (Claude · taste)",
     "optional": True,        # Politur ist Kür — sie darf die Discord-Freigabe NIE blockieren.
     "task": (
         "Die Seite ist BEREITS vollständig gebaut und markengerecht gestaltet: alle Sektionen "
         "rendern aus content.json, und die Farbwelt + das Font-Pairing stehen schon FERTIG in "
-        "static/css/tokens.css (lokal erzeugt, lädt nach style.css). Baue NICHTS neu und schreibe "
-        "weder Palette noch Fonts um — tokens.css ist gesetzt. Deine Aufgabe ist ein SURGISCHER "
-        "Feinschliff mit knappem Token-Budget:\n"
-        "• Abstände/Rhythmus & Ausrichtung dort glätten, wo es sichtbar hakt (Hero, Sektions-"
-        "Übergänge, Karten-Grid, Footer).\n"
-        "• Offensichtliche Schönheitsfehler beheben (Überläufe, gebrochene <img>, schiefe "
-        "Buttons, doppelte/leere Blöcke).\n"
-        "• Hero linksbündig + Kostenrechner-Karte rechts müssen sauber sitzen; auf Mobil stapeln.\n"
-        "Nur kleine, gezielte Edits an static/css/style.css bzw. templates/index.html — KEINE "
-        "neuen Sektionen, KEINE inhaltliche Neutextung, KEINE Probe-Renders, kein endloses "
-        "Polishing. Wenn es sauber sitzt, bist du fertig. Schließe mit genau einem Satz."
+        "static/css/tokens.css (lokal erzeugt, lädt nach style.css). Behalte diese Farb-/Font-"
+        "Tokens (schreibe Palette/Fonts NICHT um). Wende jetzt das DESIGN-/taste-Skill an und hebe "
+        "die Seite mit gezielten Edits auf Premium-Agentur-Niveau — Schwerpunkt KOMPOSITION & "
+        "ANORDNUNG (kein Neuaufbau, keine inhaltliche Neutextung):\n\n"
+        "1) HERO besser sortieren (Above-the-fold ist das Wichtigste):\n"
+        "   • Zwei klar getrennte Spalten: LINKS der Text-Block (Eyebrow → kraftvolle Headline → "
+        "Subline → Button-Reihe → dezente Trust-Signale), strikt LINKSBÜNDIG, mit ruhiger "
+        "vertikaler Rhythmik (klare Abstände zwischen Eyebrow/H1/Subline/CTAs).\n"
+        "   • RECHTS die Kostenrechner-Karte sauber ausgerichtet (gleiche optische Höhe/Mitte wie "
+        "der Textblock), klare Felder, gut sichtbarer CTA. Karte hebt sich mit weichem Schatten "
+        "vom Hero-Bild ab (lesbarer Scrim/Gradient hinter dem Text).\n"
+        "   • Hero-Höhe, Innenabstände und max-Breite so, dass nichts gedrängt wirkt; auf Mobil "
+        "sauber stapeln (Text oben, Rechner darunter, Touch-Ziele ≥ 44 px).\n\n"
+        "2) GESAMTE SEITEN-ANORDNUNG & Rhythmus:\n"
+        "   • Einheitliche, großzügige Sektions-Abstände (konsistente vertikale Skala), klare "
+        "visuelle Hierarchie (Section-Titel → Lead → Inhalt), abwechselnde Hintergründe/Bänder "
+        "für angenehmen Lesefluss.\n"
+        "   • Karten-/Grid-Ausrichtung sauber (gleiche Höhen, gleichmäßige Gaps), Galerie & Team "
+        "ordentlich gerastert, Kontakt + Formular nebeneinander ausbalanciert, Footer aufgeräumt.\n"
+        "   • Mehr 'taste': feinere Typo-Skala (clamp), bessere Weißraum-Verteilung, konsistente "
+        "Radien/Schatten, ruhige Mikro-Interaktionen (hover/focus-visible) — weniger, aber besser.\n\n"
+        "3) Offensichtliche Fehler beheben: Überläufe, gebrochene <img>, schiefe Buttons, doppelte/"
+        "leere Blöcke, Kontraste (WCAG-AA).\n\n"
+        "Arbeite gezielt an static/css/style.css + templates/index.html (surgische Edits über klare "
+        "Anker, je Datei in wenigen MultiEdits). KEINE neuen Sektionen erfinden, KEINE Probe-Renders, "
+        "kein endloses Polishing. Am Ende MUSS das Template fehlerfrei rendern. Schließe mit genau "
+        "einem Satz, was du verbessert hast."
     ),
 }
 

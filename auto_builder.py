@@ -953,10 +953,14 @@ def _live_check_once() -> None:
             live_now = bool(_is_live(url, timeout=8))
             # live-Flag nur bei Änderung schreiben (spart DB-Schreibzugriffe + Cloud-Sync).
             if int(w.get("live") or 0) != (1 if live_now else 0):
+                if live_now:
+                    txt = "Live erreichbar."
+                elif has_local:
+                    txt = "Link nicht erreichbar (404/Build) — wird neu deployt."
+                else:
+                    txt = "Nicht erreichbar (auf anderem PC gebaut — hier nicht steuerbar)."
                 try:
-                    db_websites.update(job_id, live=1 if live_now else 0,
-                                       step=("Live erreichbar." if live_now
-                                             else "Link nicht erreichbar (404/Build) — wird neu deployt."))
+                    db_websites.update(job_id, live=1 if live_now else 0, step=txt)
                     _sync_one(job_id)
                 except Exception:
                     pass

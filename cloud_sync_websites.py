@@ -26,6 +26,16 @@ _BUCKET       = "website-images"
 _TIMEOUT      = 20
 PULL_INTERVAL = 300
 
+# Webseiten-PULL (remote → lokale Anzeige) standardmäßig AUS: Webseiten sind LOKALE Ordner-
+# Artefakte — die von einem anderen PC kann dieser hier weder bauen noch deployen noch
+# reparieren. Sie nur reinzusyncen füllt das Dashboard mit fremden „404"-Karten und macht den
+# 5-Seiten-Bestand unübersichtlich (Sirs Beschwerde „aufeinmal alle alten wieder da"). Der PUSH
+# bleibt an (eigene Seiten erscheinen in der Cloud/Leadsite). Cross-PC-Anzeige wieder an:
+# JARVIS_SYNC_WEBSITES_PULL=1.
+def _pull_enabled() -> bool:
+    return (os.environ.get("JARVIS_SYNC_WEBSITES_PULL", "0") or "0").strip().lower() in (
+        "1", "true", "yes", "ja", "on")
+
 _SYNC_COLS = ["name", "stadt", "branche", "repo_url", "live_url", "live",
               "status", "step", "kontakt_email"]
 
@@ -132,7 +142,10 @@ def delete_remote(name: str, stadt: str) -> None:
 # ── Pull ──────────────────────────────────────────────────────────────────────
 
 def pull_into_db() -> dict:
-    """Zieht alle remote Webseiten in die lokale db_websites (Cross-PC-Anzeige)."""
+    """Zieht alle remote Webseiten in die lokale db_websites (Cross-PC-Anzeige).
+    Standard AUS (s. _pull_enabled) — verhindert, dass fremde/alte Seiten das Dashboard fluten."""
+    if not _pull_enabled():
+        return {"ok": False, "reason": "websites-pull deaktiviert (JARVIS_SYNC_WEBSITES_PULL=1 aktiviert es)"}
     if not is_configured():
         return {"ok": False, "reason": "nicht konfiguriert"}
     url, key = _cfg()
@@ -188,8 +201,13 @@ def _pull_loop() -> None:
 
 
 def start() -> None:
-    """Startet den periodischen Pull-Thread (idempotent)."""
+    """Startet den periodischen Pull-Thread (idempotent). Nur wenn der Webseiten-Pull aktiviert
+    ist (Standard AUS) — sonst zeigt jeder PC nur seine EIGENEN gebauten Seiten."""
     global _started
+    if not _pull_enabled():
+        logger.info("WebSync", "Webseiten-Cross-PC-Pull aus (Standard) — nur eigene Seiten werden "
+                               "gezeigt. Aktivieren: JARVIS_SYNC_WEBSITES_PULL=1.")
+        return
     with _lock:
         if _started:
             return

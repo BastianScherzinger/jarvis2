@@ -130,6 +130,33 @@ def _startup_cleanup():
     except Exception as e:
         _logger.warn("Startup", f"Stuck-Site-Cleanup fehlgeschlagen: {type(e).__name__}")
 
+    # Fremde (von anderen PCs reingesyncte) Webseiten aus dem lokalen Dashboard entfernen —
+    # NUR die DB-Zeile (kein Remote-Eingriff): job_id 'remote-…' ODER ein gesetzter Ordner, der
+    # auf DIESEM PC nicht existiert. So zeigt das Dashboard nur die eigenen, lokal baubaren
+    # Seiten (Sirs Beschwerde „aufeinmal alle alten wieder da"). Mid-Build-Zeilen (running/
+    # queued) bleiben unangetastet.
+    try:
+        import os as _os
+        import db_websites as _dw
+        entfernt = 0
+        for s in _dw.get_all():
+            jid = (s.get("job_id") or "")
+            folder = (s.get("folder") or "").strip()
+            is_remote = jid.startswith("remote-")
+            foreign_folder = bool(folder) and not _os.path.isdir(folder) and \
+                s.get("status") not in ("running", "queued")
+            if is_remote or foreign_folder:
+                try:
+                    _dw.delete(s["id"])
+                    entfernt += 1
+                except Exception:
+                    pass
+        if entfernt:
+            _logger.info("Startup", f"{entfernt} fremde/synchronisierte Webseiten aus dem "
+                                    "Dashboard entfernt (nur lokale Anzeige, kein Remote-Eingriff).")
+    except Exception as e:
+        _logger.warn("Startup", f"Fremd-Seiten-Cleanup übersprungen: {type(e).__name__}")
+
     # Night-Builder fortsetzen wenn er beim letzten Mal lief
     try:
         import auto_builder
