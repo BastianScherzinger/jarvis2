@@ -120,27 +120,54 @@ def _find_project_with_env(token: str, name: str) -> dict:
 def _find_service(token: str, project_id: str, name: str) -> dict:
     """Sucht im Projekt einen Service nach Name und liest dessen bestehende Domain.
     Gibt {found, service_id, domain}. Für den Fall, dass der Service schon existiert
-    (Re-Build derselben Seite) — so kommt trotzdem ein Live-Link zurück."""
+    (Re-Build derselben Seite) — so kommt trotzdem ein Live-Link zurück.
+
+    Robust: scheitert die ausführliche Query (Domain mit), wird auf eine einfache
+    Service-Liste (nur id+name) zurückgegriffen, damit der Service IMMER gefunden wird,
+    wenn er existiert (sonst käme fälschlich „serviceCreate: already exists" durch)."""
+    want = (name or "").strip().lower()
     q = ("query($id:String!){ project(id:$id){ services{ edges{ node{ id name "
          "serviceInstances{ edges{ node{ domains{ serviceDomains{ domain } } } } } } } } } }")
     r = _gql(q, {"id": project_id}, token)
-    if not r["ok"]:
-        return {"found": False}
-    edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
-    for e in edges:
-        node = e.get("node") or {}
-        if (node.get("name") or "").strip().lower() != name.strip().lower():
-            continue
-        domain = ""
-        for si in ((node.get("serviceInstances") or {}).get("edges") or []):
-            for sd in (((si.get("node") or {}).get("domains") or {}).get("serviceDomains") or []):
-                if sd.get("domain"):
-                    domain = sd["domain"]
+    if r["ok"]:
+        edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
+        for e in edges:
+            node = e.get("node") or {}
+            if (node.get("name") or "").strip().lower() != want:
+                continue
+            domain = ""
+            for si in ((node.get("serviceInstances") or {}).get("edges") or []):
+                for sd in (((si.get("node") or {}).get("domains") or {}).get("serviceDomains") or []):
+                    if sd.get("domain"):
+                        domain = sd["domain"]
+                        break
+                if domain:
                     break
-            if domain:
-                break
-        return {"found": True, "service_id": node["id"], "domain": domain}
+            return {"found": True, "service_id": node["id"], "domain": domain}
+        return {"found": False}
+    # Ausführliche Query scheiterte (Schema-Änderung o.ä.) → einfache Liste als Fallback.
+    r2 = _gql("query($id:String!){ project(id:$id){ services{ edges{ node{ id name } } } } }",
+              {"id": project_id}, token)
+    if r2["ok"]:
+        for e in (((r2["data"].get("project") or {}).get("services") or {}).get("edges") or []):
+            node = e.get("node") or {}
+            if (node.get("name") or "").strip().lower() == want:
+                return {"found": True, "service_id": node["id"], "domain": ""}
     return {"found": False}
+
+
+def _service_domain(token: str, service_id: str) -> str:
+    """Liest die bestehende öffentliche Domain eines Service (best-effort, '' wenn keine)."""
+    q = ("query($id:String!){ service(id:$id){ serviceInstances{ edges{ node{ "
+         "domains{ serviceDomains{ domain } } } } } } }")
+    r = _gql(q, {"id": service_id}, token)
+    if not r["ok"]:
+        return ""
+    for si in ((((r["data"].get("service") or {}).get("serviceInstances") or {}).get("edges")) or []):
+        for sd in (((si.get("node") or {}).get("domains") or {}).get("serviceDomains") or []):
+            if sd.get("domain"):
+                return sd["domain"]
+    return ""
 
 
 def project_delete(project_id: str) -> dict:
@@ -221,30 +248,44 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
             return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
         _say(f"Sammel-Projekt „{PROJECT_NAME}“ neu angelegt")
 
-    # 2) Service aus dem GitHub-Repo anlegen (startet Auto-Deploy) ------------
-    # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt.
-    q_svc = """
-    mutation($projectId:String!,$repo:String!,$branch:String!,$name:String!){
-      serviceCreate(input:{projectId:$projectId, name:$name, branch:$branch,
-        source:{repo:$repo}}){ id } }"""
-    r = _gql(q_svc, {"projectId": project_id, "repo": repo_full_name,
-                     "branch": branch, "name": name[:60]}, token)
+    # 2) Service: bestehenden WIEDERVERWENDEN (kein doppeltes serviceCreate!), sonst neu anlegen.
+    # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt. Da der Servicename
+    # deterministisch ist (web-<slug>), suchen wir IHN ZUERST — so kommt der Fehler
+    # „serviceCreate: A service named … already exists" gar nicht mehr zustande (Re-Build/Resume).
+    svc_name = name[:60]
     domain = ""
-    if not r["ok"]:
-        # Service existiert vermutlich schon (Re-Build derselben Seite) → den
-        # bestehenden Service wiederverwenden, damit trotzdem ein Live-Link kommt.
-        existing = _find_service(token, project_id, name[:60])
-        if existing.get("found"):
-            service_id = existing["service_id"]
-            domain = existing.get("domain", "")
-            _say(f"Service „{name[:60]}“ existiert bereits — wird wiederverwendet"
-                 + (f" (Domain {domain})" if domain else ""))
-        else:
-            return {"ok": False, "error": f"serviceCreate: {r['error']}",
-                    "project_id": project_id, "log": log}
+    service_id = ""
+    existing = _find_service(token, project_id, svc_name)
+    if existing.get("found"):
+        service_id = existing["service_id"]
+        domain = existing.get("domain", "")
+        _say(f"Service „{svc_name}“ existiert bereits — wird wiederverwendet"
+             + (f" (Domain {domain})" if domain else ""))
     else:
-        service_id = r["data"]["serviceCreate"]["id"]
-        _say(f"Service „{name[:60]}“ aus GitHub-Repo verbunden")
+        q_svc = """
+        mutation($projectId:String!,$repo:String!,$branch:String!,$name:String!){
+          serviceCreate(input:{projectId:$projectId, name:$name, branch:$branch,
+            source:{repo:$repo}}){ id } }"""
+        r = _gql(q_svc, {"projectId": project_id, "repo": repo_full_name,
+                         "branch": branch, "name": svc_name}, token)
+        if r["ok"]:
+            service_id = r["data"]["serviceCreate"]["id"]
+            _say(f"Service „{svc_name}“ aus GitHub-Repo verbunden")
+        else:
+            # Race/Konflikt (zwischen Suche und Anlegen entstanden, oder „already exists") →
+            # nochmal gezielt suchen und wiederverwenden, NIE als harten Fehler durchreichen.
+            again = _find_service(token, project_id, svc_name)
+            if again.get("found"):
+                service_id = again["service_id"]
+                domain = again.get("domain", "")
+                _say(f"Service „{svc_name}“ existierte bereits — wiederverwendet"
+                     + (f" (Domain {domain})" if domain else ""))
+            else:
+                return {"ok": False, "error": f"serviceCreate: {r['error']}",
+                        "project_id": project_id, "log": log}
+    # Domain eines wiederverwendeten Service ggf. nachladen (falls oben nicht mitgekommen).
+    if service_id and not domain:
+        domain = _service_domain(token, service_id)
 
     # 3) Öffentliche Domain erzeugen (nur falls der Service noch keine hat) ----
     if not domain:
