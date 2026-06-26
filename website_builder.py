@@ -287,18 +287,20 @@ def _sync_push(job_id: str) -> None:
         pass
 
 
-def build(lead: dict, use_higgsfield: bool = False) -> str:
+def build(lead: dict, use_higgsfield: bool = False, deploy: bool = True) -> str:
     """Startet einen Bau-Job für einen Lead. Gibt die job_id zurück.
 
     use_higgsfield: nur wenn True (vom Nutzer bestätigt) wird der Hero-Banner bei
-    schwacher Hardware über die Higgsfield-Cloud versucht. Standard = lokal (bewährt)."""
+    schwacher Hardware über die Higgsfield-Cloud versucht. Standard = lokal (bewährt).
+    deploy: False = NICHT direkt deployen (der Auto-Builder lässt den Makeover am Ende EINMAL
+    deployen → nur ein Railway-Build statt mehrerer → keine 404-Phasen durch Deploy-Churn)."""
     job_id = uuid.uuid4().hex[:12]
     with _lock:
         _jobs[job_id] = {
             "id": job_id, "status": "queued", "progress": 0, "step": "In Warteschlange…",
             "folder": "", "repo_url": "", "live_url": "", "error": "", "log": [],
             "created": time.time(), "_lead": dict(lead or {}),
-            "_use_higgsfield": bool(use_higgsfield),
+            "_use_higgsfield": bool(use_higgsfield), "_deploy": bool(deploy),
         }
     # Persistenten Eintrag anlegen (überlebt Wegklicken/Neustart) — Fehler ignorieren.
     try:
@@ -820,6 +822,7 @@ def _run(job_id: str) -> None:
         j0 = _jobs[job_id]
         lead = dict(j0.get("_lead") or {})
         use_hf = bool(j0.get("_use_higgsfield"))
+        do_deploy = bool(j0.get("_deploy", True))
     name = (lead.get("name") or "Kunde").strip()
     try:
         if not _VORLAGE.exists():
@@ -1001,6 +1004,15 @@ def _run(job_id: str) -> None:
                 _step(job_id, 72, "Referenzbilder als Platzhalter eingebaut (Seite vollständig).")
         except Exception:
             pass
+
+        # Auto-Builder-Pfad (deploy=False): NICHT hier deployen. Der Makeover macht am Ende
+        # EINEN verifizierten Deploy → nur ein Railway-Build, keine 404-Phasen durch Churn.
+        if not do_deploy:
+            _set(job_id, status="done", content_preview=content.get("headline", ""))
+            _step(job_id, 75, "Lokal gebaut — Deploy folgt im Makeover (einmal, verifiziert).")
+            _enrich_contact(job_id, lead)
+            _sync_push(job_id)
+            return
 
         secret = _django_secret_key()
 
@@ -1365,12 +1377,14 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
         site_name_ps = overnight_makeover._read_content(target).get("site_name") or name
 
         def _stage_push(key: str, label: str, n_done: int) -> None:
+            # Pro-Stufe NUR ein schneller Push, WENN die Seite schon live ist (Railway rebuildet
+            # im Hintergrund). Ist sie noch NICHT live, wird hier NICHT deployt — das übernimmt
+            # der EINE verifizierte Deploy am Makeover-Ende (kein Deploy-Churn → keine 404-Phasen).
             live = (get(job_id) or {}).get("live_url") or existing_live
+            if not live:
+                return
             cur = (get(job_id) or {}).get("progress", 8)
             _step(job_id, cur, f"Stufe '{label}' fertig → live pushen…")
-            # Schon eine Live-URL → nur Push (Railway rebuildet). Noch KEINE (frische/gerettete
-            # Seite) → VOLLER Deploy (Repo+Service+Domain) schon nach der ersten (lokalen) Stufe,
-            # damit die Seite SOFORT live ist und nicht auf die langsame Claude-Politur wartet.
             dep = _deploy_folder(
                 target, slug_ps, name, secret_ps, site_name_ps,
                 lambda p, t: _step(job_id, p if p is not None else (get(job_id) or {}).get("progress", 8), t),
@@ -1378,7 +1392,7 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
             if dep.get("repo_url"):
                 _set(job_id, repo_url=dep["repo_url"])
             if dep.get("live_url"):
-                _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
+                _set(job_id, live_url=dep["live_url"], live=1)
             _sync_push(job_id)
 
         result = overnight_makeover.run_makeover(

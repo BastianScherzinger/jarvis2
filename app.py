@@ -135,6 +135,10 @@ def _startup_cleanup():
         import auto_builder
         if auto_builder.resume_if_needed():
             _logger.info("Startup", "Night-Builder automatisch fortgesetzt")
+        # Live-Watcher IMMER starten (auch wenn der Builder aus ist): prüft regelmäßig, ob die
+        # Seiten-Links wirklich antworten (200, kein 404), setzt den Live-Status ehrlich und
+        # deployt kaputte LOKALE Seiten automatisch neu → „alle Links live".
+        auto_builder.start_live_watch()
     except Exception as e:
         _logger.warn("Startup", f"Builder-Resume fehlgeschlagen: {type(e).__name__}")
 

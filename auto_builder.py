@@ -681,7 +681,9 @@ def _build_and_email(lead: dict) -> None:
 
     _set(mode="build", current=name, phase=f"Baue Webseite ({_count_today()+1}/{_DAILY_LIMIT})…")
     logger.info("AutoBuilder", f"Baue Webseite für {name}")
-    jid = website_builder.build(dict(lead))
+    # deploy=False: erst lokal komplett bauen, der Makeover deployt am Ende EINMAL (verifiziert)
+    # → nur ein Railway-Build, keine 404-Phasen durch mehrfaches Deployen.
+    jid = website_builder.build(dict(lead), deploy=False)
     job = _wait_job(jid)
     if not is_running():
         return
@@ -897,6 +899,101 @@ def _improve_existing_once() -> bool:
         pass
 
     return True
+
+
+# ── Live-Watcher: Links ehrlich halten + kaputte Seiten selbst heilen ──────────
+# Prüft regelmäßig, ob jede aktive Seite WIRKLICH antwortet (HTTP 200, kein 404), setzt das
+# live-Flag in der DB ehrlich und deployt kaputte LOKALE Seiten automatisch neu. Läuft IMMER
+# (auch wenn der Night-Builder aus/pausiert ist), damit „alle Links live" werden + bleiben.
+_LIVE_WATCH_INTERVAL = int(os.environ.get("JARVIS_LIVE_WATCH_INTERVAL", "120") or "120")
+_LIVE_REDEPLOY_COOLDOWN = int(os.environ.get("JARVIS_LIVE_REDEPLOY_COOLDOWN", "600") or "600")
+_live_watch_started = False
+_live_redeploy_at: dict = {}        # folder → letzter Re-Deploy-Zeitpunkt (Cooldown)
+
+
+def start_live_watch() -> None:
+    """Startet den Live-Watcher EINMAL (idempotent). Best-effort."""
+    global _live_watch_started
+    if _live_watch_started:
+        return
+    _live_watch_started = True
+    threading.Thread(target=_live_watch_loop, name="LiveWatch", daemon=True).start()
+    logger.info("LiveWatch", f"Link-Überwachung aktiv (alle {_LIVE_WATCH_INTERVAL}s · "
+                             "kaputte lokale Seiten werden automatisch neu deployt).")
+
+
+def _live_watch_loop() -> None:
+    time.sleep(20)                  # App-Start abwarten
+    while True:
+        try:
+            _live_check_once()
+        except Exception as e:
+            logger.warn("LiveWatch", f"Durchlauf-Fehler: {type(e).__name__}")
+        time.sleep(max(30, _LIVE_WATCH_INTERVAL))
+
+
+def _live_check_once() -> None:
+    """Ein Durchlauf: jede aktive Seite mit Live-URL HTTP-prüfen, live-Flag ehrlich setzen,
+    kaputte LOKALE Seiten (Ordner vorhanden) automatisch neu deployen (eine nach der anderen,
+    mit Cooldown). Cross-PC-Seiten ohne lokalen Ordner werden nur ehrlich als offline markiert."""
+    import db_websites
+    import website_builder
+    try:
+        import discord_bot
+        _is_live = discord_bot.link_is_live
+    except Exception:
+        _is_live = lambda u, timeout=8: False
+
+    sites = db_websites.get_all()            # aktive (nicht archivierte)
+    for w in sites:
+        url    = (w.get("live_url") or "").strip()
+        folder = (w.get("folder") or "").strip()
+        has_local = bool(folder) and os.path.isdir(folder)
+        job_id = w.get("job_id") or ""
+
+        if url:
+            live_now = bool(_is_live(url, timeout=8))
+            # live-Flag nur bei Änderung schreiben (spart DB-Schreibzugriffe + Cloud-Sync).
+            if int(w.get("live") or 0) != (1 if live_now else 0):
+                try:
+                    db_websites.update(job_id, live=1 if live_now else 0,
+                                       step=("Live erreichbar." if live_now
+                                             else "Link nicht erreichbar (404/Build) — wird neu deployt."))
+                    _sync_one(job_id)
+                except Exception:
+                    pass
+            if live_now:
+                continue                     # alles gut
+        # Hier: Seite NICHT live (oder ohne URL).
+        if not has_local:
+            continue                         # Cross-PC-Seite ohne Ordner → hier nicht reparierbar
+        # Nichts deployen, solange ein Build/Makeover läuft (eine Seite gleichzeitig).
+        if website_builder.makeover_busy():
+            continue
+        # Cooldown je Ordner, damit nicht im Kreis neu deployt wird.
+        last = _live_redeploy_at.get(folder, 0)
+        if time.time() - last < _LIVE_REDEPLOY_COOLDOWN:
+            continue
+        _live_redeploy_at[folder] = time.time()
+        name = (w.get("name") or "Seite").strip()
+        logger.info("LiveWatch", f"'{name}' nicht erreichbar → Re-Deploy wird angestoßen.")
+        try:
+            website_builder.deploy_existing(folder, name)
+        except Exception as e:
+            logger.warn("LiveWatch", f"Re-Deploy '{name}' fehlgeschlagen: {type(e).__name__}")
+        return                               # nur EINE Seite pro Durchlauf neu deployen
+
+
+def _sync_one(job_id: str) -> None:
+    """Eine Webseiten-Zeile nach Supabase pushen (best-effort)."""
+    try:
+        import cloud_sync_websites
+        import db_websites
+        row = db_websites.get_by_job(job_id)
+        if row:
+            cloud_sync_websites.push(row)
+    except Exception:
+        pass
 
 
 _TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "10") or "10")
