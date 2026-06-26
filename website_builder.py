@@ -634,9 +634,11 @@ def _django_secret_key() -> str:
 # ── Deploy (GitHub + Railway) — geteilt von _run und deploy_existing ──────────
 
 def _url_live(url: str, on_tick=None, timeout: int = 180) -> bool:
-    """Pollt eine URL, bis sie wirklich antwortet (Status < 500). Railway erzeugt
-    die Domain sofort, der Container-Build dauert aber 1-2 Min — erst danach ist die
-    Seite erreichbar. Gibt True, sobald sie antwortet, sonst False nach timeout."""
+    """Pollt eine URL, bis die SEITE WIRKLICH DA ist (Status < 400). WICHTIG: ein 404 zählt
+    NICHT als live — Railway liefert für eine angelegte, aber noch nicht (oder fehlgeschlagen)
+    gebaute Domain einen 404 der Edge bzw. Django; das wurde früher fälschlich als „live"
+    gewertet, sodass kaputte/404-Seiten als erreichbar galten und nie neu deployt wurden.
+    Unsere Landing-Page liefert unter '/' immer 200 (Redirect 301/302 < 400 ist auch ok)."""
     import urllib.error
     import urllib.request
     if not url:
@@ -649,13 +651,13 @@ def _url_live(url: str, on_tick=None, timeout: int = 180) -> bool:
             req = urllib.request.Request(url, method="GET",
                                          headers={"User-Agent": "JARVIS-LiveCheck"})
             with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status < 500:
+                if resp.status < 400:          # 200/301/302 = Seite wirklich da
                     return True
         except urllib.error.HTTPError as e:
-            if e.code < 500:          # 200/301/302/404 = App läuft (antwortet)
+            if e.code < 400:                   # < 400 = erreichbar; 404/4xx/5xx = noch nicht
                 return True
         except Exception:
-            pass                       # 502/503/Timeout/Reset → Build noch nicht fertig
+            pass                       # 502/503/Timeout/Reset/404 → Build noch nicht fertig
         if callable(on_tick):
             on_tick(f"Railway: Build läuft… ({int(time.time() - start)}s)")
         time.sleep(8)
@@ -1351,10 +1353,11 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
 
         def _stage_push(key: str, label: str, n_done: int) -> None:
             live = (get(job_id) or {}).get("live_url") or existing_live
-            if not live:
-                return                       # noch keine Live-URL (Repo/Deploy fehlt) → später
             cur = (get(job_id) or {}).get("progress", 8)
             _step(job_id, cur, f"Stufe '{label}' fertig → live pushen…")
+            # Schon eine Live-URL → nur Push (Railway rebuildet). Noch KEINE (frische/gerettete
+            # Seite) → VOLLER Deploy (Repo+Service+Domain) schon nach der ersten (lokalen) Stufe,
+            # damit die Seite SOFORT live ist und nicht auf die langsame Claude-Politur wartet.
             dep = _deploy_folder(
                 target, slug_ps, name, secret_ps, site_name_ps,
                 lambda p, t: _step(job_id, p if p is not None else (get(job_id) or {}).get("progress", 8), t),
@@ -1362,19 +1365,36 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
             if dep.get("repo_url"):
                 _set(job_id, repo_url=dep["repo_url"])
             if dep.get("live_url"):
-                _set(job_id, live_url=dep["live_url"], live=1)
+                _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
             _sync_push(job_id)
 
         result = overnight_makeover.run_makeover(
             target, meta, say=lambda p, t: _step(job_id, p, t), stop=stop,
             on_stage_done=_stage_push)
 
-        # Nichts Neues gebaut (alle Stufen bereits erledigt oder CLI fehlt) → kein Re-Deploy.
-        if not result.get("stages_done"):
+        # Ist die Seite schon erreichbar live? (Sonst MUSS deployt werden, auch ohne neue Stufe.)
+        _cur = get(job_id) or {}
+        _already_live = bool(int(_cur.get("live") or 0)) and bool((_cur.get("live_url") or existing_live).strip())
+
+        # Nichts Neues gebaut UND bereits live → kein Re-Deploy nötig.
+        if not result.get("stages_done") and _already_live:
             _set(job_id, status="done")
             reason = result.get("reason") or "Alle Makeover-Stufen bereits erledigt."
             _step(job_id, 100, reason)
             return
+        # Nichts Neues gebaut, aber NICHT live (unterbrochene/404-Seite) → unten trotzdem deployen
+        # (Rettung). Nur wenn das an einem Session-Limit lag, sauber pausieren.
+        if not result.get("stages_done") and not _already_live:
+            if result.get("reason") == "session_limit":
+                _set(job_id, status="done")
+                _step(job_id, 100, "Claude-Limit aktiv — Seite wird später nachgezogen.")
+                return
+            try:
+                import logger as _lg
+                _lg.info("Webseite", f"'{name}' hat keine offenen Stufen, ist aber nicht live — "
+                                     "wird jetzt (erneut) deployt.")
+            except Exception:
+                pass
 
         # Vom Nutzer gestoppt, bevor alle Stufen durch waren → nicht deployen, Fortschritt
         # ist committet und wird beim Fortsetzen genau hier weitergeführt.

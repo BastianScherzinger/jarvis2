@@ -79,6 +79,84 @@ def status() -> dict:
     }
 
 
+# ── Kanal-Diagnose (für „Unknown Channel"-Fälle) ───────────────────────────────
+
+def _text_channels_info() -> list:
+    """Alle Text-Kanäle, die der Bot SEHEN kann — mit Server, ID und Sende-Recht.
+    Liest den (im Bot-Loop gefüllten) Cache; bei Aufruf außerhalb des Loops best-effort."""
+    out: list = []
+    if not _bot:
+        return out
+    try:
+        guilds = list(getattr(_bot, "guilds", []) or [])
+    except Exception:
+        guilds = []
+    for g in guilds:
+        me = getattr(g, "me", None)
+        for c in getattr(g, "text_channels", []):
+            try:
+                can = bool(c.permissions_for(me).send_messages) if me else False
+            except Exception:
+                can = False
+            out.append({"guild": getattr(g, "name", "?"), "guild_id": getattr(g, "id", 0),
+                        "channel": getattr(c, "name", "?"), "id": getattr(c, "id", 0),
+                        "can_send": can})
+    return out
+
+
+async def _channels_coro() -> list:
+    return _text_channels_info()
+
+
+def channels(timeout: float = 5.0) -> list:
+    """Erreichbare Text-Kanäle des Bots (für Diagnose/UI). [] wenn der Bot nicht läuft.
+    Holt die Daten threadsicher aus dem Bot-Event-Loop."""
+    if not (_HAS_DISCORD and _started and _loop and _bot):
+        return []
+    try:
+        fut = asyncio.run_coroutine_threadsafe(_channels_coro(), _loop)
+        return fut.result(timeout=timeout)
+    except Exception:
+        return _text_channels_info()
+
+
+def _diagnose_channel() -> None:
+    """Loggt beim Start klar, ob der konfigurierte Freigabe-Kanal erreichbar ist — und listet
+    sonst die verfügbaren Kanäle samt IDs auf, damit Sir die richtige DISCORD_CHANNEL_ID setzen
+    kann. Häufigste Ursache für „Unknown Channel": falsche ID ODER Bot nicht im Server."""
+    try:
+        cid = _channel_id()
+        if not _bot or not list(getattr(_bot, "guilds", []) or []):
+            logger.warn("Discord", "Bot ist in KEINEM Server. Lade ihn auf deinen Discord-Server "
+                        "ein: Developer Portal → OAuth2 → URL Generator → Scope 'bot' + Rechte "
+                        "'Send Messages' & 'Embed Links', URL öffnen, Server wählen.")
+            return
+        infos = _text_channels_info()
+        found = next((i for i in infos if i["id"] == cid), None)
+        if found and found["can_send"]:
+            logger.success("Discord", f"Freigabe-Kanal OK: #{found['channel']} in "
+                                      f"'{found['guild']}' (ID {cid}).")
+            return
+        if found and not found["can_send"]:
+            logger.warn("Discord", f"Kanal #{found['channel']} gefunden, aber der Bot darf dort "
+                        "NICHT senden. Im Kanal → Berechtigungen dem Bot 'Nachrichten senden' + "
+                        "'Links einbetten' erlauben.")
+            return
+        # Konfigurierte ID in keinem erreichbaren Server gefunden → Alternativen zeigen.
+        sendable = [i for i in infos if i["can_send"]]
+        logger.warn("Discord", f"DISCORD_CHANNEL_ID={cid} ist in keinem erreichbaren Server. "
+                    f"Bot ist in {len(list(_bot.guilds))} Server(n) — verfügbare Text-Kanäle:")
+        for i in (sendable or infos)[:20]:
+            flag = "✓ sendbar" if i["can_send"] else "✗ kein Senderecht"
+            logger.warn("Discord", f"   {i['guild']} · #{i['channel']}  →  ID {i['id']}   ({flag})")
+        if not infos:
+            logger.warn("Discord", "   (Keine Text-Kanäle sichtbar — Bot-Rechte/Intents prüfen.)")
+        logger.warn("Discord", "→ Eine dieser IDs als DISCORD_CHANNEL_ID in die .env eintragen, "
+                    "dann JARVIS neu starten.")
+    except Exception as e:
+        logger.warn("Discord", f"Kanal-Diagnose fehlgeschlagen: {type(e).__name__}")
+
+
 # ── E-Mail-Versand der freigegebenen Seiten (Standardbibliothek, threadsicher) ──
 
 def link_is_live(url: str, timeout: int = 8) -> bool:
@@ -415,6 +493,7 @@ if _HAS_DISCORD:
             # Kurz warten bis Guild-Cache vollständig geladen ist,
             # sonst gibt get_channel() None zurück obwohl der Kanal existiert.
             await asyncio.sleep(2)
+            _diagnose_channel()                       # klare Meldung bei „Unknown Channel"
             await _send_startup_embed()
 
     @tasks.loop(time=dtime(hour=_send_hour(), minute=0))

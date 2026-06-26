@@ -1274,6 +1274,18 @@ def api_discord_send_now():
     return jsonify(discord_bot.send_approved_now())
 
 
+@app.route("/api/discord/channels")
+def api_discord_channels():
+    """Erreichbare Text-Kanäle des Bots (mit Server, ID, Sende-Recht) + der aktuell
+    konfigurierte Kanal — Diagnose für „Unknown Channel"/falsche DISCORD_CHANNEL_ID."""
+    import discord_bot
+    chans = discord_bot.channels()
+    cid = discord_bot._channel_id()
+    return jsonify({"configured": cid,
+                    "configured_ok": any(c["id"] == cid and c["can_send"] for c in chans),
+                    "channels": chans})
+
+
 @app.route("/api/reviews")
 def api_reviews():
     """Aktuelle Freigabe-Warteschlange (für das Dashboard)."""

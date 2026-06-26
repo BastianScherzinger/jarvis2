@@ -58,6 +58,11 @@ _lock = threading.Lock()
 # z.B. die claude-CLI fehlt oder alle Stufen schon erledigt sind.
 _makeover_stuck: set = set()
 
+# Rettungs-Versuche je Ordner (Seite war unterbrochen/nicht live). Ein Railway-Build kann ein
+# paar Minuten brauchen → wir geben einer Rettung mehrere Runden, bevor sie als „stuck" gilt.
+_rescue_tries: dict = {}
+_RESCUE_MAX = int(os.environ.get("JARVIS_RESCUE_MAX_TRIES", "4") or "4")
+
 # Latch für die Discord-Verabschiedung: einmal posten, wenn ALLE Seiten auf 7/7 sind.
 # Wird zurückgesetzt, sobald wieder eine Seite offene Stufen hat (neue Seite gebaut o.ä.).
 _farewell_sent: bool = False
@@ -295,17 +300,30 @@ def _is_today_folder(folder: str) -> bool:
         return folder in _today_folders()
 
 
+def _needs_rescue(w: dict) -> bool:
+    """True, wenn eine Seite NICHT sauber fertig+live ist und „weiterarbeiten" braucht:
+    unterbrochener/fehlerhafter Bau (status != done) ODER kein erreichbarer Live-Link.
+    Solche Seiten werden im Night-Builder ZUERST nachgezogen (deploy + restliche Stufen)."""
+    if (w.get("status") or "") != "done":
+        return True
+    if not (w.get("live_url") or "").strip() or not int(w.get("live") or 0):
+        return True
+    return False
+
+
 def _pick_improve_target():
-    """Bestehende, fertige Seite mit den MEISTEN offenen Makeover-Stufen zuerst, bei
-    Gleichstand die NEUESTE ('updated' absteigend). STANDARD: nur HEUTE gebaute Seiten
-    (JARVIS_IMPROVE_TODAY_ONLY). Seiten, die alle 7 Stufen durch haben, werden übersprungen.
-    Seiten ohne Fortschritt in dieser Session (_makeover_stuck) werden bis morgen ausgelassen."""
+    """Nächste HEUTE gebaute Seite, die Arbeit braucht. Reihenfolge:
+      1) UNTERBROCHENE / nicht-live Seiten ZUERST (status != done oder kein Live-Link) —
+         die werden gerettet (restliche Stufen + Deploy), sonst bleiben sie ewig „Unterbrochen".
+      2) Danach fertige Seiten mit den MEISTEN offenen Makeover-Stufen; bei Gleichstand die
+         NEUESTE ('updated' absteigend).
+    `_makeover_stuck` (kein Fortschritt heute) wird ausgelassen. Gibt None, wenn alle Seiten
+    fertig UND live UND komplett makeovert sind."""
     try:
         import db_websites
         import overnight_makeover
         sites = [w for w in db_websites.get_all()      # include_archived=False (Standard)
                  if (w.get("folder") and os.path.isdir(w["folder"])
-                     and (w.get("status") == "done")
                      and not w.get("archived")
                      and w["folder"] not in _makeover_stuck
                      and _is_today_folder(w["folder"]))]
@@ -318,11 +336,13 @@ def _pick_improve_target():
             except Exception:
                 return 0
 
-        sites.sort(key=lambda w: (-_open(w), -(w.get("updated") or 0)))
-        top = sites[0]
-        if _open(top) == 0:          # alle Seiten komplett makeovert → nichts zu tun
+        # Eine Seite ist „erledigt", wenn sie fertig+live ist UND keine offenen Stufen hat.
+        offen = [w for w in sites if _needs_rescue(w) or _open(w) > 0]
+        if not offen:
             return None
-        return top
+        # Rettung zuerst (rescue=1 vor 0), dann meiste offene Stufen, dann neueste.
+        offen.sort(key=lambda w: (0 if _needs_rescue(w) else 1, -_open(w), -(w.get("updated") or 0)))
+        return offen[0]
     except Exception:
         return None
 
@@ -368,14 +388,14 @@ def _already_reviewed(name: str) -> bool:
 
 
 def _makeover_sites() -> list:
-    """Die Arbeitsmenge des Night-Builders: fertig gebaute, nicht-archivierte Seiten mit
-    lokalem Ordner. STANDARD nur HEUTE gebaute Seiten (JARVIS_IMPROVE_TODAY_ONLY) — so
-    beziehen sich Hero-Fallback, Fortschritt & Verabschiedung auf die Seiten von heute."""
+    """Die Arbeitsmenge des Night-Builders: HEUTE gebaute, nicht-archivierte Seiten mit lokalem
+    Ordner — UNABHÄNGIG vom Status, damit auch unterbrochene (status != done) Seiten mitzählen
+    und nachgezogen werden (sonst gälten sie fälschlich als „nicht da" → Verabschiedung zu früh)."""
     try:
         import db_websites
         return [w for w in db_websites.get_all()
                 if (w.get("folder") and os.path.isdir(w["folder"])
-                    and w.get("status") == "done" and not w.get("archived")
+                    and not w.get("archived")
                     and _is_today_folder(w["folder"]))]
     except Exception:
         return []
@@ -539,14 +559,16 @@ def _handle_exhaustion() -> None:
 
 
 def _all_sites_complete() -> bool:
-    """True, wenn es ≥1 gebaute Seite gibt und JEDE alle 7 Makeover-Stufen durch hat —
-    also alle Seiten auf demselben Niveau. Basis für die Discord-Verabschiedung."""
+    """True, wenn es ≥1 heute gebaute Seite gibt und JEDE fertig+live ist UND alle Makeover-
+    Stufen durch hat. Unterbrochene/nicht-live Seiten halten es False → der Builder arbeitet
+    weiter und verabschiedet sich nicht zu früh."""
     try:
         import overnight_makeover
         sites = _makeover_sites()
         if not sites:
             return False
-        return all(overnight_makeover.open_stages(w["folder"]) == 0 for w in sites)
+        return all((not _needs_rescue(w)) and overnight_makeover.open_stages(w["folder"]) == 0
+                   for w in sites)
     except Exception:
         return False
 
@@ -797,10 +819,13 @@ def _improve_existing_once() -> bool:
         open_before = overnight_makeover.open_stages(folder)
     except Exception:
         pass
+    rescue_before = _needs_rescue(tgt)            # war die Seite unterbrochen/nicht live?
 
     _set(mode="improve", current=name,
-         phase=f"Makeover ({7 - open_before + 1}/7)… {name}")
-    logger.info("AutoBuilder", f"Makeover: {name} ({open_before} Stufen offen)")
+         phase=(f"Seite nachziehen (Deploy)… {name}" if rescue_before and open_before == 0
+                else f"Makeover… {name}"))
+    logger.info("AutoBuilder", f"{'Rettung+' if rescue_before else ''}Makeover: {name} "
+                               f"({open_before} Stufen offen)")
     limited = False
     transient = False
     try:
@@ -822,23 +847,52 @@ def _improve_existing_once() -> bool:
         _makeover_stuck.add(folder)
         return True
 
-    # Fortschritts-Check: hat der Lauf mindestens eine Stufe erledigt?
+    # Fortschritts-Check: hat der Lauf mindestens eine Stufe erledigt ODER die Seite live gemacht?
     try:
         open_after = overnight_makeover.open_stages(folder)
-        if open_after >= open_before:
-            # Kein Fortschritt. Bei einem Claude-LIMIT oder transienten Netz-/API-Fehler NICHT
-            # als „stuck" markieren — beides ist temporär; die Seite soll wieder dran kommen.
+        # Aktuellen Live-Status der Seite frisch lesen (die Rettung kann sie live gemacht haben).
+        now_live = False
+        try:
+            import db_websites
+            row = db_websites.get_by_folder(folder) or {}
+            now_live = bool(int(row.get("live") or 0)) and bool((row.get("live_url") or "").strip())
+        except Exception:
+            now_live = False
+        rescued = rescue_before and now_live      # war kaputt/nicht-live → jetzt live = Fortschritt
+
+        if open_after < open_before or rescued:
+            _rescue_tries.pop(folder, None)        # Erfolg → Versuchszähler zurücksetzen
+            note = []
+            if open_after < open_before:
+                note.append(f"{open_before - open_after} Stufe(n) erledigt")
+            if rescued:
+                note.append("Seite ist jetzt live")
+            logger.success("AutoBuilder", f"Makeover: {name} — {', '.join(note)}, {open_after} offen")
+        elif rescue_before and open_before == 0:
+            # Reine Deploy-Rettung (keine Stufen offen), Seite noch nicht erreichbar — meist baut
+            # Railway noch. Ein paar Runden Geduld geben, erst dann aufgeben (nicht sofort „stuck").
+            n = _rescue_tries.get(folder, 0) + 1
+            _rescue_tries[folder] = n
+            if transient:
+                _wait_online(600)
+            elif n >= _RESCUE_MAX:
+                logger.warn("AutoBuilder", f"'{name}' nach {n} Deploy-Versuchen nicht erreichbar — "
+                                           "überspringe heute (Railway-Build-Log prüfen).")
+                _makeover_stuck.add(folder)
+            else:
+                logger.info("AutoBuilder", f"'{name}' noch nicht live (Deploy-Versuch {n}/{_RESCUE_MAX}) "
+                                           "— Railway baut evtl. noch, nächste Runde erneut.")
+                _idle_sleep(20)                    # kurz dem Build Zeit geben
+        else:
+            # Kein Fortschritt. Bei Claude-LIMIT oder transientem Netz-/API-Fehler NICHT als
+            # „stuck" markieren — beides temporär; die Seite soll wieder dran kommen.
             if transient:
                 logger.warn("AutoBuilder", f"Makeover-Aussetzer bei '{name}' — bleibe dran.")
                 _wait_online(600)
             elif not limited:
                 logger.warn("AutoBuilder",
-                            f"Kein Makeover-Fortschritt für '{name}' — überspringe heute")
+                            f"Kein Fortschritt für '{name}' — überspringe heute")
                 _makeover_stuck.add(folder)
-        else:
-            logger.success("AutoBuilder",
-                           f"Makeover: {name} — {open_before - open_after} Stufe(n) erledigt, "
-                           f"{open_after} offen")
     except Exception:
         pass
 
@@ -907,6 +961,7 @@ def _loop() -> None:
             if neuer_tag:                            # neuer Tag → Zähler/Phase zurück
                 _state["day"] = today
                 _makeover_stuck.clear()              # täglich zurücksetzen
+                _rescue_tries.clear()
                 globals()["_farewell_sent"] = False  # neuer Tag → wieder verabschiedbar
                 logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
         if neuer_tag:                                # einmal je Tag: alte Demos abbauen (best-effort)
