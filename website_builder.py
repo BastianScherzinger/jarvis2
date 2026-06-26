@@ -39,13 +39,62 @@ _HF_HERO_COST = int(os.environ.get("JARVIS_HF_HERO_COST", "1") or "1")
 # aufgegeben und die Seite nutzt den Farbverlauf-Hero — der Build steht NIE still.
 _HERO_TIMEOUT = int(os.environ.get("JARVIS_HERO_TIMEOUT", "180") or "180")
 
-_AKZENT = {  # Branchen-Heuristik für die Akzentfarbe (Claude darf überschreiben)
-    "dachdecker": "#b23a23", "maler": "#1f6f54", "elektr": "#d98a00",
-    "sanitär": "#1565a6", "heizung": "#c0392b", "garten": "#2e7d32",
-    "kfz": "#37474f", "auto": "#37474f", "friseur": "#a83279",
-    "bau": "#6d4c2b", "tischler": "#7a4a23", "schreiner": "#7a4a23",
-    "gastro": "#a3361f", "restaurant": "#a3361f", "reinigung": "#0d8a8a",
+# Branchen-Heuristik für die Akzentfarbe (Claude darf überschreiben). Reihenfolge zählt:
+# der ERSTE Teilstring-Treffer gewinnt → spezifischere Schlüssel stehen VOR generischen
+# (z.B. "zahnarzt" vor "arzt", "metallbau"/"galabau" vor "bau"). Farben sind branchengerecht,
+# seriös und harmonisch (keine reine Knallfarbe), damit jede Seite stimmig wirkt.
+_AKZENT_DEFAULT = "#1f6f54"   # ruhiges, vertrauenswürdiges Grün statt früher pauschalem Rot
+_AKZENT = {
+    # Gesundheit & Praxen — "zahnarzt"/"tierarzt" VOR "arzt"!
+    "zahnarzt": "#0f8aa6", "zahn": "#0f8aa6", "kieferortho": "#0f8aa6",
+    "physio": "#2a9d8f", "ergotherap": "#2a9d8f", "therapie": "#2a9d8f", "logopäd": "#2a9d8f",
+    "tierarzt": "#2e8b6f",
+    "arzt": "#1571a8", "ärzt": "#1571a8", "praxis": "#1571a8", "heilprakt": "#3a8f7a",
+    "apotheke": "#16895a",
+    # Beratung / Kanzlei / Büro
+    "rechtsanwalt": "#243b66", "anwalt": "#243b66", "kanzlei": "#243b66", "notar": "#243b66",
+    "steuerberat": "#1f3a5f", "steuer": "#1f3a5f", "buchhalt": "#1f3a5f",
+    "versicher": "#2a4d8f", "immobil": "#9a7b32", "makler": "#9a7b32", "architek": "#3f5566",
+    # Bau & Handwerk — spezifische VOR "bau"
+    "dachdecker": "#b23a23", "dach": "#b23a23",
+    "lackier": "#7d4cc0", "maler": "#1f6f54",
+    "elektr": "#d98a00",
+    "sanitär": "#1565a6", "sanitaer": "#1565a6", "klempner": "#1565a6",
+    "heizung": "#c0392b", "klima": "#0a8ac4", "kälte": "#0a8ac4",
+    "metallbau": "#4a5b66", "schlosser": "#4a5b66", "stahl": "#4a5b66",
+    "galabau": "#2e7d32", "gala": "#2e7d32", "garten": "#2e7d32", "landschaft": "#2e7d32",
+    "zimmerei": "#7a4a23", "zimmerer": "#7a4a23", "tischler": "#7a4a23",
+    "schreiner": "#7a4a23", "holz": "#7a4a23", "parkett": "#8a5a2b",
+    "fliesen": "#5a7d9a", "estrich": "#5a7d9a", "steinbod": "#8a6d4b", "boden": "#8a6d4b",
+    "fenster": "#2f6f9f", "rolladen": "#2f6f9f", "glaser": "#3a86a8",
+    "trockenbau": "#7d6a55", "stuck": "#7d6a55", "gerüst": "#6d6450", "tiefbau": "#6d6450",
+    "bau": "#6d4c2b",
+    # Fahrzeug
+    "autohaus": "#37474f", "kfz": "#37474f", "auto": "#37474f", "werkstatt": "#37474f",
+    "reifen": "#455a64", "motorrad": "#37474f",
+    # Gastro & Lebensmittel
+    "restaurant": "#a3361f", "gastro": "#a3361f", "catering": "#a3361f",
+    "café": "#8a5a2b", "cafe": "#8a5a2b", "bäcker": "#b5651d", "baecker": "#b5651d",
+    "konditor": "#b5651d", "metzger": "#9c2b2b",
+    # Beauty & Körper
+    "friseur": "#a83279", "frisör": "#a83279", "barber": "#2b3a45",
+    "kosmetik": "#c2548a", "nagel": "#c2548a", "beauty": "#c2548a", "tattoo": "#2b2b33",
+    "fitness": "#1f7a8c", "yoga": "#5a8a6f",
+    # Dienstleistung
+    "reinig": "#0d8a8a", "gebäuderein": "#0d8a8a",
+    "umzug": "#1d6fb8", "umzüge": "#1d6fb8", "transport": "#1d6fb8", "logistik": "#1d6fb8",
+    "entrümpel": "#6d6450", "hausmeister": "#4f6b52", "schädling": "#5a7d3a",
+    "sicherheit": "#2b3a4a", "edv": "#2a5d9f", "elektronik": "#2a5d9f",
 }
+
+
+def akzent_for(branche: str) -> str:
+    """Branchengerechte Akzentfarbe (erster Teilstring-Treffer) oder seriöser Default."""
+    low = (branche or "").lower()
+    for k, v in _AKZENT.items():
+        if k in low:
+            return v
+    return _AKZENT_DEFAULT
 
 
 def is_available() -> bool:
@@ -249,12 +298,7 @@ def _deterministic_content(lead: dict, fotos: list) -> dict:
     name = (lead.get("name") or "Ihr Betrieb").strip()
     branche = (lead.get("branche") or "Handwerk").strip()
     stadt = (lead.get("stadt") or "").strip()
-    akz = "#c8102e"
-    low = branche.lower()
-    for k, v in _AKZENT.items():
-        if k in low:
-            akz = v
-            break
+    akz = akzent_for(branche)
     return {
         "site_name": name, "branche": branche, "stadt": stadt,
         "telefon": (lead.get("telefon") or "").strip(),

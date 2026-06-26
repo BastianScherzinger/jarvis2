@@ -68,7 +68,8 @@ _DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).str
 # Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der Builder
 # bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen Bauplan neu.
 # 3 = Umstellung von 7 auf 3 Stufen (heute gebaute Seiten laufen einmal neu durch).
-_MAKEOVER_VERSION = 4
+# 5 = bessere Branchenfarben + Hero-Szenen + Lead-Foto-Bewertung → heutige Seiten laufen neu durch.
+_MAKEOVER_VERSION = 5
 
 STAGES_MULTI: list[dict] = [
     {
@@ -628,6 +629,31 @@ def _grade_fotos_once(folder: Path, meta: dict, say=None) -> None:
         pass
 
 
+def _ensure_akzent(folder: Path, meta: dict, say=None) -> None:
+    """Zieht die Akzentfarbe einer Seite auf den branchengerechten Wert nach — aber NUR, wenn
+    sie leer ist oder dem alten pauschalen Default-Rot (#c8102e) entspricht. So bekommen Seiten,
+    die früher mit der generischen Farbe gebaut wurden, beim Verbessern eine passende Farbe,
+    ohne bewusst gesetzte/branchenrichtige Farben zu überschreiben."""
+    try:
+        content = _read_content(folder)
+    except Exception:
+        return
+    cur = (content.get("akzent") or "").strip().lower()
+    if cur and cur != "#c8102e":
+        return                                    # bereits eine passende Farbe → nicht anfassen
+    branche = meta.get("branche") or content.get("branche") or ""
+    try:
+        import website_builder
+        akz = website_builder.akzent_for(branche)
+    except Exception:
+        return
+    if akz and akz.lower() != cur:
+        content["akzent"] = akz
+        _write_content(folder, content)
+        if say:
+            say(5, f"Akzentfarbe an Branche angepasst ({akz}).")
+
+
 def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     """Reichert content.json VOR dem Makeover LOKAL über Ollama an (kostenlos, 32-GB-Maschine):
     4–6 betriebsgenaue Leistungen, eine glaubwürdige Über-uns-Geschichte, 4–5 FAQ und Trust-
@@ -635,6 +661,7 @@ def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
     statt selbst zu schreiben → deutlich weniger Tokens (≥3 Seiten pro Session). Idempotent über
     das Flag content['content_enriched']; per JARVIS_MAKEOVER_PREFILL=0 abschaltbar. Best-effort."""
     _grade_fotos_once(folder, meta, say)        # Lead-Fotos lokal bewerten (immer, idempotent)
+    _ensure_akzent(folder, meta, say)           # Farbe branchengerecht nachziehen (immer)
     if os.environ.get("JARVIS_MAKEOVER_PREFILL", "1") == "0":
         return
     content = _read_content(folder)

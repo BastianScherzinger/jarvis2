@@ -356,12 +356,64 @@ _restart_timer = None
 _claude_limited = False
 
 
+# Phrasen, die auf einen VORÜBERGEHENDEN Netz-/API-Fehler hindeuten (Internet weg, DNS,
+# Timeout, 502/503/504, Verbindungsabbruch) — KEIN echtes Nutzungslimit. Bei diesen bleibt
+# der Night-Builder dran (kurzes Warten + weiter), statt sich stundenlang zu pausieren.
+_TRANSIENT = (
+    "connection", "connect ", "connectionerror", "timed out", "timeout", "temporarily",
+    "getaddrinfo", "name resolution", "name or service", "max retries", "remote disconnected",
+    "reset by peer", "unreachable", "no route", "broken pipe", "eof occurred",
+    "502", "503", "504", "bad gateway", "service unavailable", "gateway time",
+    "internet", "network is", "ssl", "handshake", "apiconnection", "newconnectionerror",
+)
+
+
+def _is_transient(text: str) -> bool:
+    t = (text or "").lower()
+    return any(s in t for s in _TRANSIENT)
+
+
+def _internet_ok() -> bool:
+    """Kurzer TCP-Check, ob das Internet (bzw. die Anthropic-API) erreichbar ist."""
+    import socket
+    for host in ("api.anthropic.com", "1.1.1.1", "8.8.8.8"):
+        try:
+            s = socket.create_connection((host, 443), timeout=4)
+            s.close()
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _wait_online(max_wait: int = 900) -> None:
+    """Wartet (mit kurzem Backoff) bis das Internet wieder da ist — aber höchstens max_wait s
+    und nur solange der Builder läuft. So bleibt der Night-Builder nach einem Internet-/API-
+    Ausfall dran, statt abzubrechen oder sich lange zu pausieren."""
+    if _internet_ok():
+        return
+    waited, step = 0, 15
+    _set(phase="Internet-/API-Störung — warte auf Verbindung, bleibe dran…")
+    while is_running() and waited < max_wait:
+        time.sleep(step)
+        waited += step
+        if _internet_ok():
+            logger.info("AutoBuilder", f"Verbindung nach {waited}s wieder da — Night-Builder macht weiter.")
+            return
+        step = min(60, step + 10)
+    logger.warn("AutoBuilder", "Verbindung weiterhin gestört — nächster Versuch im regulären Takt.")
+
+
 def _note_job_limit(job) -> bool:
-    """Hat der Makeover-Job ein Claude-Session-Limit gemeldet? Setzt das Flag."""
+    """Hat der Makeover-Job ein ECHTES Claude-Nutzungslimit gemeldet? Setzt das Flag.
+    Vorübergehende Netz-/API-Fehler (Internet weg, Timeout, 5xx) zählen NICHT als Limit —
+    sonst würde sich der Builder bei einem kurzen Aussetzer stundenlang pausieren."""
     global _claude_limited
     if not job:
         return False
     txt = (str(job.get("step", "")) + " " + str(job.get("error", ""))).lower()
+    if _is_transient(txt):
+        return False                              # nur ein Aussetzer → kein Limit, dranbleiben
     hit = "session_limit" in txt
     if not hit:
         try:
@@ -715,11 +767,22 @@ def _improve_existing_once() -> bool:
          phase=f"Makeover ({7 - open_before + 1}/7)… {name}")
     logger.info("AutoBuilder", f"Makeover: {name} ({open_before} Stufen offen)")
     limited = False
+    transient = False
     try:
         mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
         mjob = _wait_job(mj, timeout=_MAKEOVER_WAIT)
         limited = _note_job_limit(mjob)
+        job_txt = ((str((mjob or {}).get("step", "")) + " " + str((mjob or {}).get("error", "")))
+                   if isinstance(mjob, dict) else str(mjob))
+        transient = _is_transient(job_txt)
     except Exception as e:
+        emsg = f"{type(e).__name__}: {e}"
+        if _is_transient(emsg):
+            # Internet-/API-Aussetzer: NICHT als „stuck" markieren — auf Verbindung warten und
+            # nächste Runde dieselbe Seite erneut versuchen → der Builder bleibt dran.
+            logger.warn("AutoBuilder", f"Makeover-Aussetzer ({type(e).__name__}) — bleibe dran.")
+            _wait_online(600)
+            return True
         logger.warn("AutoBuilder", f"Makeover fehlgeschlagen: {type(e).__name__}")
         _makeover_stuck.add(folder)
         return True
@@ -728,9 +791,12 @@ def _improve_existing_once() -> bool:
     try:
         open_after = overnight_makeover.open_stages(folder)
         if open_after >= open_before:
-            # Kein Fortschritt. Bei einem Claude-LIMIT NICHT als „stuck" markieren — das ist
-            # nur temporär; nach dem Auto-Neustart soll die Seite wieder dran sein.
-            if not limited:
+            # Kein Fortschritt. Bei einem Claude-LIMIT oder transienten Netz-/API-Fehler NICHT
+            # als „stuck" markieren — beides ist temporär; die Seite soll wieder dran kommen.
+            if transient:
+                logger.warn("AutoBuilder", f"Makeover-Aussetzer bei '{name}' — bleibe dran.")
+                _wait_online(600)
+            elif not limited:
                 logger.warn("AutoBuilder",
                             f"Kein Makeover-Fortschritt für '{name}' — überspringe heute")
                 _makeover_stuck.add(folder)
@@ -829,10 +895,17 @@ def _loop() -> None:
                 try:
                     _build_and_email(lead)
                 except Exception as e:
-                    with _lock:
-                        _state["failed"] += 1
-                    logger.error("AutoBuilder", f"Bau-Fehler: {type(e).__name__}")
-                    _idle_sleep(5)
+                    msg = f"{type(e).__name__}: {e}"
+                    if _is_transient(msg):
+                        # Internet-/API-Aussetzer: NICHT als Fehlschlag zählen, auf Verbindung
+                        # warten und denselben Schritt erneut versuchen → der Builder bleibt dran.
+                        logger.warn("AutoBuilder", f"Transienter Fehler beim Bau ({type(e).__name__}) — bleibe dran.")
+                        _wait_online(600)
+                    else:
+                        with _lock:
+                            _state["failed"] += 1
+                        logger.error("AutoBuilder", f"Bau-Fehler: {type(e).__name__}")
+                        _idle_sleep(5)
                 continue
             # keine offenen Leads → in die Verbesserungs-Phase fallen
 
