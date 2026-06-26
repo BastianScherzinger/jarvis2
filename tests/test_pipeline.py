@@ -63,7 +63,8 @@ def test_count_today_zaehlt_nur_aktive(tmp_path, monkeypatch):
         {"name": "E", "folder": str(tmp_path / "web_e_weg")},  # gelöscht
     ]
     log_path = tmp_path / "daily_builds.json"
-    log_path.write_text(json.dumps({ab._today(): entries}), encoding="utf-8")
+    # _count_today zählt pro Bau-Session (am/pm) → Einträge unter dem Session-Key ablegen.
+    log_path.write_text(json.dumps({ab._session(): entries}), encoding="utf-8")
     monkeypatch.setattr(ab, "_LOG_PATH", log_path)
     # Nur A und B sind noch aktiv (nicht archiviert) in der DB.
     import db_websites
@@ -81,7 +82,7 @@ def test_count_today_zaehlt_db_zeile_ohne_ordner(tmp_path, monkeypatch):
     f = tmp_path / "web_db_only"          # Ordner existiert NICHT
     entries = [{"name": "X", "folder": str(f)}]
     log_path = tmp_path / "daily_builds.json"
-    log_path.write_text(json.dumps({ab._today(): entries}), encoding="utf-8")
+    log_path.write_text(json.dumps({ab._session(): entries}), encoding="utf-8")
     monkeypatch.setattr(ab, "_LOG_PATH", log_path)
     import db_websites
     monkeypatch.setattr(db_websites, "get_all",
