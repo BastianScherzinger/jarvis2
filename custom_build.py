@@ -162,12 +162,17 @@ def start(data: dict) -> dict:
     if not name:
         return {"ok": False, "reason": "Name fehlt"}
     jid = website_builder.build(lead)
+    try:
+        import overnight_makeover
+        _stage_total = len(overnight_makeover.STAGES)
+    except Exception:
+        _stage_total = 2
     with _lock:
         _jobs[jid] = {
             "job_id": jid, "name": name, "phase": "Baue Webseite…",
             "recipients": recipients, "folder": "", "live_url": "",
             "built": False, "improving": False, "improve_job": "",
-            "stages_done": 0, "stages_total": 7, "done": False,
+            "stages_done": 0, "stages_total": _stage_total, "done": False,
             "started": time.time(),
         }
     threading.Thread(target=_watch_build, args=(jid,),

@@ -63,6 +63,16 @@ function _wsBadge(w){
 function initWebsites(){ loadWebsites(); _wsEnsureTimer(); }
 function refreshWebsites(){ loadWebsites(true); }
 
+// Manuelles Neuladen mit sichtbarem Lade-Feedback am Button (dreht kurz).
+async function wsManualReload(){
+  const btn = document.getElementById('ws-reload-btn');
+  if(btn){ btn.classList.add('loading'); btn.disabled = true; }
+  try{ await loadWebsites(false); }
+  finally{
+    if(btn){ btn.classList.remove('loading'); btn.disabled = false; }
+  }
+}
+
 function _wsEnsureTimer(){
   if(_wsTimer) return;
   _wsTimer = setInterval(() => {
@@ -295,23 +305,48 @@ function wsDayToggle(date){
 
 // ── Website-Karte (unverändert, nur hierher verschoben) ───────────────────────
 
+// Stufen-Stepper: segmentierte Anzeige der Bau-Stufen (erledigt / aktuell / offen) mit Labels.
+function _wsStages(w){
+  const total = w.stages_total || 0;
+  if(!total) return '';
+  const done    = Math.max(0, Math.min(total, w.stages_done || 0));
+  const labels  = w.stage_labels || [];
+  const running = (w.status === 'running' || w.status === 'queued');
+  const curIdx  = running ? Math.min(done, total - 1) : -1;   // aktuell laufende Stufe
+  let segs = '';
+  for(let i = 0; i < total; i++){
+    const cls = i < done ? 'done' : (i === curIdx ? 'cur' : 'pend');
+    const lbl = labels[i] ? ` title="Stufe ${i+1}: ${_wse(labels[i])}"` : '';
+    segs += `<span class="ws-seg ${cls}"${lbl}></span>`;
+  }
+  let txt;
+  if(done >= total)        txt = `✓ Alle ${total} Stufen fertig`;
+  else if(running && labels[curIdx]) txt = `Stufe ${done+1}/${total} · ${_wse(labels[curIdx])}`;
+  else                     txt = `${done}/${total} Stufen`;
+  return `<div class="ws-stages ${done>=total?'full':''}">
+    <div class="ws-seg-row">${segs}</div>
+    <span class="ws-stage-txt">${txt}</span>
+  </div>`;
+}
+
 function _wsCard(w){
   const st   = _wsBadge(w);
   const meta = [w.branche, w.stadt].filter(Boolean).map(_wse).join(' · ');
   const p    = Math.max(0, Math.min(100, w.progress || 0));
 
-  let prog = '';
+  // Stufen-Stepper immer zeigen (sobald es Stufen gibt) — man sieht jederzeit, wo die Seite steht.
+  let prog = _wsStages(w);
   if(w.status === 'running' || w.status === 'queued'){
-    prog = `<div class="ws-prog">
+    prog += `<div class="ws-prog">
       <div class="ws-bar"><div class="ws-fill" style="width:${p}%"></div></div>
       <div class="ws-step"><span class="jc-spin"></span><span>${_wse(w.step || 'Arbeitet…')}</span><span class="ws-pct">${p}%</span></div>
     </div>`;
   }else if(w.status === 'error'){
-    prog = `<div class="ws-errline">✕ ${_wse(w.error || w.step || 'Fehlgeschlagen')}</div>`;
+    prog += `<div class="ws-errline">✕ ${_wse(w.error || w.step || 'Fehlgeschlagen')}</div>`;
   }else if(w.status === 'done' && !w.live && w.live_url){
-    prog = `<div class="ws-hintline">⏳ ${_wse(w.step || 'Build läuft — in 1-2 Min erneut öffnen.')}</div>`;
+    prog += `<div class="ws-hintline">⏳ ${_wse(w.step || 'Build läuft — in 1-2 Min erneut öffnen.')}</div>`;
   }else if(w.status === 'done' && !w.live_url){
-    prog = `<div class="ws-hintline">${_wse(w.step || 'Lokal gebaut — noch nicht deployt.')}</div>`;
+    prog += `<div class="ws-hintline">${_wse(w.step || 'Lokal gebaut — noch nicht deployt.')}</div>`;
   }
 
   const links = [];

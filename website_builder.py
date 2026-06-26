@@ -899,7 +899,10 @@ def _run(job_id: str) -> None:
         # STUFE 1 — Hero-Vorlage: passt eine branchengenaue, vorgenerierte Higgsfield-Vorlage
         # (ohne Text, hero_templates/) und ist noch kein Hero gesetzt → kopieren. Deterministisch,
         # 0 Cloud-Tokens, kein Generierungs-Warten; die teure Generierung unten entfällt dann.
-        if not hero_png.exists():
+        # AUSNAHME: Hat der Nutzer im Eigene-Marke-Modus einen EIGENEN Hero-Prompt angegeben,
+        # bekommt er sein individuell generiertes Hero (Vorlage übersteuert ihn NICHT).
+        _custom_hero_prompt = (lead.get("_custom") or {}).get("hero_prompt", "").strip()
+        if not hero_png.exists() and not _custom_hero_prompt:
             try:
                 import hero_templates
                 if hero_templates.apply(target, lead.get("branche", ""), content):

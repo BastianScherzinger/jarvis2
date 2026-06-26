@@ -359,9 +359,11 @@ def api_websites_grouped():
         import overnight_makeover as _om
         import site_meta as _sm
         _stage_total = len(_om.STAGES)
+        _stage_labels = [st.get("label", st.get("key", "")) for st in _om.STAGES]
     except Exception:
         _om = None
-        _stage_total = 7
+        _stage_total = 2
+        _stage_labels = []
 
     for s in all_sites:
         ts = s.get("created") or 0
@@ -369,6 +371,7 @@ def api_websites_grouped():
         # Update-Level (Version) + Makeover-Stufen-Stand je Seite fürs Dashboard-Badge.
         folder = s.get("folder") or ""
         s["stages_total"] = _stage_total
+        s["stage_labels"] = _stage_labels
         try:
             if _om and folder:
                 c = _om._read_content(folder)

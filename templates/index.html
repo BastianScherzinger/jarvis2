@@ -434,14 +434,14 @@
   <div class="ws-toolbar">
     <span class="ws-count" id="ws-count">0 Seiten</span>
     <span class="rank-live" id="ws-live">● LIVE</span>
-    <button class="gc-btn ws-neu-btn" style="margin-left:auto" onclick="archiveAllAndStart()" title="Alle aktuellen Seiten archivieren und 10 neue bauen">⚡ Neu starten</button>
-    <button class="gc-btn" onclick="loadWebsites()">↺ Aktualisieren</button>
+    <button class="gc-btn ws-neu-btn" style="margin-left:auto" onclick="archiveAllAndStart()" title="Alle aktuellen Seiten archivieren und 5 neue bauen">⚡ Neu starten</button>
+    <button class="gc-btn" id="ws-reload-btn" onclick="wsManualReload()" title="Liste neu laden">↺ Aktualisieren</button>
   </div>
   <div class="ws-list" id="ws-list">
     <div class="ws-empty" id="ws-empty">
       <div class="empty-icon">◎</div>
       <div class="empty-title">Noch keine Webseiten gebaut</div>
-      <div class="empty-sub">„Neu starten" drücken — JARVIS baut 10 Seiten, verbessert sie und schickt jede fertige zur Freigabe in Discord.</div>
+      <div class="empty-sub">„Neu starten" drücken — JARVIS baut 5 Seiten, verbessert sie stufenweise und schickt jede fertige zur Freigabe in Discord.</div>
     </div>
   </div>
 
