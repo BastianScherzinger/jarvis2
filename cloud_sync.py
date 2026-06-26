@@ -187,10 +187,33 @@ def pull_and_cache() -> dict:
             if local is None:
                 # Neuer remote Lead → in lokalen Cache schreiben
                 cache_row["raw_id"] = None   # kein lokaler raw_id für remote Leads
+                # „erledigt bleibt erledigt": ein auf einem anderen PC archivierter Lead kommt
+                # hier gar nicht erst als baubarer Kandidat an.
+                if _is_archived(remote):
+                    cache_row["status"] = "archiviert"
+                    cache_row["lead_typ"] = "Archiviert"
+                    cache_row["erwartungswert_euro"] = 0
                 try:
                     db_evaluated.insert_evaluated(cache_row)
                     local_by_key[rk] = cache_row
                     pulled += 1
+                except Exception:
+                    pass
+            elif _is_archived(local) and not _is_archived(remote):
+                # Lokal bereits erledigt/archiviert → NIE durch einen nicht-archivierten remote-
+                # Stand zurücksetzen (sonst würde ein hier gelöschter Lead wieder baubar). Sticky.
+                pass
+            elif _is_archived(remote) and not _is_archived(local):
+                # Auf einem ANDEREN PC wurde der Lead erledigt (Webseite gelöscht → archiviert).
+                # Hier ebenfalls als erledigt übernehmen → der Night-Builder baut ihn nicht erneut.
+                cache_row["raw_id"] = local.get("raw_id")
+                cache_row["status"] = "archiviert"
+                cache_row["lead_typ"] = "Archiviert"
+                cache_row["erwartungswert_euro"] = 0
+                try:
+                    db_evaluated.insert_evaluated(cache_row)
+                    local_by_key[rk] = cache_row
+                    updated += 1
                 except Exception:
                     pass
             elif _merge_noetig(local, remote):
@@ -212,6 +235,13 @@ def pull_and_cache() -> dict:
     else:
         logger.info("CloudSync", "Cache aktuell — keine Änderungen aus der Cloud")
     return {"ok": True, "pulled": pulled, "updated": updated}
+
+
+def _is_archived(row: dict) -> bool:
+    """Lead anderswo als erledigt markiert? (status='archiviert' ODER lead_typ='Archiviert').
+    Beim Löschen einer Webseite wird der Lead so markiert → PC-übergreifend kein Re-Build."""
+    return ((str(row.get("status") or "")).lower() == "archiviert"
+            or (row.get("lead_typ") or "") == "Archiviert")
 
 
 def _bester_status(a: str | None, b: str | None) -> str:
