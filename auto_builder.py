@@ -170,7 +170,41 @@ def _save_log(log: dict) -> None:
 
 
 def _count_today() -> int:
-    return len(_load_log().get(_today(), []))
+    """Heute gebaute Seiten, die es WIRKLICH NOCH GIBT. Gelöschte Seiten zählen nicht mehr —
+    so füllt der Night-Builder nach einem Löschen automatisch wieder bis auf das Tageslimit auf
+    (= einfacher 5-Seiten-Builder, der den Bestand hält). Eine Seite gilt als vorhanden, wenn
+    ihr Ordner existiert ODER eine nicht-archivierte Webseiten-Zeile dazu da ist. Legacy-
+    Einträge ohne Ordner-Info werden mitgezählt (konservativ)."""
+    entries = _load_log().get(_today(), [])
+    if not entries:
+        return 0
+    # Aktive (nicht-archivierte) Ordner aus der Webseiten-DB für den Abgleich.
+    active_folders: set = set()
+    try:
+        import db_websites
+        for w in db_websites.get_all():            # include_archived=False (Standard)
+            f = (w.get("folder") or "").strip()
+            if f and not w.get("archived"):
+                try:
+                    active_folders.add(os.path.normcase(os.path.abspath(f)))
+                except Exception:
+                    active_folders.add(f)
+    except Exception:
+        pass
+    n = 0
+    for e in entries:
+        f = (e.get("folder") or "").strip()
+        if not f:
+            n += 1                                  # Legacy-Eintrag ohne Ordner → mitzählen
+            continue
+        try:
+            exists = os.path.isdir(f)
+            norm = os.path.normcase(os.path.abspath(f))
+        except Exception:
+            exists, norm = False, f
+        if exists or norm in active_folders:
+            n += 1
+    return n
 
 
 def _record(entry: dict) -> None:

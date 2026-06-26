@@ -975,6 +975,12 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         if stop and stop():
             logger.info("Makeover", f"{name} — gestoppt vor Stufe {stage['label']}.")
             break
+        # Ordner-weg-Schutz: Wurde die Seite mittendrin gelöscht (Ordner verschwunden), den
+        # Makeover sauber abbrechen — sonst liefe eine teure Claude-Stufe auf einem toten Ordner
+        # und der Makeover-Slot bliebe unnötig belegt (Night-Builder hing genau daran).
+        if not folder.is_dir():
+            logger.warn("Makeover", f"{name} — Ordner verschwunden (gelöscht?) → Makeover abgebrochen.")
+            break
         if stage["key"] in done:
             continue
         pct = 8 + int(i / total * 82)
