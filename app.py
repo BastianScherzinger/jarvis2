@@ -541,8 +541,52 @@ def _website_teardown_remote(row: dict) -> list:
     return report
 
 
+def _mark_lead_done(row: dict) -> bool:
+    """Markiert den zur Webseite gehörenden Lead in db_evaluated als erledigt/archiviert,
+    damit der Night-Builder ihn NICHT erneut baut (verhindert die wiederkehrenden Doppelten).
+    Match: zuerst per lead_id MIT Namensprüfung (lead_id kann eine raw_id sein → sonst falscher
+    Lead), sonst per lead_key bzw. Name+Stadt. Best-effort, wirft nie."""
+    try:
+        import db_evaluated
+    except Exception:
+        return False
+    name  = (row.get("name") or "").strip()
+    stadt = (row.get("stadt") or "").strip()
+    if not name:
+        return False
+    target = None
+    try:
+        lid = row.get("lead_id")
+        if lid:
+            cand = db_evaluated.get_by_id(int(lid))
+            if cand and (cand.get("name") or "").strip().lower() == name.lower():
+                target = cand                     # exakter Treffer, Name passt → sicher
+    except Exception:
+        target = None
+    if target is None:
+        try:
+            from leadkey import lead_key as _lk
+            lk = _lk(name, stadt)
+            for r in db_evaluated.get_all(limit=2000):
+                if (lk and r.get("lead_key") == lk) or (
+                        (r.get("name") or "").strip().lower() == name.lower()
+                        and (r.get("stadt") or "").strip().lower() == stadt.lower()):
+                    target = r
+                    break
+        except Exception:
+            target = None
+    if not target:
+        return False
+    try:
+        db_evaluated.archive_lead(int(target["id"]), "Webseite gelöscht — Lead erledigt")
+        return True
+    except Exception:
+        return False
+
+
 def _website_delete_local(row: dict, del_folder: bool = True) -> list:
-    """Lokalen Ordner (nur sichere web_-Ordner) + Cloud-Eintrag + DB-Zeile entfernen. Schnell."""
+    """Lokalen Ordner (nur sichere web_-Ordner) + Cloud-Eintrag + DB-Zeile entfernen. Schnell.
+    Markiert zusätzlich den zugehörigen Lead als erledigt (kein Re-Build → keine Doppelten)."""
     import shutil
     report = []
     folder = (row.get("folder") or "").strip()
@@ -563,6 +607,9 @@ def _website_delete_local(row: dict, del_folder: bool = True) -> list:
         pass
     db_websites.delete(row["id"])
     report.append("Eintrag entfernt")
+    # Lead als erledigt markieren → der Night-Builder baut ihn nicht erneut (keine Doppelten).
+    if _mark_lead_done(row):
+        report.append("Lead als erledigt markiert")
     return report
 
 
