@@ -274,6 +274,40 @@ def _archive_lead_after_send(review: dict) -> None:
         logger.warn("Discord", f"Website-Versand-Markierung: {type(e).__name__}")
 
 
+def _schedule_premium_after_send(reviews: list) -> None:
+    """Stößt für jede frisch verschickte Seite EINMALIG den 1A-Premium-Ausbau an (Master-Prompt,
+    alle Bilder + Firmeninfos) + Re-Deploy. Läuft SEQUENZIELL in einem Hintergrund-Thread (teilt
+    sich den globalen Makeover-Lock) und blockiert den Versand nie. Idempotent je Seite."""
+    import os
+    items = [((r.get("folder") or "").strip(), (r.get("name") or "").strip())
+             for r in reviews if (r.get("folder") or "").strip()]
+    if not items:
+        return
+
+    def _worker():
+        import time as _t
+        try:
+            import website_builder as wb
+            import overnight_makeover as om
+        except Exception:
+            return
+        for folder, nm in items:
+            try:
+                if not os.path.isdir(folder) or om.premium_upgraded(folder):
+                    continue
+                logger.info("Discord", f"1A-Premium-Ausbau nach Versand: {nm}")
+                jid = wb.premium_upgrade_existing(folder, nm)
+                for _ in range(1800):            # bis ~1 h auf Abschluss warten (Gate seriell)
+                    j = wb.get(jid) or {}
+                    if j.get("status") in ("done", "error"):
+                        break
+                    _t.sleep(2)
+            except Exception as e:
+                logger.warn("Discord", f"Premium-Ausbau nach Versand übersprungen ({nm}): {type(e).__name__}")
+
+    _threading.Thread(target=_worker, daemon=True, name="premium-after-send").start()
+
+
 def send_approved_now() -> dict:
     """Versendet sofort alle freigegebenen, noch nicht gesendeten Seiten. Gibt eine
     Zusammenfassung zurück. (Wird vom 12-Uhr-Scheduler und manuell genutzt.)
@@ -284,6 +318,7 @@ def send_approved_now() -> dict:
     try:
         todo = rq.approved_unsent()
         sent, failed, lines = 0, 0, []
+        sent_reviews = []
         for r in todo:
             # Pro Review erneut prüfen, ob er noch sendebereit ist (nicht zwischenzeitlich gesendet).
             cur = rq.get(r["id"])
@@ -295,10 +330,14 @@ def send_approved_now() -> dict:
                 sent += 1
                 lines.append(f"✅ {r.get('name','?')} → {r.get('email','?')}")
                 _archive_lead_after_send(r)          # Lead archivieren → kein Neubau
+                sent_reviews.append(r)
             else:
                 failed += 1
                 lines.append(f"⚠️ {r.get('name','?')}: {info}")
         logger.info("Discord", f"{_send_hour()}-Uhr-Versand: {sent} gesendet, {failed} übersprungen")
+        # Verschickte Seiten jetzt im Hintergrund auf 1A-Premium-Standard heben (Master-Prompt).
+        if sent_reviews:
+            _schedule_premium_after_send(sent_reviews)
         return {"sent": sent, "failed": failed, "lines": lines, "total": len(todo)}
     finally:
         _send_lock.release()

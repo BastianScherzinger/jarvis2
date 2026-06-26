@@ -370,11 +370,11 @@ def test_offer_email_enthaelt_link_und_preis():
     import app
     betreff, text, html = app._build_offer_email("Müller GmbH", "https://x.up.railway.app",
                                                  "Dachdecker", "Köln")
-    assert "Müller GmbH" in betreff               # Name im Betreff (Preis steht im Body)
+    assert "Müller GmbH" in betreff               # Name im Betreff
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
     import offer_mail
-    _p = str(offer_mail._price(0))                 # fairer Standardpreis (Default 299 €)
-    assert _p in text and _p in html               # Angebot
+    assert "kostenlos" in text.lower()             # KOSTENLOS, kein Festpreis mehr
+    assert "fairen preis" in text.lower()          # "sehr fairer Preis" statt fixer Betrag
     assert offer_mail._wvm()["person"] in text     # konfigurierter Absender (WVM-IT)
 
 
@@ -426,9 +426,11 @@ def test_locations_aggregiert(monkeypatch, tmp_path):
 def test_offer_mail_build():
     import offer_mail
     betreff, text, html = offer_mail.build("Müller GmbH", "https://x.up.railway.app", "Dachdecker", "Köln")
-    assert "Müller GmbH" in betreff               # Name im Betreff (Preis im Body)
-    _p = str(offer_mail._price(0))                 # fairer Standardpreis (Default 299 €)
-    assert _p in text and _p in html
+    assert "Müller GmbH" in betreff               # Name im Betreff
+    assert "kostenlos" in text.lower() and "kostenlos" in html.lower()   # KOSTENLOS
+    assert "fairen preis" in text.lower()         # "sehr fairer Preis", kein fixer Betrag
+    assert "pystore.de" in html.lower()           # Referenzen/Kundenerfahrungen
+    assert "wvm-it.tech" in html.lower()          # Rechnungs-/Firmen-Domain
     assert "https://x.up.railway.app" in text and "https://x.up.railway.app" in html
 
 
@@ -703,8 +705,7 @@ def test_offer_email_preview_route(monkeypatch):
     d = r.get_json()
     # leerer Live-Link → kein Netzwerk-Call, link="", link_ok False, aber Vorschau ok
     assert d["ok"] and d["to"] == "info@m.de" and d["link"] == "" and d["link_ok"] is False
-    import offer_mail
-    assert str(offer_mail._price(0)) in d["html"]   # fairer Standardpreis (Default 299 €)
+    assert "kostenlos" in d["html"].lower()         # KOSTENLOSE Webseite (kein Festpreis mehr)
 
 
 def test_media_hardware_info_hat_ram():

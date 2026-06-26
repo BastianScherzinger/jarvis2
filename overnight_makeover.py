@@ -1154,6 +1154,161 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     return {"ok": True, "stages_done": new_done, "all_done": fertig}
 
 
+# ── Premium-Upgrade NACH dem Versand (1A-Standard, ein Master-Prompt) ─────────────
+# Sobald eine Seite an den echten Kunden geschickt wurde, ist sie „verkaufsrelevant" —
+# jetzt darf sie maximal teuer werden. EIN großer Claude-Lauf mit dem VOLLEN taste-Skill,
+# der ALLE Bilder einbaut, ALLE auffindbaren Firmeninfos verwendet und die Seite auf echtes
+# 1A-Agentur-Niveau hebt. Läuft nur EINMAL je Seite (Latch content['premium_upgraded']),
+# im Hintergrund, und blockiert den 12-Uhr-Versand nie.
+_PREMIUM_SKILL = (os.environ.get("JARVIS_PREMIUM_SKILL") or _TASTE).strip() or _TASTE
+# Hochwertiges Modell — diese Seite ist bereits verkauft/verschickt, Qualität geht hier vor
+# Tokensparen. Default opus; per .env auf 'sonnet' senkbar.
+_PREMIUM_MODEL = (os.environ.get("JARVIS_PREMIUM_MODEL") or "opus").strip() or "opus"
+
+
+def _build_premium_prompt(context: str) -> str:
+    return (
+        "Headless-Web-Editor im AKTUELLEN Ordner: eine fertige, bereits LIVE gegangene und an "
+        "den Kunden verschickte Django-Landing-Page (rendert aus content.json über "
+        "templates/index.html + static/css/style.css, dazu static/img + static/js).\n\n"
+        "AUFTRAG: Hebe DIESE Seite jetzt auf echten 1A-PREMIUM-STANDARD — sie soll richtig krass "
+        "aussehen, wie das Referenzprojekt einer preisgekrönten Agentur, absolut nicht templated "
+        "oder KI-generiert. Das ist die finale Ausbaustufe einer verkauften Seite: Qualität geht "
+        "vor allem anderen, aber ohne vorhandene Funktion zu beschädigen (Funktion vor Design).\n\n"
+        f"{context}\n\n"
+        "WENDE ALLE RELEVANTEN DESIGN-SKILLS VOLL AN — lies und nutze das Skill "
+        f"«{_PREMIUM_SKILL}» (taste/ui-ux-pro-max/impeccable-design/frontend-pro destilliert) "
+        "konsequent: durchgängiges Farb-Token-System (EINE Akzentfarbe + getönte Neutrals als "
+        "CSS-Variablen, WCAG-AA), charakterstarkes Display-/Body-Font-Pairing (Google Fonts), "
+        "fluide Typo-Skala mit clamp(), feste Spacing-Skala, weiche mehrschichtige Schatten, ein "
+        "konsistentes Inline-SVG-Icon-Set, dezente performante Motion (transform/opacity, "
+        "prefers-reduced-motion), ALLE Zustände (hover/focus-visible/active/disabled).\n\n"
+        "PFLICHT:\n"
+        "1) ALLE BILDER EINBAUEN: Sämtliche Bilder aus content.json (hero_image, about_image, "
+        "alle content.fotos, foto_captions, logo_image) müssen sinnvoll und hochwertig platziert "
+        "werden — Hero, Über-uns, eine ECHTE Galerie/Referenz-Sektion, Team. Kein Bild "
+        "verschwenden, KEINE Dopplung des Hero-Bilds, nie ein gebrochenes <img>; fehlt ein Bild, "
+        "ein sauberer Platzhalter. Bilder mit object-fit, korrekten Seitenverhältnissen, "
+        "loading=\"lazy\", aussagekräftigen alt-Texten.\n"
+        "2) ALLE AUFFINDBAREN FIRMENINFOS verwenden: Jede bekannte Angabe (Name, Branche, Adresse, "
+        "Telefon, E-Mail, Ansprechpartner, Öffnungszeiten, Beschreibung, USPs, Trust-Signale, "
+        "Social-Media) gehört prominent und betriebsgenau auf die Seite — Kontakt, Über-uns, "
+        "Footer, Karte. Stehen Details in content.json bzw. im Kontext oben, baue sie ein; "
+        "erfinde NICHTS, was den Daten widerspricht.\n"
+        "3) Above-the-fold-HERO perfekt: zwei Spalten — links Text (Eyebrow → kraftvolle Headline "
+        "→ Subline → CTA-Reihe inkl. WhatsApp wa.me / Anruf tel: / E-Mail mailto: → Trust-Signale), "
+        "rechts die funktionierende Kostenrechner-Karte (content.rechner + static/js/kostenrechner.js). "
+        "Auf Mobil sauber stapeln (Touch-Ziele ≥ 44 px).\n"
+        "4) Vollständige Sektionen: Leistungen (Karten-Grid, SVG-Icons), FAQ, Über-uns, Galerie, "
+        "Kontakt mit echter eingebetteter Karte (content.map_embed/maps_url) + Kontaktformular "
+        "(method=post, {% csrf_token %}, Einwilligung → Datenschutz). Rechtstexte "
+        "(impressum/datenschutz/agb) 1:1 rendern + unten links verlinken; Credit «Erstellt von "
+        f"WVM-IT» (wvm_url/wvm_name) + Shop-Link (wvm_shop) im Footer erhalten.\n"
+        "5) QA: perfekt mobil (echte Breakpoints, Sticky-Anruf/WhatsApp), keine Überläufe, kein "
+        "CLS, alle Links funktionieren, SEO-Grundgerüst (title, meta description, H-Hierarchie, "
+        "alt-Texte). content.json bleibt valides JSON, keine vorhandenen Keys löschen.\n\n"
+        "REGELN: Sofort autonom umsetzen, KEINE Rückfragen. content.json + templates/index.html + "
+        "static/css/style.css direkt aus dem Ordner lesen und WIRKLICH editieren (echtes Design, "
+        "nicht nur Text). Deutsch, konkret, betriebsgenau. Am Ende MUSS `python manage.py check` "
+        "fehlerfrei sein und das Template ohne Fehler rendern. Schließe mit genau einem Satz, was "
+        "du verbessert hast."
+    )
+
+
+def premium_upgraded(folder: "str | Path") -> bool:
+    """True, wenn die Seite den einmaligen 1A-Premium-Ausbau schon erhalten hat."""
+    try:
+        return bool(_read_content(Path(folder)).get("premium_upgraded"))
+    except Exception:
+        return False
+
+
+def run_premium_upgrade(folder: "str | Path", meta: dict, say=None, stop=None) -> dict:
+    """Einmaliger 1A-Premium-Ausbau einer bereits verschickten Seite (ein großer Claude-Lauf,
+    volles taste-Skill, alle Bilder + alle Firmeninfos). Idempotent über content['premium_upgraded'].
+    Gibt {ok, changed, reason, summary}. Best-effort — Fehler blockieren nichts."""
+    folder = Path(folder)
+    say = say or (lambda p, t: None)
+    if not folder.is_dir():
+        return {"ok": False, "reason": "Ordner nicht gefunden", "changed": False}
+    if premium_upgraded(folder):
+        return {"ok": True, "reason": "bereits ausgebaut", "changed": False}
+    if not claude_coder.is_available():
+        return {"ok": False, "reason": "claude-CLI fehlt", "changed": False}
+
+    # Limit-Gate: erschöpfter Claude (und kein freier Zweitschlüssel) → später nachziehen.
+    _key_free = False
+    try:
+        import claude_keys
+        _key_free = claude_keys.count() > 1 and claude_keys.has_available()
+    except Exception:
+        _key_free = False
+    if not _key_free and not claude_limit.should_try_now():
+        mins = claude_limit.seconds_to_retry() // 60
+        say(100, f"Claude-Limit aktiv — Premium-Ausbau in ~{mins} Min.")
+        return {"ok": False, "reason": "session_limit", "changed": False}
+
+    name = meta.get("name", "?")
+    _reset_dirty(folder)
+    # Vollständige Vorbereitung (idempotent, 0 Claude-Tokens): frisches Hero, Rechtstexte, Geo,
+    # lokale Inhalte, Lead-Foto-Bewertung + saubere Platzhalter — damit der Master-Lauf auf
+    # WIRKLICH allen Bildern und Infos aufbaut.
+    if not (stop and stop()):
+        _ensure_hero(folder, meta, say)
+    _ensure_legal(folder, meta)
+    if not (stop and stop()):
+        _ensure_geo(folder, meta)
+    if not (stop and stop()):
+        _prefill_content_local(folder, meta, say)
+    try:
+        import ref_images
+        c0 = _read_content(folder)
+        c0 = ref_images.ensure_placeholders(folder, c0, meta.get("branche") or c0.get("branche", ""))
+        _write_content(folder, c0)
+    except Exception:
+        pass
+    _git_commit(folder, "Premium-Ausbau: Vorbereitung (Bilder, Infos, Recht)")
+
+    logger.info("Makeover", f"★ Premium-1A-Ausbau startet: {name} (Skill {_PREMIUM_SKILL}, "
+                            f"Modell {_PREMIUM_MODEL})")
+    say(20, f"1A-Premium-Ausbau für {name} (Master-Prompt, alle Bilder + Infos)…")
+    context = _context_block(folder, meta)
+    prompt = _build_premium_prompt(context)
+    fp0 = _fingerprint(folder)
+    res = claude_coder.run_prompt(
+        str(folder), prompt, branche=meta.get("branche", ""),
+        model=_PREMIUM_MODEL, task="premium", name=name,
+        max_turns=int(os.environ.get("JARVIS_PREMIUM_TURNS", "120") or "120"),
+        timeout=int(os.environ.get("JARVIS_PREMIUM_TIMEOUT", "2400") or "2400"),
+        on_progress=lambda s: say(60, f"Premium-Ausbau · {s}"))
+    changed = _fingerprint(folder) != fp0
+
+    if _is_limit(res, changed):
+        scope = _limit_scope((res.get("summary") or "") + " " + (res.get("reason") or ""))
+        claude_limit.mark("Premium-Ausbau", _LIMIT_WAIT, site=name, scope=scope)
+        return {"ok": False, "reason": "session_limit", "changed": False}
+    if not res.get("ok"):
+        logger.warn("Makeover", f"Premium-Ausbau fehlgeschlagen ({name}): {str(res.get('reason',''))[:140]}")
+        return {"ok": False, "reason": res.get("reason", ""), "changed": changed}
+
+    summ = res.get("summary") or ""
+    if changed:
+        claude_limit.clear()
+        content = _read_content(folder)
+        content["premium_upgraded"] = True
+        content["premium_upgraded_ts"] = time.time()
+        _write_content(folder, content)
+        _git_commit(folder, f"Premium-Ausbau (1A): {summ[:80]}")
+        logger.success("Makeover", f"★ Premium-1A-Ausbau fertig: {name} — {summ[:100]}")
+        try:
+            logger.activity("Makeover", "1A-Premium-Ausbau (verkaufte Seite)", name, "★", "build")
+        except Exception:
+            pass
+    else:
+        logger.info("Makeover", f"Premium-Ausbau ohne Datei-Änderung ({name}): {summ[:90]}")
+    return {"ok": True, "changed": changed, "summary": summ}
+
+
 # ── Freigabe (Discord 1× 👍, sonst Vorschau-Mail) ──────────────────────────────────
 
 def _mark_review_submitted(folder: str) -> None:

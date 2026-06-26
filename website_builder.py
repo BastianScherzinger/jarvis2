@@ -1497,6 +1497,110 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
             pass
 
 
+# ── Premium-1A-Ausbau NACH dem Versand ────────────────────────────────────────────
+
+def premium_upgrade_existing(folder: str, name: "str | None" = None) -> str:
+    """Einmaliger 1A-Premium-Ausbau einer bereits verschickten Seite (ein Master-Prompt,
+    volles taste-Skill, alle Bilder + Firmeninfos) + Re-Deploy auf dieselbe Live-URL.
+    Verfolgbar im Webseiten-Reiter. Gibt die job_id zurück."""
+    target = Path(folder)
+    nm = _folder_name(target, name)
+    return _start_folder_job(str(target), nm, _run_premium, "Premium-Ausbau in Warteschlange…")
+
+
+def _run_premium(job_id: str, folder: str, name: str) -> None:
+    """1A-Ausbau einer verschickten Seite. Teilt sich den globalen Makeover-Lock (nur EINE
+    Claude-Pipeline gleichzeitig) und re-deployt auf die bestehende Railway-Domain."""
+    global _makeover_name
+    if not _makeover_gate.acquire(blocking=False):
+        laeuft = _makeover_name or "eine andere Seite"
+        _set(job_id, status="done")
+        _step(job_id, 100, f"Premium-Ausbau später — es wird gerade '{laeuft}' bearbeitet.")
+        return
+    _makeover_name = name
+    try:
+        target = Path(folder)
+        if not target.is_dir():
+            raise RuntimeError("Ordner nicht gefunden.")
+        _set(job_id, status="running", folder=str(target))
+        _step(job_id, 4, f"1A-Premium-Ausbau für {name} startet…")
+
+        meta = {"name": name}
+        existing_live = ""
+        try:
+            import db_websites
+            row = db_websites.get_by_job(job_id) or db_websites.get_by_folder(str(target))
+            if row:
+                meta = {"name": row.get("name") or name, "stadt": row.get("stadt", ""),
+                        "branche": row.get("branche", ""),
+                        "email": row.get("kontakt_email", ""),
+                        "ansprechpartner": row.get("ansprechpartner", "")}
+                existing_live = (row.get("live_url") or "").strip()
+        except Exception:
+            pass
+
+        import overnight_makeover
+        res = overnight_makeover.run_premium_upgrade(
+            target, meta, say=lambda p, t: _step(job_id, p, t))
+
+        # Nichts geändert (schon ausgebaut / Limit) → ohne Re-Deploy abschließen.
+        if not res.get("changed"):
+            _set(job_id, status="done")
+            reason = {"bereits ausgebaut": "Seite war bereits auf 1A-Standard.",
+                      "session_limit": "Claude-Limit aktiv — Premium-Ausbau wird später nachgezogen."
+                      }.get(res.get("reason", ""), res.get("reason") or "Kein neuer Ausbau nötig.")
+            _step(job_id, 100, reason)
+            return
+
+        # Re-Deploy auf die bestehende Domain (Railway-Service-Reuse, keine neue URL).
+        slug = _slug(name)
+
+        def _say(p, t):
+            if p is None:
+                with _lock:
+                    j = _jobs.get(job_id)
+                    cur = (j.get("progress", 92) if j else 92)
+                _step(job_id, min(cur + 1, 99), t)
+            else:
+                _step(job_id, max(p, 92), t)
+
+        prev = get(job_id) or {}
+        site_name = overnight_makeover._read_content(target).get("site_name") or name
+        dep = _deploy_folder(target, slug, name, _django_secret_key(), site_name, _say,
+                             redeploy_url=(prev.get("live_url") or existing_live))
+        if dep.get("railway_log"):
+            _set(job_id, railway_log=dep["railway_log"])
+        if dep["repo_url"]:
+            _set(job_id, repo_url=dep["repo_url"])
+        _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
+        live = dep.get("live_url") or existing_live
+        if dep.get("live_ok") and live:
+            final = f"1A-Premium-Ausbau live: {live}"
+        elif live:
+            final = f"1A-Premium-Ausbau gepusht — Build läuft. {live}"
+        else:
+            final = "1A-Premium-Ausbau lokal — Deploy nicht möglich: " + str(dep.get("railway_note", ""))[:120]
+        _set(job_id, status="done")
+        _step(job_id, 100, final)
+        _sync_push(job_id)
+    except Exception as e:
+        import traceback
+        _set(job_id, status="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        _step(job_id, 100, f"Fehlgeschlagen: {type(e).__name__}")
+        try:
+            import logger
+            logger.error("Webseite", f"✕ Premium-Ausbau '{name}': {type(e).__name__}: {str(e)[:180]}")
+            logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
+    finally:
+        _makeover_name = ""
+        try:
+            _makeover_gate.release()
+        except Exception:
+            pass
+
+
 # ── Deploy-Bereitschaft (Diagnose für 'klappt nicht'-Fälle) ───────────────────
 
 def deploy_status() -> dict:
