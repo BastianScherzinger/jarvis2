@@ -175,19 +175,19 @@ def _save_log(log: dict) -> None:
 
 
 def _count_today() -> int:
-    """Heute gebaute Seiten, die es WIRKLICH NOCH GIBT. Gelöschte Seiten zählen nicht mehr —
-    so füllt der Night-Builder nach einem Löschen automatisch wieder bis auf das Tageslimit auf
-    (= einfacher 5-Seiten-Builder, der den Bestand hält). Eine Seite gilt als vorhanden, wenn
-    ihr Ordner existiert ODER eine nicht-archivierte Webseiten-Zeile dazu da ist. Legacy-
-    Einträge ohne Ordner-Info werden mitgezählt (konservativ)."""
+    """Heute gebaute Seiten, die NOCH AKTIV im Dashboard sind (nicht gelöscht UND nicht
+    archiviert). So füllt der Builder nach „Löschen" ODER „Neu starten" (= alle archivieren)
+    automatisch wieder bis auf das Tageslimit auf — er baut sofort weiter, statt fälschlich in
+    Pause zu gehen. WICHTIG: NICHT nach Ordner-Existenz zählen (ein archivierter Ordner liegt
+    noch auf der Platte → würde sonst mitgezählt → Builder dächte „fertig" und baut nichts)."""
     entries = _load_log().get(_today(), [])
     if not entries:
         return 0
-    # Aktive (nicht-archivierte) Ordner aus der Webseiten-DB für den Abgleich.
+    # Aktive (nicht-archivierte) Ordner aus der Webseiten-DB — NUR diese zählen als „vorhanden".
     active_folders: set = set()
     try:
         import db_websites
-        for w in db_websites.get_all():            # include_archived=False (Standard)
+        for w in db_websites.get_all():            # include_archived=False (Standard) → nur aktive
             f = (w.get("folder") or "").strip()
             if f and not w.get("archived"):
                 try:
@@ -200,14 +200,12 @@ def _count_today() -> int:
     for e in entries:
         f = (e.get("folder") or "").strip()
         if not f:
-            n += 1                                  # Legacy-Eintrag ohne Ordner → mitzählen
-            continue
+            continue                               # ohne Ordner nicht zählbar (keine aktive Zeile)
         try:
-            exists = os.path.isdir(f)
             norm = os.path.normcase(os.path.abspath(f))
         except Exception:
-            exists, norm = False, f
-        if exists or norm in active_folders:
+            norm = f
+        if norm in active_folders:                 # nur AKTIVE (nicht archivierte) Seiten zählen
             n += 1
     return n
 

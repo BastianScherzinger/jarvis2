@@ -45,30 +45,32 @@ def test_hero_template_apply_und_respektiert_leadfoto(tmp_path):
 
 # ── Night-Builder: nach Löschen wird wieder aufgefüllt (Kern-Invariante) ────────
 
-def test_count_today_zaehlt_nur_existierende(tmp_path, monkeypatch):
-    """daily_builds zählt 5 Seiten heute, aber 3 Ordner sind gelöscht und keine DB-Zeile →
-    _count_today() liefert nur die 2 verbliebenen → der Builder baut wieder auf 5 auf."""
+def test_count_today_zaehlt_nur_aktive(tmp_path, monkeypatch):
+    """daily_builds zählt 5 Seiten heute; nur 2 haben noch eine AKTIVE (nicht-archivierte)
+    DB-Zeile, 3 wurden gelöscht/archiviert → _count_today() liefert 2 → der Builder baut wieder
+    auf 5 auf (auch nach „Neu starten" = alle archivieren)."""
     import auto_builder as ab
 
-    # 5 Seiten heute „gebaut" — 2 Ordner existieren, 3 wurden gelöscht.
-    bleibt1 = tmp_path / "web_a"; bleibt1.mkdir()
-    bleibt2 = tmp_path / "web_b"; bleibt2.mkdir()
+    a = tmp_path / "web_a"; a.mkdir()
+    b = tmp_path / "web_b"; b.mkdir()
+    # Auch die „archivierten" Ordner existieren noch auf der Platte (wichtig: dürfen NICHT zählen).
+    c = tmp_path / "web_c"; c.mkdir()
     entries = [
-        {"name": "A", "folder": str(bleibt1)},
-        {"name": "B", "folder": str(bleibt2)},
-        {"name": "C", "folder": str(tmp_path / "web_c_geloescht")},
-        {"name": "D", "folder": str(tmp_path / "web_d_geloescht")},
-        {"name": "E", "folder": str(tmp_path / "web_e_geloescht")},
+        {"name": "A", "folder": str(a)},
+        {"name": "B", "folder": str(b)},
+        {"name": "C", "folder": str(c)},                       # archiviert (Ordner liegt noch da)
+        {"name": "D", "folder": str(tmp_path / "web_d_weg")},  # gelöscht
+        {"name": "E", "folder": str(tmp_path / "web_e_weg")},  # gelöscht
     ]
     log_path = tmp_path / "daily_builds.json"
     log_path.write_text(json.dumps({ab._today(): entries}), encoding="utf-8")
     monkeypatch.setattr(ab, "_LOG_PATH", log_path)
-    # Keine aktiven Webseiten-Zeilen (gelöschte sind weg).
+    # Nur A und B sind noch aktiv (nicht archiviert) in der DB.
     import db_websites
-    monkeypatch.setattr(db_websites, "get_all", lambda *a, **k: [])
-
-    assert ab._count_today() == 2          # nur die 2 existierenden zählen
-    # 5er-Limit: es sind also wieder 3 Plätze frei → Builder baut nach.
+    monkeypatch.setattr(db_websites, "get_all",
+                        lambda *args, **k: [{"folder": str(a), "archived": 0},
+                                            {"folder": str(b), "archived": 0}])
+    assert ab._count_today() == 2          # archivierter Ordner C zählt NICHT trotz Existenz
     assert ab._count_today() < ab._DAILY_LIMIT
 
 

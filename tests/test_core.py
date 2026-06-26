@@ -646,12 +646,24 @@ def test_auto_builder_deep_step_off(monkeypatch):
 
 def test_auto_builder_daily_log(tmp_path, monkeypatch):
     import auto_builder
+    import db_websites
     monkeypatch.setattr(auto_builder, "_LOG_PATH", tmp_path / "daily_builds.json")
     assert auto_builder._count_today() == 0
+    fa = tmp_path / "web_foo"; fa.mkdir()
+    fb = tmp_path / "web_bar"; fb.mkdir()
     auto_builder._record({"name": "Foo GmbH", "stadt": "Ulm", "link": "https://x.de",
-                          "email": "info@foo.de"})
-    auto_builder._record({"name": "Bar AG", "stadt": "Köln", "link": "", "email": ""})
+                          "email": "info@foo.de", "folder": str(fa)})
+    auto_builder._record({"name": "Bar AG", "stadt": "Köln", "link": "", "email": "",
+                          "folder": str(fb)})
+    # _count_today zählt nur AKTIVE (nicht-archivierte) Seiten → beide Ordner aktiv in der DB.
+    monkeypatch.setattr(db_websites, "get_all",
+                        lambda *a, **k: [{"folder": str(fa), "archived": 0},
+                                         {"folder": str(fb), "archived": 0}])
     assert auto_builder._count_today() == 2
+    # Archiviert man eine (nicht mehr in get_all), zählt nur noch die andere → Builder baut nach.
+    monkeypatch.setattr(db_websites, "get_all",
+                        lambda *a, **k: [{"folder": str(fa), "archived": 0}])
+    assert auto_builder._count_today() == 1
     dl = auto_builder.daily_log()
     assert dl["daily_limit"] == auto_builder._DAILY_LIMIT
     today = auto_builder._today()
