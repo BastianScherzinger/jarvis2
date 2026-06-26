@@ -12,10 +12,6 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
-# Ollama serialisiert Anfragen intern auf einer GPU. Bei vielen parallelen Evaluator-
-# Threads stauen sich die Requests und laufen in den Timeout. Die Semaphore begrenzt
-# gleichzeitige Ollama-Calls → kein Timeout-Kaskade. Auf einer starken Maschine (viel RAM/
-# GPU) per JARVIS_OLLAMA_PARALLEL erhöhbar; Default 2 (sicher auch auf CPU).
 def _int_env(name: str, default: int) -> int:
     """Robuste int-Env (nicht-numerischer Wert darf den Start NICHT crashen)."""
     try:
@@ -24,11 +20,53 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-_OLLAMA_SEM = threading.Semaphore(max(1, _int_env("JARVIS_OLLAMA_PARALLEL", 2)))
+def _detect_gpu_parallel() -> int:
+    """GPU-aware Default: 4 parallel bei dedizierter GPU (serialisiert GPU-intern schnell),
+    2 bei CPU-only (langsamere Inferenz, mehr Threads würden nur aufstauen).
+    Überschreibbar per JARVIS_OLLAMA_PARALLEL."""
+    env_val = os.environ.get("JARVIS_OLLAMA_PARALLEL", "").strip()
+    if env_val:
+        try:
+            return max(1, int(env_val))
+        except (ValueError, TypeError):
+            pass
+    try:
+        import subprocess
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.total",
+                            "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=4)
+        if r.returncode == 0 and r.stdout.strip():
+            vram_mb = float(r.stdout.strip().splitlines()[0])
+            return 4 if vram_mb >= 6000 else 2
+    except Exception:
+        pass
+    return 2
+
+
+_OLLAMA_PARALLEL = _detect_gpu_parallel()
+_OLLAMA_SEM = threading.Semaphore(_OLLAMA_PARALLEL)
 _OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 # Großzügiger Timeout: Kaltstart eines 7B-Modells (Laden von Platte) kann
 # 30-120s dauern. keep_alive hält das Modell danach im Speicher.
 _OLLAMA_TIMEOUT = 180
+
+# GPU-Layer-Option: -1 = alle Schichten auf die GPU laden (auto). Bei reiner CPU auf 0 lassen
+# (default), damit Ollama CPU-Threads optimal nutzt statt 0 GPU-Layer zu versuchen.
+def _num_gpu() -> int:
+    env_val = os.environ.get("JARVIS_OLLAMA_NUM_GPU", "").strip()
+    if env_val:
+        try:
+            return int(env_val)
+        except (ValueError, TypeError):
+            pass
+    try:
+        import subprocess
+        r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3)
+        return -1 if r.returncode == 0 and r.stdout.strip() else 0
+    except Exception:
+        return 0
+
+_NUM_GPU = _num_gpu()
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -146,11 +184,19 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
     Fragt das lokale Ollama-Modell. Modell-Auswahl dynamisch:
     explizites model > JARVIS_VERIFIER_MODEL > JARVIS_LOCAL_MODEL > qwen2.5:7b.
     Env-Vars werden bei JEDEM Aufruf neu gelesen (Laufzeit-Wechsel möglich).
-    Begrenzt durch Semaphore (max 2 parallel) + keep_alive hält Modell geladen.
+    Begrenzt durch Semaphore (GPU: 4 parallel, CPU: 2) + keep_alive hält Modell geladen.
+    num_gpu=-1: alle Schichten auf die GPU laden (0 auf CPU-only-Systemen).
     """
     if not model:
         model = os.environ.get("JARVIS_VERIFIER_MODEL") or \
                 os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
+    options: dict = {
+        "temperature": 0.1,
+        "num_predict": 768,
+        # num_gpu: -1 = GPU auto (alle Layer), 0 = CPU-only.
+        # Wird einmalig beim Modulstart erkannt (_NUM_GPU) und hier gesetzt.
+        "num_gpu": _NUM_GPU,
+    }
     payload = json.dumps({
         "model": model,
         "messages": [
@@ -159,9 +205,7 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
         ],
         "stream": False,
         "keep_alive": "10m",                # Modell 10 Min im Speicher halten
-        # num_predict großzügig: das Bewertungs-JSON (inkl. E-Mail-Entwurf) wurde
-        # bei 400 oft abgeschnitten → unparsebar → Ollama-Anpassung fiel auf 0.
-        "options": {"temperature": 0.1, "num_predict": 768},
+        "options": options,
     }).encode("utf-8")
     req = urllib.request.Request(
         _OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}
@@ -176,7 +220,8 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
             return ""   # Timeout o.ä. — Aufrufer nutzt Fallback
 
 
-_BEST_MODEL: list = [None]
+_BEST_MODEL: list = [None, 0.0]   # [model_name, cache_ts]
+_BEST_MODEL_TTL = 600             # Cache 10 Min gültig (Modelle können zur Laufzeit installiert werden)
 
 
 def best_chat_model() -> str:
@@ -187,9 +232,9 @@ def best_chat_model() -> str:
          (sonst würde z.B. 32B auf 16 GB VRAM auslagern und alles ausbremsen).
       2. Hardware-Empfehlung (z.B. qwen2.5:14b auf 16 GB VRAM), wenn installiert.
       3. größtes installiertes Nicht-Coder-Modell, das in den Speicher passt.
-    Code-Modelle (qwen2.5-coder) werden gemieden (halluzinieren). Ergebnis gecacht.
+    Code-Modelle (qwen2.5-coder) werden gemieden (halluzinieren). Ergebnis 10 Min gecacht.
     """
-    if _BEST_MODEL[0]:
+    if _BEST_MODEL[0] and time.time() - _BEST_MODEL[1] < _BEST_MODEL_TTL:
         return _BEST_MODEL[0]
 
     models  = ollama_models()
@@ -226,6 +271,7 @@ def best_chat_model() -> str:
             chosen = env or rec or os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
 
     _BEST_MODEL[0] = chosen
+    _BEST_MODEL[1] = time.time()
     return chosen
 
 

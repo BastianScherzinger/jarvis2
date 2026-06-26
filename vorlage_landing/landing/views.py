@@ -86,25 +86,31 @@ def _content() -> dict:
         pass
     # Abgeleitete Felder fürs Template (WhatsApp + Team immer 4 Slots).
     data["whatsapp"] = _whatsapp(data.get("telefon", ""))
-    # Karten-Link aus der Adresse (kein API-Key, funktioniert immer; kein leerer Embed).
-    adr = (data.get("adresse") or "").strip()
-    if adr:
-        import urllib.parse
-        data["maps_url"] = "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(adr)
-    else:
-        data["maps_url"] = ""
-    # Echte eingebettete OSM-Karte, wenn Koordinaten vorliegen (vom Makeover geocodet) —
-    # ohne API-Key, mit Marker. Sonst leer → Template zeigt nur den Maps-Link.
+    # Echte eingebettete OSM-Karte + Maps-Link, wenn Koordinaten vorliegen (vom Makeover geocodet).
+    # Bereits in content.json gesetzte Werte (map_embed/maps_url) werden NICHT überschrieben —
+    # nur wenn sie fehlen, leiten wir sie hier ab (Adress-Suche als letzter Fallback).
     try:
         lat = float(data.get("lat"))
         lng = float(data.get("lng"))
         dlat, dlng = 0.006, 0.010
-        data["map_embed"] = (
-            "https://www.openstreetmap.org/export/embed.html"
-            f"?bbox={lng-dlng}%2C{lat-dlat}%2C{lng+dlng}%2C{lat+dlat}"
-            f"&layer=mapnik&marker={lat}%2C{lng}")
+        if not data.get("map_embed"):
+            data["map_embed"] = (
+                "https://www.openstreetmap.org/export/embed.html"
+                f"?bbox={lng-dlng}%2C{lat-dlat}%2C{lng+dlng}%2C{lat+dlat}"
+                f"&layer=mapnik&marker={lat}%2C{lng}")
+        if not data.get("maps_url"):
+            data["maps_url"] = (
+                f"https://www.openstreetmap.org/?mlat={lat}&mlon={lng}#map=16/{lat}/{lng}")
     except (TypeError, ValueError):
-        data["map_embed"] = ""
+        # Keine Koordinaten — Fallback: Google-Maps-Suche über Adresse (kein API-Key nötig).
+        if not data.get("maps_url"):
+            adr = (data.get("adresse") or "").strip()
+            if adr:
+                import urllib.parse
+                data["maps_url"] = ("https://www.google.com/maps/search/?api=1&query="
+                                    + urllib.parse.quote(adr))
+        if not data.get("map_embed"):
+            data["map_embed"] = ""
     team = list(data.get("team") or [])
     if not team:
         team = list(_TEAM_FALLBACK)

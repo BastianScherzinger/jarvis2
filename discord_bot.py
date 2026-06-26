@@ -74,7 +74,7 @@ def status() -> dict:
     return {
         "has_lib": _HAS_DISCORD, "enabled": enabled(), "running": _started,
         "channel": _channel_id(), "send_hour": _send_hour(),
-        "needed": int(os.environ.get("DISCORD_APPROVALS_NEEDED", "2") or "2"),
+        "needed": int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1"),
         "reviews": rq.stats(),
     }
 
@@ -326,7 +326,7 @@ if _HAS_DISCORD:
 
     def _embed(r: dict) -> "discord.Embed":
         st = r.get("status", rq.PENDING)
-        needed = int(os.environ.get("DISCORD_APPROVALS_NEEDED", "2") or "2")
+        needed = int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1")
         link   = r.get("link") or ""
 
         # Titel: Name + Live-Link direkt anklickbar
@@ -493,7 +493,7 @@ if _HAS_DISCORD:
                         value=f"{'✅ Läuft' if is_running else '⏸️ Bereit'} · {builder_info}", inline=True)
             e.add_field(name="🗳️ Offene Reviews",
                         value=str(pending) if pending else "Keine", inline=True)
-            e.set_footer(text="JARVIS startet automatisch bei 0 Uhr neu · Abstimmung: 👍👍 = Freigabe")
+            e.set_footer(text="JARVIS startet automatisch bei 0 Uhr neu · Abstimmung: 1× 👍 = Freigabe")
             await ch.send(embed=e)
         except Exception as ex:
             logger.warn("Discord", f"Startnachricht fehlgeschlagen: {type(ex).__name__}")

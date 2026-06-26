@@ -599,10 +599,17 @@ def _all_sites_complete() -> bool:
 
 def _today_links() -> list:
     """Alle heute gebauten Seiten mit Live-Link (dedupliziert nach Name, neueste zuerst) —
-    für die Abschluss-Übersicht mit klickbaren Links zum Bewerten."""
+    für die Abschluss-Übersicht mit klickbaren Links zum Bewerten.
+    Liest aus allen Session-Keys des heutigen Tages (am/pm + ungesuffixten Legacy-Key)."""
     out: list = []
     seen: set = set()
-    for e in reversed(_load_log().get(_today(), [])):
+    log   = _load_log()
+    today = _today()
+    # Alle möglichen Session-Schlüssel für heute zusammenführen
+    entries: list = []
+    for key in (today, f"{today}_am", f"{today}_pm"):
+        entries.extend(log.get(key, []))
+    for e in reversed(entries):
         name = (e.get("name") or "").strip()
         link = (e.get("link") or "").strip()
         if not name or not link or not link.startswith("http"):
