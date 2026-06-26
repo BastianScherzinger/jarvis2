@@ -430,19 +430,42 @@ def run(quiet: bool = False) -> bool:
         try:
             mcp_cfg = _json.loads(mcp_file.read_text(encoding="utf-8"))
             servers = mcp_cfg.get("mcpServers", {})
+
+            # Ein Key gilt als verfügbar, wenn er in der OS-Umgebung ODER in der Projekt-.env
+            # ODER in ~/.claude/.env steht — denn der Maps-Launcher (mcp_maps_launch.py) und
+            # Claude Code lesen diese .env-Dateien. Nur eine fehlende OS-Variable ist KEIN Fehler.
+            import os as _os
+            import pathlib as _pl_mcp
+
+            def _key_available(_name: str) -> bool:
+                if (_os.environ.get(_name, "") or "").strip():
+                    return True
+                for _f in (HERE / ".env", _pl_mcp.Path.home() / ".claude" / ".env"):
+                    try:
+                        if not _f.exists():
+                            continue
+                        for _ln in _f.read_text(encoding="utf-8-sig").splitlines():
+                            _ln = _ln.strip()
+                            if not _ln or _ln.startswith("#") or "=" not in _ln:
+                                continue
+                            _kk, _vv = _ln.split("=", 1)
+                            if _kk.strip() == _name and _vv.strip().strip('"').strip("'"):
+                                return True
+                    except Exception:
+                        pass
+                return False
+
             for name, cfg in servers.items():
                 cmd  = cfg.get("command", "")
                 args = cfg.get("args", [])
                 env_needed = cfg.get("env", {})
 
-                # Prüfe ob benötigte Env-Vars gesetzt sind
+                # Prüfe ob benötigte Env-Vars gesetzt sind (OS-Umgebung ODER .env-Dateien).
                 missing_env = []
                 if env_needed:
-                    import os as _os
                     for k, v in env_needed.items():
-                        real_val = _os.environ.get(k, "")
                         placeholder = "${" in str(v)
-                        if not real_val and placeholder:
+                        if placeholder and not _key_available(k):
                             missing_env.append(k)
 
                 if missing_env:
