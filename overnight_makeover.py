@@ -65,12 +65,25 @@ _TASTE   = "design-taste-frontend"
 _LANDING = "premium-landing"
 _DESIGN_SKILL = (os.environ.get("JARVIS_MAKEOVER_DESIGN_SKILL") or _LANDING).strip() or _LANDING
 
+# ── Makeover-Engine (Token-Disziplin, Stand 26.06.2026) ─────────────────────────
+# Die Basis-Vorlage rendert alle Blöcke bereits aus content.json (Templates = 0 Tokens) und
+# `design_tokens.py` leitet Farbwelt + Font-Pairing LOKAL ab (taste = 0 Tokens). Der teure
+# Headless-Claude-Voll-Pass ist damit für Struktur+Design überflüssig. Engine wählt, wie viel
+# Claude noch mitmacht:
+#   lokal   — NUR die lokale Stufe (Templates + Farben/Fonts + Bilder). 0 Claude-Tokens.
+#   hybrid  — lokal + EINE dünne, eng begrenzte Claude-Politur (Feinschliff). Standard.
+#   claude  — der alte Voll-Pass (STAGES_ONEPASS/STAGES_MULTI). Teuer, nur per .env.
+_ENGINE = (os.environ.get("JARVIS_MAKEOVER_ENGINE") or "hybrid").strip().lower()
+if _ENGINE not in ("lokal", "local", "hybrid", "claude"):
+    _ENGINE = "hybrid"
+
 # Makeover-Struktur-Version. Wird sie erhöht (neue/umgebaute STAGES), behandelt der Builder
 # bereits „fertige" Seiten als komplett offen und makeovert sie mit dem neuen Bauplan neu.
 # 3 = Umstellung von 7 auf 3 Stufen (heute gebaute Seiten laufen einmal neu durch).
 # 5 = bessere Branchenfarben + Hero-Szenen + Lead-Foto-Bewertung → heutige Seiten laufen neu durch.
 # 6 = Hero: Headline LINKS + Kostenrechner-Karte rechts + Bild ohne Text + frisches Higgsfield-Hero.
-_MAKEOVER_VERSION = 6
+# 7 = LOKALE Taste-Stufe (design_tokens: Palette+Fonts) + dünne Claude-Politur statt Voll-Pass.
+_MAKEOVER_VERSION = 7
 
 STAGES_MULTI: list[dict] = [
     {
@@ -199,10 +212,50 @@ STAGES_ONEPASS: list[dict] = [
     },
 ]
 
-# Standard: Ein-Pass. JARVIS_MAKEOVER_ONEPASS=0 → die 3 getrennten Stufen.
+# ── LOKALE Stufe + dünne Claude-Politur (Engine lokal/hybrid) ────────────────────
+# Die lokale Stufe macht ALLES ohne Claude: Templates rendern bereits (Vorlage), Farben/Fonts
+# kommen aus design_tokens.py, Bilder werden lokal bewertet/platziert (in der Vorbereitung).
+# `local: True` → run_makeover führt sie über _run_local_stage aus statt über claude_coder.
+_STAGE_LOKAL: dict = {
+    "key": "lokal", "local": True,
+    "label": "Templates, Farben & Bilder (lokal, 0 Tokens)",
+}
+
+# Die EINE dünne Claude-Politur: Die Seite ist bereits vollständig gebaut UND markengerecht
+# gestaltet (Palette/Fonts via tokens.css). Claude darf NUR noch surgisch feinschleifen —
+# knappes Budget (15 Runden, 10 Min), kein Neuaufbau, keine Farb-/Font-Umschreibung.
+_STAGE_POLITUR: dict = {
+    "key": "politur", "skill": _LANDING, "max_turns": 15, "timeout": 600,
+    "label": "Feinschliff (Claude, knapp)",
+    "optional": True,        # Politur ist Kür — sie darf die Discord-Freigabe NIE blockieren.
+    "task": (
+        "Die Seite ist BEREITS vollständig gebaut und markengerecht gestaltet: alle Sektionen "
+        "rendern aus content.json, und die Farbwelt + das Font-Pairing stehen schon FERTIG in "
+        "static/css/tokens.css (lokal erzeugt, lädt nach style.css). Baue NICHTS neu und schreibe "
+        "weder Palette noch Fonts um — tokens.css ist gesetzt. Deine Aufgabe ist ein SURGISCHER "
+        "Feinschliff mit knappem Token-Budget:\n"
+        "• Abstände/Rhythmus & Ausrichtung dort glätten, wo es sichtbar hakt (Hero, Sektions-"
+        "Übergänge, Karten-Grid, Footer).\n"
+        "• Offensichtliche Schönheitsfehler beheben (Überläufe, gebrochene <img>, schiefe "
+        "Buttons, doppelte/leere Blöcke).\n"
+        "• Hero linksbündig + Kostenrechner-Karte rechts müssen sauber sitzen; auf Mobil stapeln.\n"
+        "Nur kleine, gezielte Edits an static/css/style.css bzw. templates/index.html — KEINE "
+        "neuen Sektionen, KEINE inhaltliche Neutextung, KEINE Probe-Renders, kein endloses "
+        "Polishing. Wenn es sauber sitzt, bist du fertig. Schließe mit genau einem Satz."
+    ),
+}
+
+# Standard: Ein-Pass. JARVIS_MAKEOVER_ONEPASS=0 → die 3 getrennten Stufen (nur Engine 'claude').
 _ONEPASS = (os.environ.get("JARVIS_MAKEOVER_ONEPASS", "1") or "1").strip().lower() not in (
     "0", "false", "no", "nein", "off")
-STAGES: list[dict] = STAGES_ONEPASS if _ONEPASS else STAGES_MULTI
+
+# Engine-abhängige Stufenliste.
+if _ENGINE in ("lokal", "local"):
+    STAGES: list[dict] = [_STAGE_LOKAL]
+elif _ENGINE == "claude":
+    STAGES = STAGES_ONEPASS if _ONEPASS else STAGES_MULTI
+else:                                        # hybrid (Standard)
+    STAGES = [_STAGE_LOKAL, _STAGE_POLITUR]
 
 _ALL_KEYS = {s["key"] for s in STAGES}
 
@@ -309,6 +362,23 @@ def open_stages(folder: "str | Path") -> int:
 
 def all_done(folder: "str | Path") -> bool:
     return open_stages(folder) == 0
+
+
+def _required_keys() -> set:
+    """Keys der PFLICHT-Stufen (nicht-optionale). Die optionale Claude-Politur zählt nicht."""
+    return {s["key"] for s in STAGES if not s.get("optional")}
+
+
+def open_required_stages(folder: "str | Path") -> int:
+    return len(_required_keys() - _done_keys(Path(folder)))
+
+
+def review_ready(folder: "str | Path") -> bool:
+    """True, sobald alle PFLICHT-Stufen fertig sind — die Seite ist dann vollständig &
+    deploybar. Die optionale Feinschliff-Stufe (Claude) darf die Discord-Freigabe (und damit
+    die Angebots-Mail) NICHT blockieren: ist sie am Limit hängen geblieben, soll die Seite
+    trotzdem zur Freigabe gehen."""
+    return open_required_stages(folder) == 0
 
 
 # ── Git ──────────────────────────────────────────────────────────────────────────
@@ -790,6 +860,42 @@ def _prefill_content_local(folder: Path, meta: dict, say=None) -> None:
         pass
 
 
+def _run_local_stage(folder: Path, meta: dict, say=None) -> bool:
+    """LOKALE Makeover-Stufe (0 Claude-Tokens): Farbwelt + Font-Pairing über design_tokens
+    anwenden (tokens.css + Template-Einbindung) und Bilder final einordnen (Lead-Fotos
+    bewerten/zuordnen + leere Slots als saubere Platzhalter, nie ein gebrochenes <img>).
+    Gibt True, wenn etwas geändert wurde."""
+    folder = Path(folder)
+    changed = False
+    # 1) Farben/Fonts: tokens.css aus Akzent+Branche schreiben + ins Template einbinden.
+    try:
+        import design_tokens
+        content = _read_content(folder)
+        branche = meta.get("branche") or content.get("branche") or ""
+        content = design_tokens.apply(folder, content, branche)
+        _write_content(folder, content)
+        changed = True
+        if say:
+            say(70, f"Farbwelt + Fonts lokal gesetzt "
+                    f"({content.get('font_display')}/{content.get('font_body')}).")
+    except Exception as e:
+        logger.warn("Makeover", f"Lokale Farb-/Font-Stufe übersprungen: {type(e).__name__}: {str(e)[:120]}")
+    # 2) Bilder final einordnen — Lead-Fotos bewerten (idempotent) + leere Slots als Platzhalter.
+    try:
+        _grade_fotos_once(folder, meta, say)        # idempotent (überspringt, wenn schon bewertet)
+        import ref_images
+        content = _read_content(folder)
+        content = ref_images.ensure_placeholders(
+            folder, content, meta.get("branche") or content.get("branche", ""))
+        _write_content(folder, content)
+        changed = True
+        if say:
+            say(78, "Bilder lokal eingeordnet (Lead-Fotos + saubere Platzhalter).")
+    except Exception as e:
+        logger.warn("Makeover", f"Lokale Bild-Stufe übersprungen: {type(e).__name__}: {str(e)[:120]}")
+    return changed
+
+
 def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
                  on_stage_done=None) -> dict:
     """Fährt die Seite durch alle noch offenen Makeover-Stufen (resume-fähig).
@@ -809,13 +915,17 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
     # Limit-Gate: ist Claude erschöpft und die 4-h-Pause (dann stündlich) noch nicht vorbei,
     # gar nicht erst einen Lauf starten — spart Token und respektiert den Retry-Plan.
     # Mehrere Keys: ist noch einer frei, trotz „limited"-Zeichen weiterlaufen (anderer Claude).
+    # ABER: ist noch eine LOKALE Stufe offen (0 Tokens), läuft sie auch bei vollem Limit durch —
+    # die teure Claude-Politur pausiert dann separat (sie wird im Stufen-Loop sauber gestoppt).
+    _open = _ALL_KEYS - _done_keys(folder)
+    _local_open = any(s["key"] in _open for s in STAGES if s.get("local"))
     _key_free = False
     try:
         import claude_keys
         _key_free = claude_keys.count() > 1 and claude_keys.has_available()
     except Exception:
         _key_free = False
-    if not _key_free and not claude_limit.should_try_now():
+    if not _local_open and not _key_free and not claude_limit.should_try_now():
         mins = claude_limit.seconds_to_retry() // 60
         say(100, f"Claude-Limit aktiv — nächster Versuch in ~{mins} Min.")
         return {"ok": False, "reason": "session_limit", "all_done": all_done(folder),
@@ -869,8 +979,35 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             continue
         pct = 8 + int(i / total * 82)
         st_start = time.time()
+
+        # ── LOKALE Stufe (0 Claude-Tokens): direkt ausführen, kein headless-Claude ──
+        if stage.get("local"):
+            logger.info("Makeover", f"→ {name} · Stufe {i+1}/{total}: {stage['label']} (lokal)")
+            say(pct, f"Makeover {i + 1}/{total} · {stage['label']}…")
+            ch = _run_local_stage(folder, meta, say)
+            st_dur = round(time.time() - st_start, 1)
+            if not ch:
+                logger.warn("Makeover", f"⊘ {name} · lokale Stufe ohne Änderung nach {st_dur}s.")
+                continue
+            _mark_done(folder, stage["key"])
+            claude_limit.clear()
+            _git_commit(folder, f"Makeover (lokal): {stage['label']}")
+            new_done.append(stage["key"])
+            logger.success("Makeover", f"✓ {name} · Stufe {i+1}/{total} {stage['label']} "
+                                       f"(lokal, {st_dur}s) · {len(done)+len(new_done)}/{total}")
+            try:
+                logger.activity("Makeover", stage["label"], name, "✨", "build")
+            except Exception:
+                pass
+            if on_stage_done:
+                try:
+                    on_stage_done(stage["key"], stage["label"], len(new_done))
+                except Exception as e:
+                    logger.warn("Makeover", f"Per-Stufe-Push übersprungen: {type(e).__name__}")
+            continue
+
         logger.info("Makeover", f"→ {name} · Stufe {i+1}/{total}: {stage['label']} "
-                                f"(Skill {stage['skill']}, Modell {stage.get('model') or _MODEL})")
+                                f"(Skill {stage.get('skill', '?')}, Modell {stage.get('model') or _MODEL})")
         prompt = _build_stage_prompt(folder, meta, stage, i + 1, total)
 
         # Stufe ausführen — bei Claude-Session-Limit bis zu _LIMIT_RETRIES× je _LIMIT_WAIT
@@ -976,6 +1113,19 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
 
 # ── Freigabe (Discord 1× 👍, sonst Vorschau-Mail) ──────────────────────────────────
 
+def _mark_review_submitted(folder: str) -> None:
+    """Latch: merkt in content.json, dass die Seite EINMAL zur Freigabe eingereicht wurde —
+    so postet ein späterer Politur-Lauf nicht erneut in Discord. Best-effort."""
+    try:
+        if not folder:
+            return
+        content = _read_content(Path(folder))
+        content["review_submitted"] = True
+        _write_content(Path(folder), content)
+    except Exception:
+        pass
+
+
 def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     """Postet die fertige Seite zur Freigabe in Discord (1× 👍 = Mail, 1× 👎 = verwerfen).
     Ist der Discord-Bot aus, geht eine Vorschau-Mail an die Fallback-Adresse.
@@ -986,14 +1136,19 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     branche = meta.get("branche", "")
     email   = meta.get("email", "")
     ap      = meta.get("ansprechpartner", "")
-    # Zentrales Gate: NUR vollständig fertige Seiten (alle 7 Stufen) gehen in die Freigabe.
-    # So landen in Discord ausschließlich abstimmungsreife Seiten (außer der Aufrufer erzwingt
-    # es via meta['force']=True, z.B. für manuelle Eigene-Marke-Sendungen).
+    # Zentrales Gate: Sobald alle PFLICHT-Stufen fertig sind (die optionale Claude-Politur
+    # zählt NICHT — sie darf die Freigabe + Angebots-Mail nie blockieren), geht die Seite in
+    # die Freigabe. Latch `review_submitted` verhindert einen zweiten Discord-Post, falls die
+    # Politur in einem späteren Lauf nachzieht. force=True erzwingt (manuelle Eigene-Marke-Sendung).
     try:
-        if folder and not meta.get("force") and open_stages(folder) > 0:
-            logger.info("Makeover", f"finalize_review übersprungen ({name}) — noch "
-                                    f"{open_stages(folder)}/{len(STAGES)} Stufen offen.")
-            return {"review": False, "reason": "nicht fertig"}
+        if folder and not meta.get("force"):
+            if not review_ready(folder):
+                logger.info("Makeover", f"finalize_review übersprungen ({name}) — Pflicht-Stufen "
+                                        "noch nicht fertig.")
+                return {"review": False, "reason": "nicht fertig"}
+            if _read_content(Path(folder)).get("review_submitted"):
+                logger.info("Makeover", f"finalize_review übersprungen ({name}) — bereits eingereicht.")
+                return {"review": False, "reason": "bereits eingereicht"}
     except Exception:
         pass
     # Eigene-Marke-Empfänger (vom Nutzer im Formular eingegeben) aus content.json holen.
@@ -1024,6 +1179,7 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
                 recipients=recipients, email_text=text, email_subject=betreff, preis=preis)
             if r:
                 logger.info("Makeover", f"Zur Discord-Freigabe gepostet: {name}")
+                _mark_review_submitted(folder)
                 return {"review": True}
     except Exception as e:
         logger.warn("Makeover", f"Discord-Review fehlgeschlagen: {type(e).__name__}")
@@ -1039,6 +1195,7 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
             b, t, h = offer_mail.build(name, live_url, branche, stadt, ap)
             mailer.send_email(to, b, t, html=h, bypass_redirect=True)
         logger.info("Makeover", f"Vorschau-Mail an {to}: {name}")
+        _mark_review_submitted(folder)
     except Exception as e:
         logger.warn("Makeover", f"Vorschau-Mail fehlgeschlagen: {type(e).__name__}")
     return {"review": False}

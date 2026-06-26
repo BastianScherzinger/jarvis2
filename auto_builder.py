@@ -665,12 +665,13 @@ def _build_and_email(lead: dict) -> None:
     except Exception:
         pass
 
-    # Discord-Freigabe NUR für WIRKLICH fertige Seiten (alle 7 Makeover-Stufen durch) und
-    # mit erreichbarem Live-Link. So landen in Discord ausschließlich abstimmungsreife Seiten
-    # (_run_makeover postet selbst bei all_done; diese Sicherung greift, falls er es nicht tat).
+    # Discord-Freigabe (= Angebots-Mail nach 👍), sobald die Seite review-ready ist: alle
+    # PFLICHT-Stufen durch (die optionale Claude-Politur darf das NICHT blockieren) + erreichbarer
+    # Live-Link. (_run_makeover postet selbst; diese Sicherung greift, falls er es nicht tat —
+    # finalize_review hat Gate + Latch, also kein Doppelpost.)
     try:
         import overnight_makeover as _om
-        fertig = bool(folder) and _om.open_stages(folder) == 0
+        fertig = bool(folder) and _om.review_ready(folder)
     except Exception:
         fertig = False
     if link and fertig and not _already_reviewed(name):
@@ -683,8 +684,8 @@ def _build_and_email(lead: dict) -> None:
         except Exception as _de:
             logger.warn("AutoBuilder", f"Discord-Freigabe: {type(_de).__name__}")
     elif link and not fertig:
-        logger.info("AutoBuilder", f"'{name}' noch nicht 7/7 fertig — keine Discord-Freigabe "
-                                   "(kommt rein, sobald alle Stufen durch sind).")
+        logger.info("AutoBuilder", f"'{name}' noch nicht fertig — keine Discord-Freigabe "
+                                   "(kommt rein, sobald die Pflicht-Stufen durch sind).")
 
 
 def _deep_claude(folder: str, branche: str) -> dict:

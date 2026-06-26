@@ -904,6 +904,15 @@ def _run(job_id: str) -> None:
             pass
         (target / "content.json").write_text(
             json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Lokale taste-Stufe: markengerechte Palette + Font-Pairing → static/css/tokens.css
+        # (0 Claude-Tokens). Schon beim Bau, damit die Seite ab dem ersten Render premium wirkt.
+        try:
+            import design_tokens
+            content = design_tokens.apply(target, content, lead.get("branche", ""))
+            (target / "content.json").write_text(
+                json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         _step(job_id, 56, f"Texte & Design erstellt: {content.get('headline','')[:40]}")
 
         # 3b) Hero-Banner. STANDARD: Cloud-Engine über JARVIS_HERO_ENGINE (Default Higgsfield
@@ -1397,10 +1406,17 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
         _set(job_id, live_url=dep["live_url"], live=1 if dep.get("live_ok") else 0)
         live = dep.get("live_url") or existing_live
 
-        # Discord-Freigabe NUR wenn alle 7 Stufen durch sind (1× 👍 = Mail, 1× 👎 = verwerfen).
-        if result.get("all_done") and live:
+        # Discord-Freigabe (= Angebots-Mail nach 👍) posten, SOBALD die Seite review-ready ist:
+        # alle PFLICHT-Stufen fertig (die optionale Claude-Politur darf das nicht blockieren).
+        # finalize_review hat Gate + Latch → mehrfacher Aufruf ist sicher (kein Doppelpost).
+        try:
+            review_ready = overnight_makeover.review_ready(str(target))
+        except Exception:
+            review_ready = bool(result.get("all_done"))
+        if review_ready and live:
             overnight_makeover.finalize_review(meta, live, str(target))
-            final = f"Makeover komplett & zur Freigabe gepostet: {live}"
+            final = (f"Makeover komplett & zur Freigabe gepostet: {live}" if result.get("all_done")
+                     else f"Seite fertig & zur Freigabe gepostet (Feinschliff folgt): {live}")
         elif dep.get("live_ok") and live:
             final = f"Makeover-Fortschritt live: {live}"
         elif live:
