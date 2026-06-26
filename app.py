@@ -1155,6 +1155,17 @@ def api_graph_locations():
     return jsonify({"locations": db_evaluated.get_locations()})
 
 
+@app.route("/api/graph/leadpoints")
+def api_graph_leadpoints():
+    """Adressgenaue (geocodete) Lead-Punkte für den 3D-Globus — beim Zoom sitzt jeder
+    Marker exakt am Betrieb. Liefert sofort den Cache + füllt fehlende im Hintergrund."""
+    try:
+        import geo_cache
+        return jsonify(geo_cache.points())
+    except Exception as e:
+        return jsonify({"points": [], "pending": 0, "error": type(e).__name__})
+
+
 # ── Auto-Website-Builder ─────────────────────────────────────────────────────
 
 @app.route("/api/auto-build/start", methods=["POST"])

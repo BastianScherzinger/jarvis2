@@ -117,7 +117,34 @@ function _roundRect(ctx,x,y,w,h,r){
 }
 
 const _TYP_COL = { hot:'#ff5a4e', warm:'#ffd24d', cold:'#4dc3ff' };
-const _TEX = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
+// 2K-Fallback (three.js) + ultrarealistische 8K-NASA-Texturen (turban/webgl-earth via jsDelivr).
+const _TEX     = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
+const _TEX_HI  = 'https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/';
+// Texturen je Slot als Fallback-Kette: erst 8K (scharf beim Zoom), sonst 2K. Schwache Hardware
+// (_LOWPWR) lädt nur die 2K-Variante (Bandbreite/Speicher schonen).
+const _EARTH_TEX = {
+  day:      _LOWPWR ? [_TEX+'earth_atmos_2048.jpg']
+                    : [_TEX_HI+'2_no_clouds_8k.jpg', _TEX+'earth_atmos_2048.jpg'],
+  specular: _LOWPWR ? [_TEX+'earth_specular_2048.jpg']
+                    : [_TEX_HI+'water_8k.png', _TEX+'earth_specular_2048.jpg'],
+  bump:     _LOWPWR ? [_TEX+'earth_normal_2048.jpg']
+                    : [_TEX_HI+'elev_bump_4k.jpg', _TEX+'earth_normal_2048.jpg'],
+  night:    _LOWPWR ? [_TEX+'earth_lights_2048.png']
+                    : [_TEX_HI+'5_night_8k.jpg', _TEX+'earth_lights_2048.png'],
+  clouds:   _LOWPWR ? [_TEX+'earth_clouds_1024.png']
+                    : [_TEX_HI+'fair_clouds_4k.png', _TEX+'earth_clouds_1024.png'],
+};
+// Lädt die erste ladbare URL aus der Kette (8K→2K). onLoad bekommt die Textur; scheitert eine
+// URL (404/CORS), wird automatisch die nächste versucht — der Globus rendert nie ohne Erde.
+function _loadTexFallback(loader, urls, onLoad){
+  let i=0;
+  const tryNext=()=>{
+    if(i>=urls.length) return;
+    const u=urls[i++];
+    loader.load(u, t=>{ try{ onLoad(t); }catch(e){} }, undefined, ()=>tryNext());
+  };
+  tryNext();
+}
 // GLTFLoader liegt in r128 nicht im Core → bei Bedarf dynamisch nachladen.
 const _GLTF_LOADER_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/loaders/GLTFLoader.js';
 
@@ -174,6 +201,73 @@ function _ensureScanline(wrap){
   }
 }
 
+// ── Higgsfield-Weltraum-Hintergrund (DOM-Bild hinter dem transparenten Canvas) ──
+// Der WebGL-Canvas rendert mit alpha:true → ein ultrarealistisches, von Higgsfield erzeugtes
+// Weltraum/Nebel-Bild als CSS-Hintergrund des Wraps scheint durch. Fehlt das Bild, bleibt der
+// dunkle Verlauf + die prozeduralen Sterne (kein Bruch). URL via window.JARVIS_SPACE_BG
+// überschreibbar; Default static/img/space_bg.jpg.
+function _ensureSpaceBg(wrap){
+  let url = '/static/img/space_bg.jpg';
+  try{ if(window.JARVIS_SPACE_BG) url = String(window.JARVIS_SPACE_BG); }catch(e){}
+  const img = new Image();
+  img.onload = ()=>{
+    wrap.style.backgroundImage =
+      `radial-gradient(ellipse at 50% 42%, rgba(4,10,22,0.18) 0%, rgba(2,6,16,0.82) 100%), url('${url}')`;
+    wrap.style.backgroundSize = 'cover';
+    wrap.style.backgroundPosition = 'center';
+    wrap.style.backgroundRepeat = 'no-repeat';
+  };
+  img.onerror = ()=>{ /* kein Higgsfield-Bild → Sterne/Verlauf bleiben */ };
+  img.src = url;
+}
+
+// ── Adressgenaue Lead-Pins (geocodet) ─────────────────────────────────────────
+// Holt /api/graph/leadpoints (exakte lat/lng pro Betrieb) und setzt scharfe, perspektivisch
+// skalierende Glow-Pins direkt auf die Erde — beim Reinzoomen nach Deutschland sieht man genau,
+// wo jeder Lead sitzt. Solange das Geocoding im Hintergrund läuft (pending>0), wird nachgeladen.
+function _disposeLeadPoints(){
+  const g=_gb; if(!g||!g.leadMarkers) return;
+  g.leadMarkers.forEach(s=>{
+    g.group.remove(s);
+    if(s.material){ if(s.material.map && s.material.map.dispose) s.material.map.dispose(); s.material.dispose(); }
+  });
+  g.leadMarkers=[];
+}
+async function _loadLeadPoints(){
+  if(!_gb) return;
+  let data;
+  try{ data = await(await fetch('/api/graph/leadpoints')).json(); }catch(e){ return; }
+  if(!_gb) return;
+  const pts = (data && data.points) || [];
+  _disposeLeadPoints();
+  const R=_gb.R, cap=_LOWPWR?300:900;
+  pts.slice(0,cap).forEach(p=>{
+    if(typeof p.lat!=='number' || typeof p.lng!=='number') return;
+    const typ=(p.typ==='hot'||p.typ==='warm'||p.typ==='cold')?p.typ:'cold';
+    const col=_TYP_COL[typ];
+    const dir=_llv(p.lat,p.lng,1).normalize();
+    const mat=new THREE.SpriteMaterial({map:_glowTex(col), transparent:true,
+      blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, opacity:0.9});
+    const spr=new THREE.Sprite(mat);
+    spr.position.copy(dir.clone().multiplyScalar(R*1.012));
+    const base=0.015;
+    spr.scale.set(base,base,1);
+    spr.userData={info:p, base, lead:true};
+    _gb.group.add(spr);
+    _gb.leadMarkers.push(spr);
+  });
+  const cnt=document.getElementById('globe-count');
+  if(cnt){
+    const baseTxt = cnt.dataset.base || cnt.textContent || '';
+    cnt.dataset.base = baseTxt;
+    cnt.textContent = baseTxt + (pts.length ? ` · ${pts.length} adressgenau` : '');
+  }
+  if(data && data.pending>0){
+    clearTimeout(_gb._leadPoll);
+    _gb._leadPoll=setTimeout(_loadLeadPoints, 4500);   // Geocoding läuft → nachladen
+  }
+}
+
 function initGlobe(){
   if(_globeReady){ _globeResize(); return; }
   const cv = document.getElementById('globe-canvas');
@@ -200,6 +294,7 @@ function initGlobe(){
 
   _globeReady = true;
   _ensureScanline(wrap);
+  _ensureSpaceBg(wrap);     // ultrarealistischer Higgsfield-Weltraum hinter dem (transparenten) Canvas
 
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(40, W/H, 0.1, 400);
@@ -241,20 +336,20 @@ function initGlobe(){
   // ── Erd-Körper mit Relief (Bump) + Glanz ──
   const earthMat = new THREE.MeshPhongMaterial({color:0x0f2a44, specular:0x2a4a6e, shininess:18});
   const earth = new THREE.Mesh(new THREE.SphereGeometry(R, segs, segs), earthMat); group.add(earth);
-  loader.load(_TEX+'earth_atmos_2048.jpg', t=>{ _sharp(t); if(t.encoding!==undefined&&THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding; earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_specular_2048.jpg', t=>{ _sharp(t); earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.shininess=26; earthMat.needsUpdate=true; });
-  loader.load(_TEX+'earth_normal_2048.jpg', t=>{ _sharp(t); earthMat.bumpMap=t; earthMat.bumpScale=0.06; earthMat.needsUpdate=true; });
+  _loadTexFallback(loader, _EARTH_TEX.day, t=>{ _sharp(t); if(t.encoding!==undefined&&THREE.sRGBEncoding)t.encoding=THREE.sRGBEncoding; earthMat.map=t; earthMat.color.set(0xffffff); earthMat.needsUpdate=true; });
+  _loadTexFallback(loader, _EARTH_TEX.specular, t=>{ _sharp(t); earthMat.specularMap=t; earthMat.specular.set(0x6688aa); earthMat.shininess=26; earthMat.needsUpdate=true; });
+  _loadTexFallback(loader, _EARTH_TEX.bump, t=>{ _sharp(t); earthMat.bumpMap=t; earthMat.bumpScale=0.06; earthMat.needsUpdate=true; });
 
   // ── Nachtlichter (Schattenseite leuchtet) — additive Overlay-Kugel ──
   const nightMat = new THREE.MeshBasicMaterial({color:0xfff2c0, transparent:true, opacity:0.0,
     blending:THREE.AdditiveBlending, depthWrite:false});
   const night = new THREE.Mesh(new THREE.SphereGeometry(R*1.002, segs, segs), nightMat); group.add(night);
-  loader.load(_TEX+'earth_lights_2048.png', t=>{ nightMat.map=t; nightMat.opacity=0.85; nightMat.needsUpdate=true; });
+  _loadTexFallback(loader, _EARTH_TEX.night, t=>{ _sharp(t); nightMat.map=t; nightMat.opacity=0.85; nightMat.needsUpdate=true; });
 
   // ── Wolken ──
   const cloudMat = new THREE.MeshPhongMaterial({transparent:true, opacity:0.0, depthWrite:false});
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(R*1.015, _LOWPWR?48:96, _LOWPWR?48:96), cloudMat); group.add(clouds);
-  loader.load(_TEX+'earth_clouds_1024.png', t=>{ cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.45; cloudMat.needsUpdate=true; });
+  _loadTexFallback(loader, _EARTH_TEX.clouds, t=>{ _sharp(t); cloudMat.map=t; cloudMat.alphaMap=t; cloudMat.opacity=0.45; cloudMat.needsUpdate=true; });
 
   // ── Atmosphäre: weicher innerer Fresnel-Rand + äußerer Glow ──
   const atmIn = new THREE.Mesh(new THREE.SphereGeometry(R*1.06, 96, 96),
@@ -271,13 +366,14 @@ function initGlobe(){
   group.quaternion.setFromUnitVectors(_llv(_DE[0], _DE[1], 1).normalize(), new THREE.Vector3(0,0,1));
 
   _gb = {scene, cam, renderer, pivot, group, earth, clouds, night, stars, R,
-         markers:[], beams:[], labels:[], rings:[], wrap, cv,
+         markers:[], beams:[], labels:[], rings:[], leadMarkers:[], wrap, cv,
          userY:0, userX:0.14, dragging:false, lastX:0, lastY:0,
-         introT:0, t:0, introY:0, targetZ:3.4, zoom:6.6, raf:0,
+         introT:0, t:0, introY:0, targetZ:3.4, zoom:6.6, raf:0, _leadPoll:0,
          ray:new THREE.Raycaster(), mouse:new THREE.Vector2(-9,-9)};
   try{ window._gb = _gb; }catch(e){}
 
   _loadGlobeLocations();
+  _loadLeadPoints();       // adressgenaue Lead-Pins (geocodet) — exakt beim Reinzoomen
   _wireGlobe(cv);
   _globeLoop();
 }
@@ -403,7 +499,11 @@ async function _loadGlobeLocations(){
   });
 
   const cnt = document.getElementById('globe-count');
-  if(cnt) cnt.textContent = `${total} Standorte · ${leads} Leads`;
+  if(cnt){
+    cnt.dataset.base = `${total} Standorte · ${leads} Leads`;
+    const ex = (_gb && _gb.leadMarkers) ? _gb.leadMarkers.length : 0;
+    cnt.textContent = cnt.dataset.base + (ex ? ` · ${ex} adressgenau` : '');
+  }
 }
 
 // Entfernt + disposed alle Marker/Beams/Ringe/Labels.
@@ -449,11 +549,19 @@ function _globeResize(){
 function _globeTip(){
   const g=_gb, tip=document.getElementById('globe-tip'); if(!tip) return;
   g.ray.setFromCamera(g.mouse, g.cam);
-  const hit = g.ray.intersectObjects(g.markers.map(m=>m.sprite), false)[0];
+  // Exakte Lead-Pins nur beim Reinzoomen mit-raycasten (Performance; weit weg zählt die Stadt).
+  const objs = g.markers.map(m=>m.sprite);
+  if(g.zoom < 4.2 && g.leadMarkers && g.leadMarkers.length) objs.push(...g.leadMarkers);
+  const hit = g.ray.intersectObjects(objs, false)[0];
   if(hit && !g.dragging){
-    const l=hit.object.userData.info;
+    const u=hit.object.userData, l=u.info;
+    if(u.lead){
+      tip.innerHTML = `<b>${l.name||'?'}</b><br>${l.branche||''}`
+        + `${(l.branche&&l.stadt)?' · ':''}${l.stadt||''}`;
+    } else {
     tip.innerHTML = `<b>${(l.stadt||'?')}</b><br>${l.n} Lead${l.n===1?'':'s'} · `
       + `<span style="color:#ff5a4e">${l.hot} Hot</span> · <span style="color:#ffd24d">${l.warm} Warm</span> · <span style="color:#4dc3ff">${l.cold} Cold</span>`;
+    }
     const rect=g.cv.getBoundingClientRect();
     tip.style.left=((g.mouse.x*0.5+0.5)*rect.width+14)+'px';
     tip.style.top=((-g.mouse.y*0.5+0.5)*rect.height+10)+'px';
@@ -519,6 +627,16 @@ function _globeLoop(){
       const vis = Math.max(0, Math.min(1, (facing-0.15)/0.5));
       lab.material.opacity = 0.92*vis;
       lab.visible = vis > 0.02;
+    }
+  }
+
+  // Exakte Lead-Pins: nur die zur Kamera gewandten zeigen (kein Durchscheinen von der Rückseite).
+  if(g.leadMarkers && g.leadMarkers.length){
+    const camDir = g.cam.position.clone().normalize();
+    for(const s of g.leadMarkers){
+      const wdir = s.position.clone().normalize()
+        .applyQuaternion(g.group.quaternion).applyQuaternion(g.pivot.quaternion);
+      s.visible = wdir.dot(camDir) > 0.12;
     }
   }
 
