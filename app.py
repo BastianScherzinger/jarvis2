@@ -1599,37 +1599,42 @@ def api_media_gallery():
 def api_home_stats():
     """Alle Webseiten + Kurzzusammenfassung für den Home-Tab."""
     import db_websites
+    import auto_builder as _ab
     sites = db_websites.get_all()
-    total   = len(sites)
-    live    = sum(1 for s in sites if s.get("live"))
-    building = sum(1 for s in sites if s.get("status") == "building")
-    errors  = sum(1 for s in sites if s.get("status") == "error")
-    # Jede Site kompakt aufbereiten
+    total    = len(sites)
+    live     = sum(1 for s in sites if s.get("live"))
+    building = sum(1 for s in sites if s.get("status") in ("queued", "running"))
+    errors   = sum(1 for s in sites if s.get("status") == "error")
+    sent     = sum(1 for s in sites if s.get("email_sent"))
+    # Auto-Builder-Status
+    ab = _ab.status()
+    # Letzte 6 Seiten für die Home-Kacheln
     cards = []
-    for s in sites:
+    for s in sites[:6]:
         imgs = []
         try:
             imgs = json.loads(s.get("images") or "[]") if isinstance(s.get("images"), str) else (s.get("images") or [])
         except Exception:
             imgs = []
         cards.append({
-            "id":        s.get("id"),
-            "name":      s.get("name") or "–",
-            "branche":   s.get("branche") or "",
-            "stadt":     s.get("stadt") or "",
-            "status":    s.get("status") or "unknown",
-            "live":      bool(s.get("live")),
-            "live_url":  s.get("live_url") or "",
-            "repo_url":  s.get("repo_url") or "",
-            "thumbnail": imgs[0] if imgs else "",
-            "created":   s.get("created") or "",
-            "updated":   s.get("updated") or "",
-            "progress":  s.get("progress") or 0,
-            "step":      s.get("step") or "",
+            "id":         s.get("id"),
+            "name":       s.get("name") or "–",
+            "branche":    s.get("branche") or "",
+            "stadt":      s.get("stadt") or "",
+            "status":     s.get("status") or "unknown",
+            "live":       bool(s.get("live")),
+            "email_sent": bool(s.get("email_sent")),
+            "live_url":   s.get("live_url") or "",
+            "repo_url":   s.get("repo_url") or "",
+            "thumbnail":  imgs[0] if imgs else "",
+            "created":    s.get("created") or "",
+            "updated":    s.get("updated") or "",
+            "progress":   s.get("progress") or 0,
+            "step":       s.get("step") or "",
         })
     return jsonify({
         "total": total, "live": live, "building": building, "errors": errors,
-        "sites": cards,
+        "sent": sent, "sites": cards, "builder": ab,
     })
 
 

@@ -652,7 +652,7 @@
 <main class="layout page home-page" data-page="home">
   <div class="home-wrap">
 
-    <!-- Stat-Karten -->
+    <!-- ══ LIVE-STATS ══ -->
     <div class="home-stats" id="home-stats">
       <div class="hstat-card">
         <div class="hstat-val" id="hstat-total">–</div>
@@ -660,240 +660,149 @@
       </div>
       <div class="hstat-card hstat-live">
         <div class="hstat-val" id="hstat-live">–</div>
-        <div class="hstat-lbl">Live online</div>
+        <div class="hstat-lbl">● Live online</div>
+      </div>
+      <div class="hstat-card hstat-sent">
+        <div class="hstat-val" id="hstat-sent">–</div>
+        <div class="hstat-lbl">📨 Mails versandt</div>
       </div>
       <div class="hstat-card hstat-build">
         <div class="hstat-val" id="hstat-build">–</div>
         <div class="hstat-lbl">In Bearbeitung</div>
       </div>
-      <div class="hstat-card hstat-err">
-        <div class="hstat-val" id="hstat-errors">–</div>
-        <div class="hstat-lbl">Fehler</div>
+    </div>
+
+    <!-- ══ BUILDER-STATUS (live) ══ -->
+    <div class="hm-builder-panel" id="hm-builder-panel">
+      <div class="hm-builder-left">
+        <span class="hm-dot" id="hm-dot"></span>
+        <span class="hm-builder-lbl" id="hm-builder-lbl">Auto-Builder · lädt…</span>
+      </div>
+      <div class="hm-builder-right">
+        <span class="hm-session-lbl" id="hm-session-lbl"></span>
+        <div class="hm-session-bar">
+          <div class="hm-session-fill" id="hm-session-fill" style="width:0%"></div>
+        </div>
+        <span class="hm-session-cnt" id="hm-session-cnt"></span>
       </div>
     </div>
 
-    <!-- ══ WO STEHST DU? Ehrlicher Fortschritt zum Ziel + was DU tun musst ══ -->
+    <!-- ══ PIPELINE (dynamisch) ══ -->
+    <div class="ov-flow-wrap">
+      <div class="ov-flow-title">Pipeline</div>
+      <div class="ov-flow" id="home-pipeline">
+        <div class="ofn done"><span class="ofn-num">1</span><span class="ofn-lbl">Leads</span></div>
+        <span class="ofn-arr done">→</span>
+        <div class="ofn done"><span class="ofn-num">2</span><span class="ofn-lbl">Bewerten</span></div>
+        <span class="ofn-arr done">→</span>
+        <div class="ofn done" id="hpn-3"><span class="ofn-num">3</span><span class="ofn-lbl">Webseite</span></div>
+        <span class="ofn-arr done">→</span>
+        <div class="ofn done"><span class="ofn-num">4</span><span class="ofn-lbl">Makeover</span></div>
+        <span class="ofn-arr done">→</span>
+        <div class="ofn done"><span class="ofn-num">5</span><span class="ofn-lbl">Freigabe</span></div>
+        <span class="ofn-arr" id="hpn-arr-6">→</span>
+        <div class="ofn" id="hpn-6"><span class="ofn-num">6</span><span class="ofn-lbl">Angebot</span></div>
+        <span class="ofn-arr todo">→</span>
+        <div class="ofn todo"><span class="ofn-num">7</span><span class="ofn-lbl">Abschluss</span></div>
+      </div>
+      <div class="ov-flow-legend">
+        <span><i class="dot done"></i> Fertig &nbsp;</span>
+        <span><i class="dot partial"></i> Teilweise &nbsp;</span>
+        <span><i class="dot todo"></i> Offen</span>
+      </div>
+    </div>
+
+    <!-- ══ FORTSCHRITT (live berechnet) ══ -->
+    <div class="ov-meters">
+      <div class="ov-meter">
+        <div class="ov-meter-top"><span>⚙ Technik</span><span class="ov-meter-pct" id="ov-tech-pct">–</span></div>
+        <div class="ov-meter-bar"><div class="ov-meter-fill tech" id="ov-tech-fill" style="width:0%"></div></div>
+        <div class="ov-meter-note" id="ov-tech-note">Schritt 1–5 fertig · Webseiten gebaut · Discord-Freigabe aktiv</div>
+      </div>
+      <div class="ov-meter">
+        <div class="ov-meter-top"><span>💰 Umsatzbereitschaft</span><span class="ov-meter-pct warn" id="ov-money-pct">–</span></div>
+        <div class="ov-meter-bar"><div class="ov-meter-fill money" id="ov-money-fill" style="width:0%"></div></div>
+        <div class="ov-meter-note" id="ov-money-note">Fehlt: SMTP einrichten + erstes Angebot versenden</div>
+      </div>
+    </div>
+
+    <!-- ══ NÄCHSTE SCHRITTE ══ -->
     <div class="goal">
       <div class="goal-head">
-        <span class="goal-kicker">Ziel: dein erster bezahlter Auftrag</span>
-        <h2 class="goal-title">Die Technik ist fast fertig — der letzte Schritt zum Geld liegt bei dir.</h2>
-      </div>
-      <div class="goal-bar">
-        <div class="goal-seg done" style="flex:5"><span>System (Schritt 1–5)</span></div>
-        <div class="goal-seg partial" style="flex:2"><span>Versand (6)</span></div>
-        <div class="goal-seg todo" style="flex:1"><span>Abschluss (7)</span></div>
+        <span class="goal-kicker">Was jetzt fehlt für echtes Geld</span>
+        <h2 class="goal-title" id="goal-dynamic-title">Technik läuft — der letzte Schritt liegt bei dir.</h2>
       </div>
       <div class="goal-grid">
         <div class="goal-col ok">
-          <div class="goal-col-h">✓ Läuft automatisch</div>
+          <div class="goal-col-h">✓ Läuft vollautomatisch</div>
           <ul>
-            <li>Leads finden, bewerten, Preis</li>
-            <li>Webseite bauen + live schalten (5/Tag)</li>
-            <li>3-Stufen-Makeover (Aufbau · Design · QA/Recht), ein kompakter „premium-landing"-Skill · Inhalte lokal (Ollama) vorgeschrieben → ≥5 Seiten/Session</li>
-            <li>Hero: Claude textet den Prompt, Higgsfield-MCP (Abo) baut das Bild — max. 5/Tag, nie Text im Bild</li>
-            <li>WhatsApp/E-Mail/Anruf-CTAs, Team, Kontaktformular, Recht &amp; WVM-Credit</li>
-            <li>Rechtssichere Mail (Impressum, Abmelde-Link, Opt-out-Sperre), fairer Tier-Preis</li>
-            <li>Nur fertige Seiten (7/7) zur Discord-Freigabe; alte Demos nach 10 Tagen abbauen</li>
+            <li>Leads finden, bewerten, Preis vergeben</li>
+            <li>Webseite bauen (7/Tag, 2× täglich) + live schalten</li>
+            <li>Premium-Makeover in einem Durchgang</li>
+            <li>Freigabe über Discord (👍/👎)</li>
+            <li>Angebot per E-Mail (Discord-Freigabe → Versand)</li>
+            <li>Alte Demos automatisch nach 7 Tagen abbauen</li>
           </ul>
         </div>
         <div class="goal-col act">
-          <div class="goal-col-h">→ Das musst DU tun (für echtes Geld)</div>
+          <div class="goal-col-h">→ Das musst DU tun</div>
           <ol>
-            <li><b>Firmendaten setzen</b>: JARVIS_WVM_ADDRESS/EMAIL/VATID + JARVIS_PUBLIC_URL (für den Abmelde-Link) in die .env — einmalig.</li>
-            <li><b>Versand-Domain + SMTP</b> einrichten (SPF/DKIM/DMARC) — ohne das kommt keine Mail an.</li>
-            <li><b>Einen echten Versand testen</b> (Trockenlauf aus, EMAIL_REDIRECT leeren) — an einen Test-Empfänger.</li>
-            <li><b>Ersten Abschluss manuell</b> machen: Antwort → Rechnung. Danach Volumen hochfahren.</li>
+            <li><b>Firmendaten setzen</b> in .env (JARVIS_WVM_*) — einmalig</li>
+            <li><b>SMTP einrichten</b> (SPF/DKIM/DMARC, eigene Versand-Domain)</li>
+            <li><b>Test-Versand</b> machen (JARVIS_EMAIL_ENABLED=true)</li>
+            <li><b>Ersten Abschluss</b> manuell: Antwort → Rechnung</li>
           </ol>
         </div>
       </div>
       <div class="goal-note">
-        Ehrlich: Das System bringt dich zuverlässig bis „Angebot verschickt" — inklusive
-        rechtssicherem Rahmen (Impressum, Abmeldung, Opt-out). Den letzten Meter — Zustellbarkeit
-        (eigene Domain/SMTP) und der erste Verkauf — geht ein Mensch. Danach ist alles davor reine
-        Wiederholung bei nahezu null Stückkosten.
+        Das System bringt dich automatisch bis „Angebot versandt". Den Rest — Zustellbarkeit und erster Verkauf — geht ein Mensch. Danach ist alles Wiederholung bei nahezu null Stückkosten.
+        <b>Beispiel: 1.000 Angebote × 1 % × 350 € = 3.500 €.</b>
       </div>
     </div>
 
-    <!-- ══ PROGRAMM-ÜBERSICHT: Was JARVIS ist, der Geld-Workflow, Status & Wert ══ -->
-    <div class="ov">
+    <!-- ══ WORKFLOW-SCHRITTE (kompakt) ══ -->
+    <div class="ov-steps-head">Der Geld-Workflow</div>
+    <div class="ov-steps">
 
-      <div class="ov-intro">
-        <div class="ov-intro-kicker">JARVIS · Automatische Webseiten-Akquise</div>
-        <h1 class="ov-intro-title">Eine Maschine, die Kunden findet, ihnen eine fertige Webseite baut und das Angebot verschickt.</h1>
-        <p class="ov-intro-sub">
-          JARVIS sucht vollautomatisch lokale Betriebe ohne (gute) Webseite, bewertet sie mit
-          einer lokalen KI, baut jedem eine echte, live geschaltete Premium-Webseite als
-          unverbindliches Demo und schickt ein Angebot per E-Mail. Ziel: aus „gefunden" wird
-          „bezahlter Auftrag" — bei nahezu null Stückkosten.
-        </p>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">1</span><span class="ov-step-title">Leads finden</span><span class="ov-badge done">Fertig</span></div>
+        <div class="ov-now">6 Scraper (Google Maps, Gelbe Seiten, 11880 u.a.) — deutschlandweit, ohne bezahlte API. Raw-Leads → Bewertungs-Queue.</div>
       </div>
 
-      <!-- Grafisches Pipeline-Flussdiagramm -->
-      <div class="ov-flow-wrap">
-        <div class="ov-flow-title">Die Pipeline auf einen Blick</div>
-        <div class="ov-flow">
-          <div class="ofn done"><span class="ofn-num">1</span><span class="ofn-lbl">Leads finden</span></div>
-          <span class="ofn-arr done">→</span>
-          <div class="ofn done"><span class="ofn-num">2</span><span class="ofn-lbl">Bewerten + Preis</span></div>
-          <span class="ofn-arr done">→</span>
-          <div class="ofn done"><span class="ofn-num">3</span><span class="ofn-lbl">Webseite bauen</span></div>
-          <span class="ofn-arr done">→</span>
-          <div class="ofn done"><span class="ofn-num">4</span><span class="ofn-lbl">Makeover</span></div>
-          <span class="ofn-arr done">→</span>
-          <div class="ofn done"><span class="ofn-num">5</span><span class="ofn-lbl">Freigabe</span></div>
-          <span class="ofn-arr partial">→</span>
-          <div class="ofn partial"><span class="ofn-num">6</span><span class="ofn-lbl">Angebots-Mail</span></div>
-          <span class="ofn-arr todo">→</span>
-          <div class="ofn todo"><span class="ofn-num">7</span><span class="ofn-lbl">Abschluss + €</span></div>
-        </div>
-        <div class="ov-flow-legend">
-          <span><i class="dot done"></i> Fertig</span>
-          <span><i class="dot partial"></i> Teilweise</span>
-          <span><i class="dot todo"></i> Offen</span>
-        </div>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">2</span><span class="ov-step-title">Bewerten + Preis</span><span class="ov-badge done">Fertig</span></div>
+        <div class="ov-now">Lokale KI (Ollama) prüft Bedarf, schreibt Pitch, vergibt Preis (0–1200 €). Läuft parallel auf allen CPU-Kernen.</div>
       </div>
 
-      <!-- Zwei Fortschritts-Anzeigen -->
-      <div class="ov-meters">
-        <div class="ov-meter">
-          <div class="ov-meter-top"><span>⚙️ Technik fertig</span><span class="ov-meter-pct">~90 %</span></div>
-          <div class="ov-meter-bar"><div class="ov-meter-fill tech" style="width:90%"></div></div>
-          <div class="ov-meter-note">Schritt 1–5 + 8 komplett, inkl. Limit-Lernen, Budget-Deckel, verkaufsstarkem Makeover &amp; Token-Effizienz (lokale Inhalte, ≥3 Seiten/Session). Offen: nur noch Versand (6) &amp; Abschluss (7).</div>
-        </div>
-        <div class="ov-meter">
-          <div class="ov-meter-top"><span>💰 Bereit für echten Umsatz</span><span class="ov-meter-pct warn">~45 %</span></div>
-          <div class="ov-meter-bar"><div class="ov-meter-fill money" style="width:45%"></div></div>
-          <div class="ov-meter-note">Fehlt: E-Mail zustellbar + rechtssicher (Schritt 6) und Abschluss (7).</div>
-        </div>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">3</span><span class="ov-step-title">Webseite bauen</span><span class="ov-badge done">Fertig</span></div>
+        <div class="ov-now">Django-Landingpage mit Hero-Bild (Higgsfield), WhatsApp/E-Mail/Anruf-CTAs, Recht + WVM-Credit → Deploy auf Railway. 7 Seiten/Session, 2 Sessions/Tag.</div>
       </div>
 
-      <!-- Ehrliche Einschätzung -->
-      <div class="ov-verdict">
-        <div class="ov-verdict-head">⚖️ Ehrliche Einschätzung — lohnt sich das?</div>
-        <p>
-          <b>Ja — mit Vorbehalt.</b> Der entscheidende Vorteil ist real: Leads finden und
-          Webseiten bauen kostet praktisch <b>nichts</b> (lokale Scraper + lokale KI + dein
-          Higgsfield-Abo), und das skaliert deutschlandweit. Damit daraus <b>echtes Geld</b>
-          wird, hängt alles an vier Hebeln:
-        </p>
-        <ul>
-          <li><b>Zustellbarkeit &amp; Recht (wichtigster Punkt):</b> Kalt-E-Mails an Betriebe sind in DE rechtlich heikel (UWG §7, DSGVO) und landen schnell im Spam. Ohne saubere Zustellung & Rechtssicherheit kommt kein Geld an.</li>
-          <li><b>Conversion:</b> Realistisch antworten 0,5–2 % auf Kalt-Mails. Es braucht <b>Volumen</b> — und genau das macht JARVIS billig.</li>
-          <li><b>Qualität:</b> Die Demo-Seite muss aussehen wie von einer Agentur, sonst keine Antwort (dafür die 3-Stufen-Makeover-Pipeline).</li>
-          <li><b>Hosting-Kosten:</b> Jede Live-Demo kostet etwas Hosting — nicht verkaufte Demos müssen automatisch abgebaut werden.</li>
-        </ul>
-        <p class="ov-verdict-bottom">
-          <b>Beispielrechnung:</b> 1.000 versendete Angebote × 1 % Conversion × 350 € =
-          <b>3.500 €</b> bei nahezu null Grenzkosten. Nicht garantiert, aber als skalierbares
-          Nebengeschäft plausibel — sobald Zustellbarkeit, Recht und Qualität stehen.
-        </p>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">4</span><span class="ov-step-title">Premium-Makeover</span><span class="ov-badge done">Fertig</span></div>
+        <div class="ov-now">Ein-Pass-Makeover (Aufbau + Design + QA) mit lokalem Content-Vorschreiben (Ollama) → Claude gestaltet nur. Prompt-Caching + Hero-Bild via Higgsfield.</div>
       </div>
 
-      <!-- Der Geld-Workflow, Schritt für Schritt -->
-      <div class="ov-steps-head">Der Geld-Workflow — Schritt für Schritt</div>
-      <div class="ov-steps">
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">1</span><span class="ov-step-title">Leads finden (lokal, kostenlos)</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> 6 Scraper (Google Maps via Browser, Gelbe Seiten, Das Örtliche, 11880, golocal, KI) finden deutschlandweit Betriebe inkl. Adresse, Telefon, Bilder — ohne bezahlte API.</div>
-          <div class="ov-todo"><b>Noch:</b> Dubletten-Filter feinjustieren, Branchen-/Stadt-Priorisierung optimieren.</div>
-          <div class="ov-val"><span>Wert jetzt <b>300 €</b></span><span class="ov-arrow">→</span><span>fertig <b>800 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">2</span><span class="ov-step-title">Bewerten &amp; Preis (lokale KI)</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Lokale KI (Ollama) findet die Website, prüft Aktualität, bewertet Bedarf, schreibt Beschreibung &amp; Pitch und vergibt einen realistischen Paketpreis (0/200/350/550/850/1200 €). Läuft über alle CPU-Kerne parallel.</div>
-          <div class="ov-todo"><b>Noch:</b> Preis-Tiers regelmäßig an reale Abschlüsse kalibrieren.</div>
-          <div class="ov-val"><span>Wert jetzt <b>250 €</b></span><span class="ov-arrow">→</span><span>fertig <b>700 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">3</span><span class="ov-step-title">Webseite bauen + live schalten</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Pro Lead eine echte Django-Landingpage mit fertigem Verkaufs-Layout (Hero + WhatsApp/E-Mail/Anruf, Leistungen, Kontakt-Band, Über-uns mit Inhaber-Foto + 4 Team-Platzhaltern, Kontaktformular, Footer mit Recht + „Erstellt von WVM-IT"), Hero-Bild über Higgsfield (Abo, nie Text im Bild), Deploy auf Railway → echter Live-Link. 5 Seiten/Tag.</div>
-          <div class="ov-todo"><b>Noch:</b> Eigene Domain je Demo (statt railway.app) wirkt seriöser; Live-Demos automatisch abbauen, wenn nicht verkauft (Hosting-Kosten).</div>
-          <div class="ov-val"><span>Wert jetzt <b>500 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.500 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">4</span><span class="ov-step-title">Premium-Makeover (Ein-Pass)</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Der Makeover läuft als EIN Durchgang (Aufbau + Design + Recht/QA) mit EINEM kompakten „premium-landing"-Skill — Skill/System/Kontext werden nur einmal geladen statt 3-7×. <b>Effizienz:</b> Inhalte (Leistungen/Über-uns/FAQ/Trust) werden VORHER lokal per Ollama auf dem stärksten verfügbaren Modell (GPU-bewusst) geschrieben — Claude baut nur noch ein &amp; gestaltet. Prompt-Caching auf den wiederkehrenden System-Blöcken, Hero-Prompt per günstigem Haiku, Bild via Higgsfield-MCP (nie Text im Bild). Echte eingebettete Karte (Adresse via Google Maps geocodet → OSM-Embed). Ziel: ≥5 Seiten pro Session. Jede Seite trägt ihr Update-Level (z.B. „Update 1.0").</div>
-          <div class="ov-todo"><b>Noch:</b> Im Live-Lauf über viele Seiten verifizieren; Ergebnis-Qualität stichprobenartig prüfen.</div>
-          <div class="ov-val"><span>Wert jetzt <b>400 €</b></span><span class="ov-arrow">→</span><span>fertig <b>1.200 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">5</span><span class="ov-step-title">Qualitäts-Freigabe (Discord)</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Jede fertige Seite landet zur Abstimmung in Discord. 👍 gibt frei, 👎 verwirft — du kontrollierst die Qualität, bevor etwas an einen echten Kunden geht.</div>
-          <div class="ov-todo"><b>Noch:</b> Optional Vorschau-Screenshot statt nur Link in der Discord-Nachricht.</div>
-          <div class="ov-val"><span>Wert jetzt <b>100 €</b></span><span class="ov-arrow">→</span><span>fertig <b>250 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-E-Mail an den Kunden</span><span class="ov-badge partial">Teilweise</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Kurze, menschliche Angebots-Mail mit geprüftem Live-Link (kein toter Link), fairem Preis (Default 299 €, an den bewerteten Tier gekoppelt) und rechtssicherem Footer: WVM-IT-Impressum, Abmelde-Link + List-Unsubscribe, Opt-out-Sperrliste (UWG/DSGVO). Nur 7/7-fertige Seiten gehen in die Discord-Freigabe; bestätigte gehen um 12 Uhr automatisch raus. Trockenlauf-Schalter sichert ab.</div>
-          <div class="ov-todo"><b>Noch (Schlüssel zum Geld):</b> SMTP einrichten + scharf schalten; <b>Zustellbarkeit</b> (eigene Versand-Domain mit SPF/DKIM/DMARC, langsames Aufwärmen, kein Spam) — der letzte externe Schritt.</div>
-          <div class="ov-val"><span>Wert jetzt <b>150 €</b></span><span class="ov-arrow">→</span><span>fertig <b>900 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">7</span><span class="ov-step-title">Kunde antwortet → Abschluss &amp; Zahlung</span><span class="ov-badge todo">Offen</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Antworten landen in deinem Postfach — Abschluss, Rechnung und Übergabe machst du manuell.</div>
-          <div class="ov-todo"><b>Noch:</b> Leichtes CRM (Antwort-Status), Zahlungslink/Rechnung (z.B. Stripe-Link), Übergabe-Checkliste. Für einen 350-€-Verkauf ist ein menschlicher Abschluss aber sogar von Vorteil.</div>
-          <div class="ov-val"><span>Wert jetzt <b>0 €</b></span><span class="ov-arrow">→</span><span>fertig <b>500 €</b></span></div>
-        </div>
-
-        <div class="ov-step">
-          <div class="ov-step-top"><span class="ov-num">8</span><span class="ov-step-title">Dashboard, Medien &amp; Kosten</span><span class="ov-badge done">Fertig</span></div>
-          <div class="ov-now"><b>Jetzt:</b> Iron-Man-Dashboard, Medien-Studio (Bild/Video, Higgsfield/ChatGPT), Live-Kostentracking, Auto-Builder mit Stopp/Resume und Limit-Resilienz.</div>
-          <div class="ov-todo"><b>Noch:</b> Conversion-/Umsatz-Auswertung (was bringt wirklich Geld), A/B-Test der Betreffzeilen.</div>
-          <div class="ov-val"><span>Wert jetzt <b>350 €</b></span><span class="ov-arrow">→</span><span>fertig <b>800 €</b></span></div>
-        </div>
-
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">5</span><span class="ov-step-title">Discord-Freigabe</span><span class="ov-badge done">Fertig</span></div>
+        <div class="ov-now">Fertige Seite → Discord-Nachricht mit Link. 👍 = Freigabe (Mail geht raus), 👎 = Verwerfen. Du behältst die Qualitätskontrolle.</div>
       </div>
 
-      <!-- Wert-Balkendiagramm: jetzt vs. fertig je Schritt -->
-      <div class="ov-chart">
-        <div class="ov-chart-head">Wert je Baustein <span class="ov-chart-leg"><i class="cbar now"></i> jetzt &nbsp; <i class="cbar fin"></i> fertig</span></div>
-        <div class="ov-chart-rows">
-          <div class="ovc"><span class="ovc-lbl">1 · Leads finden</span><div class="ovc-track"><div class="ovc-fin" style="width:53%"></div><div class="ovc-now" style="width:20%"></div></div><span class="ovc-num">300 → 800 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">2 · Bewerten + Preis</span><div class="ovc-track"><div class="ovc-fin" style="width:47%"></div><div class="ovc-now" style="width:17%"></div></div><span class="ovc-num">250 → 700 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">3 · Webseite bauen</span><div class="ovc-track"><div class="ovc-fin" style="width:100%"></div><div class="ovc-now" style="width:33%"></div></div><span class="ovc-num">500 → 1.500 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">4 · Makeover</span><div class="ovc-track"><div class="ovc-fin" style="width:80%"></div><div class="ovc-now" style="width:27%"></div></div><span class="ovc-num">400 → 1.200 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">5 · Freigabe</span><div class="ovc-track"><div class="ovc-fin" style="width:17%"></div><div class="ovc-now" style="width:7%"></div></div><span class="ovc-num">100 → 250 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">6 · Angebots-Mail</span><div class="ovc-track"><div class="ovc-fin" style="width:60%"></div><div class="ovc-now" style="width:10%"></div></div><span class="ovc-num">150 → 900 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">7 · Abschluss + €</span><div class="ovc-track"><div class="ovc-fin" style="width:33%"></div><div class="ovc-now" style="width:0%"></div></div><span class="ovc-num">0 → 500 €</span></div>
-          <div class="ovc"><span class="ovc-lbl">8 · Dashboard/Medien</span><div class="ovc-track"><div class="ovc-fin" style="width:53%"></div><div class="ovc-now" style="width:23%"></div></div><span class="ovc-num">350 → 800 €</span></div>
-        </div>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-Mail</span><span class="ov-badge partial" id="step6-badge">Teilweise</span></div>
+        <div class="ov-now">Menschliche Mail mit Live-Link, Tier-Preis, rechtssicherem Footer (Impressum, Abmelde-Link, Opt-out). Trockenlauf-Schalter sichert ab. <span id="step6-sent-info"></span></div>
+        <div class="ov-todo"><b>Offen:</b> SMTP einrichten + scharf schalten (SPF/DKIM/DMARC).</div>
       </div>
 
-      <!-- Gesamtwert -->
-      <div class="ov-total">
-        <div class="ov-total-row"><span>Gesamtwert des Programms (ehrlich, als Einzelnutzer-Werkzeug)</span></div>
-        <div class="ov-total-nums"><span class="ov-total-now">jetzt ~2.000 €</span><span class="ov-arrow">→</span><span class="ov-total-fin">fertig ~6.500 €</span></div>
-        <div class="ov-total-note">
-          Ehrlich eingeordnet: Das ist ein mit Claude (KI) gebautes Solo-Projekt eines Einsteigers —
-          kein verkaufsfertiges Produkt und kein Agentur-Wiederaufbaupreis. Die Zahlen schätzen, was
-          ein Freelancer für den Nachbau dieser <i>funktionierenden</i> Bausteine etwa nehmen würde.
-          <b>Der eigentliche Wert ist nicht der Code, sondern was das System einbringt</b> — und das
-          hängt an Schritt 6 (Zustellbarkeit/Recht) und der Conversion, nicht an diesen Beträgen.
-        </div>
-      </div>
-
-      <!-- Nächste Schritte für echtes Geld -->
-      <div class="ov-next">
-        <div class="ov-next-head">🎯 Damit echtes Geld rauskommt — Prioritäten</div>
-        <ol>
-          <li><b>E-Mail-Zustellung &amp; Recht lösen</b> (Schritt 6) — eigene Versand-Domain mit SPF/DKIM/DMARC, langsames Aufwärmen, Abmelde-Link, UWG/DSGVO-konformer Rahmen. <b>Ohne das kein Umsatz.</b></li>
-          <li><b>E-Mail-Postfach scharf schalten</b> — Versand-Domain + SMTP, dann läuft der 12-Uhr-Versand der freigegebenen Seiten automatisch.</li>
-          <li><b>Volumen hochfahren</b> — Auto-Builder dauerhaft laufen lassen, Qualität stichprobenartig prüfen.</li>
-          <li><b>Demos abbauen</b>, die nach X Tagen nicht konvertieren — Hosting-Kosten deckeln.</li>
-          <li><b>Conversion messen</b> — Antworten/Abschlüsse pro 100 Mails sichtbar machen, Betreff/Text optimieren.</li>
-        </ol>
+      <div class="ov-step">
+        <div class="ov-step-top"><span class="ov-num">7</span><span class="ov-step-title">Abschluss + Zahlung</span><span class="ov-badge todo">Offen</span></div>
+        <div class="ov-now">Antworten landen im Postfach — Abschluss, Rechnung und Übergabe manuell. Bei 350 € ist ein menschlicher Abschluss sogar von Vorteil.</div>
       </div>
 
     </div>
 
-    <!-- Letzte Aktivitäten (kompakt) -->
+    <!-- Letzte Aktivitäten -->
     <div class="home-act-panel">
       <div class="home-act-head">
         <span class="home-act-title">Letzte Aktivitäten</span>

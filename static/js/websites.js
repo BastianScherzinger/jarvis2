@@ -1,13 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  WEBSEITEN-REITER — Tages-Ordner-Ansicht.
-//  Seiten werden nach Bautag gruppiert in aufklappbaren Ordnern gezeigt.
-//  Heute ist standardmäßig offen, Vortage zugeklappt.
-//  Aufklapp-Zustand überlebt den 2,5s-Live-Poll.
+//  WEBSEITEN-REITER — Tages-Ordner · Karten (eingeklappt)
+//  Standard: alle Ordner UND alle Karten sind zugeklappt.
+//  Im eingeklappten Zustand sieht man: Name · Meta · Stufen-Dots · Status · 📨
+//  Discord-Versand-Status wird live aktualisiert (2,5s-Poll).
 // ════════════════════════════════════════════════════════════════════════════
 let _wsTimer       = null;
-let _wsData        = [];   // flache Liste aller Seiten (für wsAdImages etc.)
+let _wsData        = [];   // flache Liste aller Seiten
 let _wsDays        = [];   // gruppiert [{date, is_today, sites, count, limit, …}]
 let _wsOpenDays    = null; // Set<string> — null = noch nicht initialisiert
+let _wsCardOpen    = new Set(); // Set<string> — offene Karten-IDs
 let _wsTotal       = 0;
 
 function _wse(s){
@@ -25,14 +26,12 @@ function _wsAgo(ts){
   return 'vor ' + Math.floor(s/86400) + ' Tg';
 }
 
-// Deutsches Datumslabel für den Ordner-Header
 const _MONATE = ['Januar','Februar','März','April','Mai','Juni',
                  'Juli','August','September','Oktober','November','Dezember'];
 
 function _wsDayLabel(dateStr, isToday){
   if(isToday) return 'Heute';
   if(!dateStr || dateStr === 'unbekannt') return 'Unbekannt';
-  // Gestern?
   const yd = new Date(); yd.setDate(yd.getDate() - 1);
   if(dateStr === yd.toISOString().slice(0,10)) return 'Gestern';
   try{
@@ -63,7 +62,6 @@ function _wsBadge(w){
 function initWebsites(){ loadWebsites(); _wsEnsureTimer(); }
 function refreshWebsites(){ loadWebsites(true); }
 
-// Manuelles Neuladen mit sichtbarem Lade-Feedback am Button (dreht kurz).
 async function wsManualReload(){
   const btn = document.getElementById('ws-reload-btn');
   if(btn){ btn.classList.add('loading'); btn.disabled = true; }
@@ -94,7 +92,6 @@ async function loadWebsites(silent){
       _wsDays  = Array.isArray(d.days) ? d.days : [];
       _wsData  = _wsDays.flatMap(day => day.sites || []);
       _wsTotal = d.total || 0;
-      // Archive-Badge aktualisieren
       const arcCnt = d.archived_count || 0;
       const arcSec = document.getElementById('ws-archive-section');
       const arcCount = document.getElementById('ws-archive-count');
@@ -103,10 +100,9 @@ async function loadWebsites(silent){
     }
   }catch(e){ if(!silent){ _wsDays=[]; _wsData=[]; } else return; }
 
+  // Alle Ordner standardmäßig zugeklappt — kein Auto-Öffnen von "Heute"
   if(_wsOpenDays === null){
     _wsOpenDays = new Set();
-    const todayDay = _wsDays.find(d => d.is_today);
-    if(todayDay) _wsOpenDays.add(todayDay.date);
   }
   _renderWebsites();
 }
@@ -114,9 +110,7 @@ async function loadWebsites(silent){
 async function loadArchived(){
   try{
     const d = await(await fetch('/api/websites/archived')).json();
-    if(d && d.ok){
-      _wsArchivedDays = Array.isArray(d.days) ? d.days : [];
-    }
+    if(d && d.ok){ _wsArchivedDays = Array.isArray(d.days) ? d.days : []; }
   }catch(e){ _wsArchivedDays = []; }
   _renderArchived();
 }
@@ -164,26 +158,24 @@ function _wsArchivedCard(w){
     ? `<a class="ws-link live" href="${_wse(w.live_url)}" target="_blank" rel="noopener">🌐 ${_wse(w.live_url)} ↗</a>`
     : '';
   return `<div class="ws-card archived">
-    <div class="ws-card-head">
-      <div class="ws-card-titlewrap">
-        <div class="ws-card-title">${_wse(w.name||'Unbenannt')}</div>
-        ${meta ? `<div class="ws-card-meta">${meta}</div>` : ''}
+    <div class="ws-card-row" style="cursor:default">
+      <div class="ws-card-info">
+        <span class="ws-card-name">${_wse(w.name||'Unbenannt')}</span>
+        ${meta ? `<span class="ws-card-meta">${meta}</span>` : ''}
       </div>
       <span class="ws-badge archived">Archiv</span>
     </div>
-    ${liveLink ? `<div class="ws-links">${liveLink}</div>` : ''}
+    ${liveLink ? `<div class="ws-links" style="padding-top:8px">${liveLink}</div>` : ''}
     <div class="ws-foot">${_wse(_wsAgo(w.updated||w.created))}</div>
   </div>`;
 }
 
-// ── Neu starten (Archivieren + Night-Builder starten) ─────────────────────────
+// ── Neu starten ───────────────────────────────────────────────────────────────
 
 async function archiveAllAndStart(){
   const ok = confirm(
     '⚡ Neu starten\n\n'
-    + 'Das archiviert alle aktuellen Webseiten (sie bleiben unter „Alte Webseiten" sichtbar) '
-    + 'und startet den Night-Builder neu — er baut dann 5 neue Seiten, verbessert jede mit dem '
-    + '3-Stufen-Makeover und schickt jede fertige Seite zur Freigabe in Discord.\n\n'
+    + 'Das archiviert alle aktuellen Webseiten und startet den Night-Builder neu.\n\n'
     + 'Leads werden nicht doppelt gebaut.\n\nFortfahren?'
   );
   if(!ok) return;
@@ -197,7 +189,7 @@ async function archiveAllAndStart(){
     })).json();
     if(r && r.ok){
       const msg = `✓ ${r.archived} Seite(n) archiviert.`
-        + (r.builder_started ? '\n✓ Night-Builder gestartet — baut jetzt 10 neue Seiten.' : '\n(Builder lief bereits)');
+        + (r.builder_started ? '\n✓ Night-Builder gestartet.' : '\n(Builder lief bereits)');
       alert(msg);
       loadWebsites(false);
     } else {
@@ -209,7 +201,7 @@ async function archiveAllAndStart(){
   }
 }
 
-// ── Render: Tages-Ordner-Ansicht ──────────────────────────────────────────────
+// ── Render: Tages-Ordner ──────────────────────────────────────────────────────
 
 function _renderWebsites(){
   const list = document.getElementById('ws-list');
@@ -231,7 +223,8 @@ function _renderWebsites(){
   list.innerHTML = _wsDays.map(_wsDayFolder).join('');
 }
 
-// Ein Tages-Ordner
+// ── Tages-Ordner ─────────────────────────────────────────────────────────────
+
 function _wsDayFolder(day){
   const open     = _wsOpenDays && _wsOpenDays.has(day.date);
   const label    = _wsDayLabel(day.date, day.is_today);
@@ -243,8 +236,8 @@ function _wsDayFolder(day){
   const full     = autoCnt >= limit;
   const running  = day.sites && day.sites.some(s => s.status === 'running');
   const liveN    = day.sites ? day.sites.filter(s => s.live).length : 0;
+  const sentN    = day.sites ? day.sites.filter(s => s.email_sent).length : 0;
 
-  // Fortschritts-Badge
   const progBadge = full
     ? `<span class="ws-day-pill done">✓ ${limit}/${limit}</span>`
     : `<span class="ws-day-pill ${running?'running':'open'}">${autoCnt}/${limit}</span>`;
@@ -252,8 +245,9 @@ function _wsDayFolder(day){
     ? `<span class="ws-day-pill extra">+${extra} Eigene</span>` : '';
   const liveBadge = liveN > 0
     ? `<span class="ws-day-pill live">● ${liveN} live</span>` : '';
+  const sentBadge = sentN > 0
+    ? `<span class="ws-day-pill sent">📨 ${sentN}</span>` : '';
 
-  // Fortschrittsbalken im Header
   const bar = `<div class="ws-day-bar" title="${autoCnt} von ${limit} Auto-Seiten">
     <div class="ws-day-barfill ${full?'full':running?'running':''}" style="width:${pct}%"></div>
   </div>`;
@@ -267,10 +261,9 @@ function _wsDayFolder(day){
       <span class="ws-day-label ${day.is_today?'today':''}">${_wse(label)}</span>
       <span class="ws-day-date-sub">${day.is_today ? _wse(day.date) : ''}</span>
       <div class="ws-day-pills">
-        ${progBadge}${extraBadge}${liveBadge}
+        ${progBadge}${extraBadge}${liveBadge}${sentBadge}
       </div>
       <button class="ws-day-del" title="Ganzen Tag löschen (inkl. Railway)"
-        aria-label="Ganzen Tag ${_wse(day.date)} löschen"
         onclick="event.stopPropagation(); wsDeleteDay('${_wse(day.date)}', ${count})">
         <svg viewBox="0 0 18 18" width="15" height="15" fill="none"><path d="M3 5h12M7 5V3.5A1.5 1.5 0 018.5 2h1A1.5 1.5 0 0111 3.5V5M5.5 5l.5 9a1.5 1.5 0 001.5 1.4h3a1.5 1.5 0 001.5-1.4l.5-9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -303,16 +296,36 @@ function wsDayToggle(date){
   }
 }
 
-// ── Website-Karte (unverändert, nur hierher verschoben) ───────────────────────
+// ── Karte auf-/zuklappen ──────────────────────────────────────────────────────
 
-// Stufen-Stepper: segmentierte Anzeige der Bau-Stufen (erledigt / aktuell / offen) mit Labels.
+function wsCardToggle(id){
+  const sid    = String(id);
+  const detail = document.getElementById('ws-cd-' + sid);
+  const arrow  = document.getElementById('ws-ca-' + sid);
+  const card   = document.getElementById('ws-c-'  + sid);
+  if(!detail) return;
+  if(_wsCardOpen.has(sid)){
+    _wsCardOpen.delete(sid);
+    detail.style.display = 'none';
+    if(arrow) arrow.textContent = '▸';
+    if(card)  card.classList.remove('open');
+  } else {
+    _wsCardOpen.add(sid);
+    detail.style.display = '';
+    if(arrow) arrow.textContent = '▾';
+    if(card)  card.classList.add('open');
+  }
+}
+
+// ── Stufen-Stepper (volle Ansicht für Detail-Bereich) ────────────────────────
+
 function _wsStages(w){
   const total = w.stages_total || 0;
   if(!total) return '';
   const done    = Math.max(0, Math.min(total, w.stages_done || 0));
   const labels  = w.stage_labels || [];
   const running = (w.status === 'running' || w.status === 'queued');
-  const curIdx  = running ? Math.min(done, total - 1) : -1;   // aktuell laufende Stufe
+  const curIdx  = running ? Math.min(done, total - 1) : -1;
   let segs = '';
   for(let i = 0; i < total; i++){
     const cls = i < done ? 'done' : (i === curIdx ? 'cur' : 'pend');
@@ -329,110 +342,110 @@ function _wsStages(w){
   </div>`;
 }
 
+// ── Website-Karte (kompakte Zeile + aufklappbares Detail) ─────────────────────
+
 function _wsCard(w){
   const st   = _wsBadge(w);
   const meta = [w.branche, w.stadt].filter(Boolean).map(_wse).join(' · ');
-  const p    = Math.max(0, Math.min(100, w.progress || 0));
+  const sid  = String(w.id);
+  const open = _wsCardOpen.has(sid);
 
-  // Stufen-Stepper immer zeigen (sobald es Stufen gibt) — man sieht jederzeit, wo die Seite steht.
-  let prog = _wsStages(w);
+  // Mini-Stufen-Dots für die Zusammenfassungszeile
+  let miniDots = '';
+  if(w.stages_total){
+    const done = Math.min(w.stages_done || 0, w.stages_total);
+    miniDots = `<span class="ws-stages-mini" title="${done}/${w.stages_total} Stufen">`;
+    for(let i = 0; i < w.stages_total; i++){
+      miniDots += `<span class="ws-sm-seg ${i < done ? 'done' : ''}"></span>`;
+    }
+    miniDots += `</span>`;
+  }
+
+  // Discord-Versandstatus-Badge
+  const sentBadge = w.email_sent
+    ? `<span class="ws-badge sent" title="E-Mail ${_wsAgo(w.email_sent_ts)} versandt">📨</span>`
+    : '';
+
+  // ── Zusammenfassungszeile (immer sichtbar) ──────────────────────────────────
+  const summaryRow = `<div class="ws-card-row" onclick="wsCardToggle(${w.id})">
+    <span class="ws-card-arrow" id="ws-ca-${sid}">${open ? '▾' : '▸'}</span>
+    <div class="ws-card-info">
+      <span class="ws-card-name">${_wse(w.name || 'Unbenannt')}</span>
+      ${meta ? `<span class="ws-card-meta">${meta}</span>` : ''}
+    </div>
+    <div class="ws-card-right">
+      ${miniDots}
+      <span class="ws-badge ${st.cls}">${_wse(st.lbl)}</span>
+      ${sentBadge}
+    </div>
+  </div>`;
+
+  // ── Detail-Bereich (ein-/ausgeklappt) ───────────────────────────────────────
+  const p = Math.max(0, Math.min(100, w.progress || 0));
+
+  let progHtml = '';
+  if(w.stages_total){ progHtml += _wsStages(w); }
   if(w.status === 'running' || w.status === 'queued'){
-    prog += `<div class="ws-prog">
+    progHtml += `<div class="ws-prog">
       <div class="ws-bar"><div class="ws-fill" style="width:${p}%"></div></div>
       <div class="ws-step"><span class="jc-spin"></span><span>${_wse(w.step || 'Arbeitet…')}</span><span class="ws-pct">${p}%</span></div>
     </div>`;
-  }else if(w.status === 'error'){
-    prog += `<div class="ws-errline">✕ ${_wse(w.error || w.step || 'Fehlgeschlagen')}</div>`;
-  }else if(w.status === 'done' && !w.live && w.live_url){
-    prog += `<div class="ws-hintline">⏳ ${_wse(w.step || 'Build läuft — in 1-2 Min erneut öffnen.')}</div>`;
-  }else if(w.status === 'done' && !w.live_url){
-    prog += `<div class="ws-hintline">${_wse(w.step || 'Lokal gebaut — noch nicht deployt.')}</div>`;
+  } else if(w.status === 'error'){
+    progHtml += `<div class="ws-errline">✕ ${_wse(w.error || w.step || 'Fehlgeschlagen')}</div>`;
+  } else if(w.status === 'done' && !w.live && w.live_url){
+    progHtml += `<div class="ws-hintline">⏳ ${_wse(w.step || 'Build läuft — in 1-2 Min erneut öffnen.')}</div>`;
   }
 
+  // Links
   const links = [];
   if(w.live_url) links.push(`<a class="ws-link live" href="${_wse(w.live_url)}" target="_blank" rel="noopener">🌐 Live öffnen ↗</a>`);
-  if(w.repo_url) links.push(`<a class="ws-link" href="${_wse(w.repo_url)}" target="_blank" rel="noopener">⎇ GitHub-Repo ↗</a>`);
+  if(w.repo_url) links.push(`<a class="ws-link" href="${_wse(w.repo_url)}" target="_blank" rel="noopener">⎇ GitHub ↗</a>`);
   const linkRow = links.length ? `<div class="ws-links">${links.join('')}</div>` : '';
 
-  const folder = w.folder
-    ? `<div class="ws-folder" title="Lokaler Projektordner"><span class="ws-folder-ico">📁</span>
-         <code>${_wse(w.folder)}</code>
-         <button class="ws-copy" onclick="wsCopy('${_wse(w.folder).replace(/'/g,"\\'")}', this)">Kopieren</button></div>`
-    : '';
-
+  // E-Mail-Zeile
   const emailRow = `<div class="ws-email">
-      <span class="ws-email-ico">✉</span>
-      ${w.kontakt_email
-        ? `<code>${_wse(w.kontakt_email)}</code>`
-        : `<span class="ws-email-none">keine Kontakt-E-Mail (über „Kontakt finden")</span>`}
-      ${w.live_url ? `<button class="ws-copy" onclick='wsPreviewEmail(${w.id})' title="Angebots-Mail mit Live-Link ansehen">E-Mail ansehen</button>` : ''}
-    </div>`;
+    <span class="ws-email-ico">✉</span>
+    ${w.kontakt_email
+      ? `<code>${_wse(w.kontakt_email)}</code>`
+      : `<span class="ws-email-none">Keine Kontakt-Mail</span>`}
+    ${w.email_sent
+      ? `<span class="ws-email-sent-tag">✓ Gesendet ${_wsAgo(w.email_sent_ts)}</span>`
+      : ''}
+    ${w.live_url
+      ? `<button class="ws-copy" onclick="event.stopPropagation();wsPreviewEmail(${w.id})">Vorschau</button>`
+      : ''}
+  </div>`;
 
-  const ready  = !!w.folder;
-  const thumbs = (w.images || []).map(fn => {
-    const src = /^https?:\/\//i.test(fn) ? fn : `/api/websites/${w.id}/asset/${encodeURIComponent(fn)}`;
-    return `<a class="ws-thumb" href="${_wse(src)}" target="_blank" rel="noopener" title="${_wse(fn)}">
-       <img src="${_wse(src)}" alt="Bild" loading="lazy"></a>`;
-  }).join('');
-  const addBtn = ready
-    ? `<label class="ws-add" title="Bild zur Seite hinzufügen (für späteren Einsatz)">
-         <input type="file" accept="image/*" hidden onchange="wsUploadImage(${w.id}, this)">
-         <span class="ws-add-plus">＋</span><span>Bild</span>
-       </label>`
-    : `<span class="ws-add disabled" title="Ordner wird noch erstellt">＋ Bild</span>`;
-  const integrate = ready ? `
-      <textarea class="ws-textarea" id="ws-txt-${w.id}" rows="2" placeholder="Text einfügen, den Claude sinnvoll einbauen soll (z.B. Über-uns, Leistung, Angebot) …"></textarea>
-      <div class="ws-int-row">
-        <button class="ws-act mail" onclick='wsIntegrate(${w.id})'>✨ Von Claude einbauen lassen</button>
-        <span class="ws-int-out" id="ws-int-${w.id}"></span>
-      </div>` : '';
-  const media = `<div class="ws-media">
-      <div class="ws-media-lbl">Inhalte einbauen — Bilder &amp; Text${(w.images && w.images.length) ? ' · ' + w.images.length + ' Bild(er)' : ''}</div>
-      <div class="ws-thumbs">${thumbs}${addBtn}</div>
-      ${integrate}
-    </div>`;
+  // Aktionen (nur die wichtigsten)
+  const actions = `<div class="ws-actions">
+    <button class="ws-act" onclick="event.stopPropagation();wsSendOffer(${w.id},'test')" title="Test-Mail an dich senden">✉ Test-Mail</button>
+    ${w.kontakt_email
+      ? (w.email_sent
+          ? `<button class="ws-act done-act" disabled title="Bereits versandt">📨 Gesendet</button>`
+          : `<button class="ws-act mail" onclick="event.stopPropagation();wsSendOffer(${w.id},'real')" title="An Kunden senden">✉ An Kunde</button>`)
+      : `<button class="ws-act" onclick="event.stopPropagation();wsFindContact(${w.id}, this)" title="Kontakt suchen">🔎 Kontakt</button>`}
+    <button class="ws-act danger" onclick="event.stopPropagation();wsDelete(${w.id}, ${JSON.stringify(w.name||'')})" title="Löschen">🗑</button>
+  </div>`;
 
-  const verBadge = w.site_version
-    ? `<span class="ws-badge ver" title="Bau-/Update-Level dieser Seite">Update ${_wse(w.site_version)}</span>`
-    : '';
-  const stagesBadge = w.stages_total
-    ? `<span class="ws-badge stages ${(w.stages_done>=w.stages_total)?'full':''}" title="Makeover-Stufen fertig">${(w.stages_done||0)}/${w.stages_total} Stufen</span>`
-    : '';
-
-  return `<div class="ws-card ${st.cls}">
-    <div class="ws-card-head">
-      <div class="ws-card-titlewrap">
-        <div class="ws-card-title">${_wse(w.name || 'Unbenannt')}</div>
-        ${meta ? `<div class="ws-card-meta">${meta}</div>` : ''}
-      </div>
-      <div class="ws-card-badges">${verBadge}${stagesBadge}<span class="ws-badge ${st.cls}">${_wse(st.lbl)}</span></div>
-    </div>
-    ${prog}
+  const detailHtml = `<div class="ws-card-detail" id="ws-cd-${sid}" style="${open ? '' : 'display:none'}">
+    ${progHtml}
     ${linkRow}
-    ${folder}
     ${emailRow}
-    ${media}
-    <div class="ws-actions">
-      <button class="ws-act" onclick='wsImprove(${w.id})' title="5 Profi-Agenten verbessern Design, Texte &amp; Bilder">✦ Top verbessern</button>
-      <button class="ws-act" onclick='wsAdImages(${w.id})' title="5 Werbe-Bilder für diesen Betrieb generieren">🖼 Werbebilder</button>
-      <button class="ws-act" onclick='wsAdVideo(${w.id})' title="Werbevideo für diesen Betrieb generieren">🎬 Werbevideo</button>
-      <button class="ws-act" onclick='wsOpenChat(${w.id})' title="Mit Claude debuggen / gezielt verbessern">⌥ Mit Claude</button>
-      <button class="ws-act" onclick='wsSendOffer(${w.id}, "test")' title="Angebots-Mail zum Test an dich senden">✉ Test an mich</button>
-      ${w.kontakt_email
-        ? `<button class="ws-act mail" onclick='wsSendOffer(${w.id}, "real")' title="An ${_wse(w.kontakt_email)} senden">✉ An Kunde senden</button>`
-        : `<button class="ws-act" onclick='wsFindContact(${w.id}, this)' title="Kontaktadresse des Betriebs aktiv suchen (Impressum / Google)">🔎 Kontakt finden</button>`}
-      <button class="ws-act danger" onclick='wsDelete(${w.id}, ${JSON.stringify(w.name||"")})' title="Webseite komplett löschen">🗑 Löschen</button>
-    </div>
+    ${actions}
     <div class="ws-foot">${_wse(_wsAgo(w.updated || w.created))}</div>
+  </div>`;
+
+  return `<div class="ws-card ${st.cls} ${open ? 'open' : ''}" id="ws-c-${sid}">
+    ${summaryRow}
+    ${detailHtml}
   </div>`;
 }
 
-// ── Aktionen (unverändert) ────────────────────────────────────────────────────
+// ── Aktionen ──────────────────────────────────────────────────────────────────
 
 async function wsDelete(wid, name){
   const ok = confirm(`Webseite „${name||'?'}" komplett löschen?\n\n`
-    + 'Das entfernt den lokalen Ordner und (falls möglich) das GitHub-Repo '
-    + 'und den Railway-Service.\n\nAbbrechen = nichts löschen.');
+    + 'Das entfernt den lokalen Ordner, das GitHub-Repo und den Railway-Service.\n\nFortfahren?');
   if(!ok) return;
   try{
     const r = await(await fetch(`/api/websites/${wid}?folder=1&remote=1`, {method:'DELETE'})).json();
@@ -443,9 +456,7 @@ async function wsDelete(wid, name){
 
 async function wsDeleteDay(date, count){
   const ok = confirm(`Den ganzen Tag ${date} mit ${count} Webseite(n) löschen?\n\n`
-    + 'Das entfernt die lokalen Ordner, die GitHub-Repos UND die Railway-Services '
-    + 'aller Seiten dieses Tages.\n\n'
-    + 'Das lässt sich NICHT rückgängig machen. Fortfahren?');
+    + 'Das entfernt lokale Ordner, GitHub-Repos UND Railway-Services.\n\nFortfahren?');
   if(!ok) return;
   try{
     const r = await(await fetch(`/api/websites/day/${encodeURIComponent(date)}?folder=1&remote=1`,
@@ -453,23 +464,11 @@ async function wsDeleteDay(date, count){
     if(r && r.ok){
       loadWebsites(true);
       if(typeof toast === 'function')
-        toast(`Tag ${date}: ${r.deleted} Seite(n) gelöscht — Railway-Abbau läuft im Hintergrund.`);
+        toast(`Tag ${date}: ${r.deleted} Seite(n) gelöscht.`);
     } else {
       alert('Löschen fehlgeschlagen: ' + ((r && r.reason) || 'unbekannt'));
     }
   }catch(e){ alert('Löschen fehlgeschlagen: ' + e); }
-}
-
-async function wsImprove(wid){
-  const ok = confirm('„Top verbessern" lässt 5 Profi-Agenten über die Seite gehen '
-    + '(Design, Texte, Referenzbilder, Über-uns, FAQ) und deployt neu.\n\n'
-    + 'Das überschreibt das aktuelle Design & die Texte mit verbesserten Versionen. Fortfahren?');
-  if(!ok) return;
-  try{
-    const r = await(await fetch(`/api/websites/${wid}/improve`, {method:'POST'})).json();
-    if(r && r.ok){ loadWebsites(true); }
-    else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
-  }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
 }
 
 async function wsPreviewEmail(wid){
@@ -496,8 +495,8 @@ async function wsPreviewEmail(wid){
     if(r && r.ok){
       const linkBadge = r.link
         ? `<a href="${_wse(r.link)}" target="_blank" rel="noopener" class="ws-mail-link ${r.link_ok?'ok':'bad'}">
-             ${r.link_ok ? '✓ Link funktioniert' : '⚠ Link nicht erreichbar'} · ${_wse(r.link)} ↗</a>`
-        : '<span class="ws-mail-link bad">Kein Live-Link vorhanden</span>';
+             ${r.link_ok ? '✓ Link erreichbar' : '⚠ Link nicht erreichbar'} · ${_wse(r.link)} ↗</a>`
+        : '<span class="ws-mail-link bad">Kein Live-Link</span>';
       meta.innerHTML = `<div><b>An:</b> ${_wse(r.to||'—')}</div>
         <div><b>Betreff:</b> ${_wse(r.betreff||'')}</div>
         <div class="ws-mail-linkrow">${linkBadge}</div>`;
@@ -508,9 +507,58 @@ async function wsPreviewEmail(wid){
   }catch(e){ meta.textContent = 'Fehler: ' + e; }
 }
 
+async function wsFindContact(wid, btn){
+  const o = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '🔎 sucht…'; }
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/find-contact`, {method:'POST'})).json();
+    if(r && r.ok){
+      alert('✓ Kontakt: ' + r.email + (r.ansprechpartner ? '\nAnsprechpartner: ' + r.ansprechpartner : ''));
+      loadWebsites(true);
+    }else{
+      alert('Keine öffentliche Kontaktadresse gefunden.'
+        + ((r && r.website) ? '\n\nGefundene Website: ' + r.website : '')
+        + '\n\nTipp: manuell ergänzen oder Discord-Freigabe abwarten.');
+    }
+  }catch(e){ alert('Kontakt-Suche fehlgeschlagen: ' + e); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = o; } }
+}
+
+async function wsSendOffer(wid, mode){
+  mode = mode || 'test';
+  const frage = mode === 'real'
+    ? 'Angebots-Mail JETZT an die echte Kontaktadresse senden?\n\nDies geht an einen echten Betrieb.'
+    : 'Angebots-Mail als Test an dich senden?';
+  if(!confirm(frage)) return;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/offer-email`, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode})})).json();
+    if(r && r.ok){
+      alert('✓ E-Mail gesendet an ' + r.to);
+      if(mode === 'real') loadWebsites(true);
+    }
+    else if(r && r.status === 'deaktiviert'){
+      alert('E-Mail-Versand ist noch aus.\n\n' + (r.hinweis || 'JARVIS_EMAIL_ENABLED=true in .env setzen.'));
+    }else{
+      alert('E-Mail fehlgeschlagen: ' + ((r && (r.reason || r.status)) || 'unbekannt')
+        + (r && r.hinweis ? '\n\n' + r.hinweis : ''));
+    }
+  }catch(e){ alert('E-Mail fehlgeschlagen: ' + e); }
+}
+
+// Behalten für Rückwärtskompatibilität (werden aus dem Menü/Chat aufgerufen)
+async function wsImprove(wid){
+  if(!confirm('„Top verbessern" lässt 5 Profi-Agenten über die Seite gehen. Fortfahren?')) return;
+  try{
+    const r = await(await fetch(`/api/websites/${wid}/improve`, {method:'POST'})).json();
+    if(r && r.ok){ loadWebsites(true); }
+    else alert('Verbessern fehlgeschlagen: ' + ((r&&r.reason)||'unbekannt'));
+  }catch(e){ alert('Verbessern fehlgeschlagen: ' + e); }
+}
+
 async function wsAdImages(wid){
   const w = _wsData.find(x => String(x.id) === String(wid)); if(!w) return;
-  if(!confirm(`5 Werbe-Bilder für „${w.name||'?'}" generieren?\n\nLäuft im Hintergrund — die Bilder erscheinen im „Bilder"-Tab.`)) return;
+  if(!confirm(`5 Werbe-Bilder für „${w.name||'?'}" generieren?`)) return;
   try{
     const r = await(await fetch('/api/media/generate/set', {method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -523,8 +571,7 @@ async function wsAdImages(wid){
 
 async function wsAdVideo(wid){
   const w = _wsData.find(x => String(x.id) === String(wid)); if(!w) return;
-  const hf = confirm(`Werbevideo für „${w.name||'?'}" generieren?\n\n`
-    + 'OK = Higgsfield Cloud (Qualität, braucht Credits)\nAbbrechen = lokal (Wan 2.1).');
+  const hf = confirm(`Werbevideo für „${w.name||'?'}" generieren?\nOK = Higgsfield · Abbrechen = lokal`);
   try{
     const r = await(await fetch('/api/media/generate/ad-video', {method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -535,42 +582,6 @@ async function wsAdVideo(wid){
   }catch(e){ alert('Fehlgeschlagen: ' + e); }
 }
 
-async function wsFindContact(wid, btn){
-  const o = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = '🔎 sucht…'; }
-  try{
-    const r = await(await fetch(`/api/websites/${wid}/find-contact`, {method:'POST'})).json();
-    if(r && r.ok){
-      alert('✓ Kontakt gefunden: ' + r.email + (r.ansprechpartner ? '\n\nAnsprechpartner: ' + r.ansprechpartner : ''));
-      loadWebsites(true);
-    }else{
-      alert('Keine öffentliche Kontaktadresse gefunden.'
-        + ((r && r.website) ? '\n\nGefundene Website: ' + r.website : '')
-        + '\n\nTipp: über „Mit Claude" oder manuell ergänzen.');
-    }
-  }catch(e){ alert('Kontakt-Suche fehlgeschlagen: ' + e); }
-  finally{ if(btn){ btn.disabled = false; btn.textContent = o; } }
-}
-
-async function wsSendOffer(wid, mode){
-  mode = mode || 'test';
-  const frage = mode === 'real'
-    ? 'Angebots-Mail (350 €) JETZT an die ECHTE Kontaktadresse des Kunden senden?\n\nDies geht an einen echten Betrieb.'
-    : 'Angebots-Mail (350 €) als Test an dich (bastian.scherzinger05@gmail.com) senden?';
-  if(!confirm(frage)) return;
-  try{
-    const r = await(await fetch(`/api/websites/${wid}/offer-email`, {method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode})})).json();
-    if(r && r.ok){ alert('✓ E-Mail gesendet an ' + r.to); }
-    else if(r && r.status === 'deaktiviert'){
-      alert('E-Mail-Versand ist noch aus.\n\n' + (r.hinweis || 'JARVIS_EMAIL_ENABLED=true in der .env setzen.'));
-    }else{
-      alert('E-Mail fehlgeschlagen: ' + ((r && (r.reason || r.status)) || 'unbekannt')
-        + (r && r.hinweis ? '\n\n' + r.hinweis : ''));
-    }
-  }catch(e){ alert('E-Mail fehlgeschlagen: ' + e); }
-}
-
 function wsOpenChat(wid){
   let bg = document.getElementById('ws-chat-bg');
   if(!bg){
@@ -578,10 +589,10 @@ function wsOpenChat(wid){
     bg.id = 'ws-chat-bg'; bg.className = 'ws-chat-bg';
     bg.innerHTML = `<div class="ws-chat" onclick="event.stopPropagation()">
       <div class="ws-chat-head"><span>Mit Claude · verbessern &amp; debuggen</span>
-        <button class="ws-chat-x" onclick="wsCloseChat()" aria-label="Schließen">✕</button></div>
+        <button class="ws-chat-x" onclick="wsCloseChat()">✕</button></div>
       <div class="ws-chat-log" id="ws-chat-log"></div>
       <div class="ws-chat-in">
-        <textarea id="ws-chat-text" rows="2" placeholder="z.B. „Mach die Headline knackiger und die Akzentfarbe dunkelblau" — oder stell eine Frage zur Seite."></textarea>
+        <textarea id="ws-chat-text" rows="2" placeholder="Änderung beschreiben oder Frage stellen…"></textarea>
         <button class="ws-chat-send" id="ws-chat-send">Senden</button>
       </div></div>`;
     bg.onclick = wsCloseChat;
@@ -593,7 +604,7 @@ function wsOpenChat(wid){
   }
   bg.dataset.wid = wid;
   document.getElementById('ws-chat-log').innerHTML =
-    '<div class="ws-chat-hint">Beschreibe eine Änderung (wird umgesetzt &amp; neu deployt) oder stelle eine Frage zur Seite.</div>';
+    '<div class="ws-chat-hint">Beschreibe eine Änderung oder stelle eine Frage zur Seite.</div>';
   bg.classList.add('open');
 }
 function wsCloseChat(){ const b=document.getElementById('ws-chat-bg'); if(b) b.classList.remove('open'); }
@@ -617,8 +628,8 @@ async function wsChatSend(){
       headers:{'Content-Type':'application/json'}, body:JSON.stringify({instruction:q})})).json();
     wait.remove();
     if(r && r.ok){
-      let m = _wse(r.answer || 'Erledigt, Sir.');
-      if(r.changed) m += '<div class="ws-msg-tag">✓ Änderung übernommen — Seite wird neu deployt.</div>';
+      let m = _wse(r.answer || 'Erledigt.');
+      if(r.changed) m += '<div class="ws-msg-tag">✓ Änderung übernommen — wird neu deployt.</div>';
       log.insertAdjacentHTML('beforeend', `<div class="ws-msg bot">${m}</div>`);
       if(r.changed) loadWebsites(true);
     }else{
@@ -644,25 +655,6 @@ async function wsUploadImage(wid, input){
   finally{ if(input) input.value = ''; }
 }
 
-async function wsIntegrate(wid){
-  const ta  = document.getElementById('ws-txt-'+wid);
-  const out = document.getElementById('ws-int-'+wid);
-  const text = (ta && ta.value || '').trim();
-  if(!text && !confirm('Kein Text eingegeben — nur die hochgeladenen Bilder einbauen lassen?')) return;
-  if(out){ out.textContent = 'Claude baut ein …'; out.className = 'ws-int-out busy'; }
-  try{
-    const r = await(await fetch(`/api/websites/${wid}/integrate`, {method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})})).json();
-    if(r && r.ok){
-      if(out){ out.textContent = '✓ ' + (r.answer || 'eingebaut') + (r.changed ? ' — wird neu deployt.' : ''); out.className='ws-int-out ok'; }
-      if(ta) ta.value='';
-      if(r.changed) loadWebsites(true);
-    }else{
-      if(out){ out.textContent = '✕ ' + ((r && r.reason) || 'Fehler'); out.className='ws-int-out err'; }
-    }
-  }catch(e){ if(out){ out.textContent = '✕ ' + e; out.className='ws-int-out err'; } }
-}
-
 function wsCopy(text, btn){
   try{
     navigator.clipboard.writeText(text);
@@ -670,7 +662,6 @@ function wsCopy(text, btn){
   }catch(e){}
 }
 
-// Timer + DOMContentLoaded (wie zuvor)
 _wsEnsureTimer();
 document.addEventListener('DOMContentLoaded', () => {
   const pg = document.querySelector('.websites-page');

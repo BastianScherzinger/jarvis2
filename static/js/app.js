@@ -1651,6 +1651,8 @@ async function loadHome() {
       fetch('/api/activity/recent?limit=20').then(r => r.json()),
     ]);
     _renderHomeStats(statsRes);
+    _renderHomeBuilderPanel(statsRes.builder || {});
+    _renderHomeProgress(statsRes);
     _renderHomeGrid(statsRes.sites || []);
     _renderHomeActivity(actRes.activities || []);
   } catch(e) {
@@ -1658,12 +1660,124 @@ async function loadHome() {
   }
 }
 
+function _set(id, v){ const el = document.getElementById(id); if(el) el.textContent = v; }
+function _setHtml(id, v){ const el = document.getElementById(id); if(el) el.innerHTML = v; }
+
 function _renderHomeStats(d) {
-  const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
-  set('hstat-total',  d.total   ?? 0);
-  set('hstat-live',   d.live    ?? 0);
-  set('hstat-build',  d.building ?? 0);
-  set('hstat-errors', d.errors  ?? 0);
+  _set('hstat-total',  d.total    ?? 0);
+  _set('hstat-live',   d.live     ?? 0);
+  _set('hstat-sent',   d.sent     ?? 0);
+  _set('hstat-build',  d.building ?? 0);
+}
+
+function _renderHomeBuilderPanel(ab) {
+  const dot  = document.getElementById('hm-dot');
+  const lbl  = document.getElementById('hm-builder-lbl');
+  const fill = document.getElementById('hm-session-fill');
+  const cnt  = document.getElementById('hm-session-cnt');
+  const sess = document.getElementById('hm-session-lbl');
+  if(!dot) return;
+
+  if(ab.running) {
+    dot.className  = 'hm-dot running';
+    const phase    = ab.phase   || 'läuft';
+    const today    = ab.today_count ?? 0;
+    const limit    = ab.daily_limit ?? 7;
+    const pct      = Math.min(100, Math.round(today / limit * 100));
+    lbl.textContent  = `Auto-Builder aktiv · ${phase}`;
+    if(fill) fill.style.width = pct + '%';
+    if(cnt)  cnt.textContent  = `${today} / ${limit}`;
+    if(sess) {
+      const h = new Date().getHours();
+      sess.textContent = h < 12 ? 'AM-Session' : 'PM-Session';
+    }
+  } else {
+    dot.className    = 'hm-dot idle';
+    lbl.textContent  = 'Auto-Builder · bereit (nicht aktiv)';
+    if(fill) fill.style.width = '0%';
+    if(cnt)  cnt.textContent  = '';
+    if(sess) sess.textContent = '';
+  }
+}
+
+function _renderHomeProgress(d) {
+  const total  = d.total    || 0;
+  const live   = d.live     || 0;
+  const sent   = d.sent     || 0;
+  const build  = d.building || 0;
+
+  // Technik: Schritt 1–5 vollständig implementiert = Basis 88 %
+  // +4 % wenn Seiten live sind, +4 % wenn Mails versendet wurden
+  const techPct = Math.min(100, 88 + (live > 0 ? 4 : 0) + (sent > 0 ? 4 : 0) + (build > 0 ? 2 : 0));
+
+  // Umsatz: nach Angeboten versandt hochskalieren
+  // Basis 35 % (System bereit) + je versandter Mail +5 % bis max. 70 %
+  const moneyPct = Math.min(70, 35 + Math.min(sent * 5, 35));
+  const moneyWarn = moneyPct < 50;
+
+  const techEl  = document.getElementById('ov-tech-fill');
+  const moneyEl = document.getElementById('ov-money-fill');
+  if(techEl)  techEl.style.width  = techPct  + '%';
+  if(moneyEl) moneyEl.style.width = moneyPct + '%';
+
+  const techPctEl  = document.getElementById('ov-tech-pct');
+  const moneyPctEl = document.getElementById('ov-money-pct');
+  if(techPctEl)  techPctEl.textContent  = techPct  + ' %';
+  if(moneyPctEl){
+    moneyPctEl.textContent = moneyPct + ' %';
+    moneyPctEl.className   = 'ov-meter-pct' + (moneyWarn ? ' warn' : '');
+  }
+
+  // Technik-Note dynamisch
+  const techNote = document.getElementById('ov-tech-note');
+  if(techNote){
+    const parts = ['Schritt 1–5 fertig'];
+    if(live > 0)  parts.push(`${live} Seite${live>1?'n':''} live`);
+    if(sent > 0)  parts.push(`${sent} Angebot${sent>1?'e':''} versandt`);
+    if(build > 0) parts.push(`${build} in Bearbeitung`);
+    techNote.textContent = parts.join(' · ');
+  }
+
+  // Money-Note dynamisch
+  const moneyNote = document.getElementById('ov-money-note');
+  if(moneyNote){
+    if(sent === 0)
+      moneyNote.textContent = 'Nächster Schritt: SMTP einrichten + erstes Angebot senden';
+    else if(sent < 5)
+      moneyNote.textContent = `${sent} Angebot${sent>1?'e':''} versandt — mehr Volumen für Konversion nötig`;
+    else
+      moneyNote.textContent = `${sent} Angebote versandt — Conversion beobachten, Volumen weiter hochfahren`;
+  }
+
+  // Pipeline-Knoten für Schritt 6 dynamisch färben
+  const pn6    = document.getElementById('hpn-6');
+  const arr6   = document.getElementById('hpn-arr-6');
+  if(pn6){
+    if(sent > 0){
+      pn6.className  = 'ofn done';
+      if(arr6) arr6.className = 'ofn-arr done';
+      const badge6 = document.getElementById('step6-badge');
+      if(badge6){ badge6.className = 'ov-badge done'; badge6.textContent = 'Aktiv'; }
+    } else {
+      pn6.className  = 'ofn partial';
+      if(arr6) arr6.className = 'ofn-arr partial';
+    }
+  }
+
+  // Step 6 sent-info
+  const si = document.getElementById('step6-sent-info');
+  if(si) si.textContent = sent > 0 ? `✓ ${sent} Angebot${sent>1?'e':''} bereits versandt.` : '';
+
+  // Goal-Title dynamisch
+  const gt = document.getElementById('goal-dynamic-title');
+  if(gt){
+    if(sent > 0)
+      gt.textContent = `${sent} Angebot${sent>1?'e':''} versandt — jetzt auf Antwort warten & Volumen erhöhen.`;
+    else if(live > 0)
+      gt.textContent = `${live} Seite${live>1?'n':''} live — SMTP einrichten und erstes Angebot rausschicken.`;
+    else
+      gt.textContent = 'Technik läuft — SMTP einrichten und ersten Testlauf starten.';
+  }
 }
 
 function _renderHomeGrid(sites) {
