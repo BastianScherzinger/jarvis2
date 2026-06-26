@@ -5,8 +5,8 @@
       "args": ["@playwright/mcp@latest"]
     },
     "google-maps": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+      "command": "python",
+      "args": ["mcp_maps_launch.py"],
       "env": {
         "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}"
       }
