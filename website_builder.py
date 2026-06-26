@@ -896,6 +896,16 @@ def _run(job_id: str) -> None:
                     _step(job_id, 55, "Bestes Lead-Foto als Hero gewählt (Higgsfield gespart).")
             except Exception:
                 pass
+        # STUFE 1 — Hero-Vorlage: passt eine branchengenaue, vorgenerierte Higgsfield-Vorlage
+        # (ohne Text, hero_templates/) und ist noch kein Hero gesetzt → kopieren. Deterministisch,
+        # 0 Cloud-Tokens, kein Generierungs-Warten; die teure Generierung unten entfällt dann.
+        if not hero_png.exists():
+            try:
+                import hero_templates
+                if hero_templates.apply(target, lead.get("branche", ""), content):
+                    _step(job_id, 55, f"Branchen-Hero-Vorlage eingesetzt ({content.get('hero_template','')}).")
+            except Exception:
+                pass
         # Kostenrechner-Daten für die Hero-Karte (branchengerecht, deterministisch).
         if not content.get("rechner"):
             content["rechner"] = rechner_for(lead.get("branche", ""), content.get("leistungen"))

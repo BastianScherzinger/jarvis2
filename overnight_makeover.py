@@ -575,12 +575,29 @@ def _ensure_hero(folder: Path, meta: dict, say) -> bool:
     except Exception:
         return False
     content = _read_content(folder)
-    if content.get("hero_source") in ("higgsfield", "higgsfield_mcp", "openai"):
-        return False                             # schon ein Cloud-Hero — nicht erneut erzeugen
+    if content.get("hero_source") in ("higgsfield", "higgsfield_mcp", "openai", "template"):
+        return False                             # schon ein Cloud-/Vorlagen-Hero — nicht ersetzen
     if content.get("hero_custom"):
         return False                             # vom Inhaber hochgeladenes Hero nie ersetzen
     d = _doc_details(folder, meta)
     branche = meta.get("branche") or content.get("branche") or d.get("branche", "")
+    # STUFE 1 zuerst LOKAL: passt eine branchengenaue Hero-Vorlage (ohne Text), diese nehmen —
+    # spart ein Higgsfield-Bild (Tagesbudget) und ist sofort da. Nur sonst Cloud-Generierung.
+    try:
+        import hero_templates
+        if hero_templates.apply(folder, branche, content):
+            _write_content(folder, content)
+            _git_commit(folder, f"Hero: Branchen-Vorlage ({content.get('hero_template','')})")
+            try:
+                logger.activity("Makeover", "Hero-Vorlage eingesetzt",
+                                (meta.get("name") or folder.name), "🖼", "image")
+            except Exception:
+                pass
+            if say:
+                say(6, f"Branchen-Hero-Vorlage eingesetzt ({content.get('hero_template','')}).")
+            return True
+    except Exception:
+        pass
     name    = meta.get("name") or content.get("site_name", "")
     stadt   = meta.get("stadt") or content.get("stadt") or d.get("stadt", "")
     beschr  = d.get("beschreibung") or content.get("ueber_text", "")

@@ -1,0 +1,11 @@
+{
+  "_comment": "Branchen-Keyword -> Hero-Vorlage (Higgsfield, ohne Text, 16:9). Erster Treffer in der Reihenfolge gewinnt; spezifische Keys vor generischen. Weitere Branchen jederzeit ergaenzbar (Bild nach hero_templates/<file> legen).",
+  "rules": [
+    { "keys": ["zahnarzt", "zahn", "kieferortho", "dentist"], "file": "zahnarzt.jpg" },
+    { "keys": ["physio", "ergotherap", "logopaed", "logopäd", "podolog", "osteopath", "therapie"], "file": "physio.jpg" },
+    { "keys": ["kfz", "autohaus", "werkstatt", "reifen", "motorrad", "auto"], "file": "kfz.jpg" },
+    { "keys": ["umzug", "umzüge", "umzuege", "transport", "logistik", "entrümpel", "entruempel", "spedition"], "file": "umzug.jpg" },
+    { "keys": ["sanitär", "sanitaer", "klempner", "heizung", "heizungsbau", "installateur", "shk", "bad ", "badsanier"], "file": "sanitaer.jpg" },
+    { "keys": ["elektr", "elektronik", "edv"], "file": "elektriker.jpg" }
+  ]
+}
