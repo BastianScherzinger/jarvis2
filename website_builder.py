@@ -1103,6 +1103,19 @@ def find_built_sites() -> list[dict]:
 
 
 def _run_deploy(job_id: str, folder: str, name: str) -> None:
+    global _makeover_name
+    # Deploy und Makeover dürfen NICHT gleichzeitig am selben Git-Repo arbeiten (sonst
+    # index.lock-Kollision). Beide teilen sich den Makeover-Gate. Kurz (30 s) auf den Slot
+    # warten; ist gerade ein Makeover aktiv, Deploy sauber verschieben (Heal-Watcher/Manuell
+    # versucht es später automatisch erneut). Kein Deadlock: _run_makeover deployt NICHT über
+    # _run_deploy.
+    if not _makeover_gate.acquire(timeout=30):
+        _set(job_id, status="done")
+        _step(job_id, 100, f"Deploy verschoben — es läuft gerade ein Makeover "
+                           f"('{_makeover_name or 'eine Seite'}'). Wird automatisch erneut versucht.")
+        return
+    _prev_mname = _makeover_name
+    _makeover_name = f"Deploy: {name}"
     try:
         target = Path(folder)
         if not target.is_dir():
@@ -1154,6 +1167,12 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
             import logger
             logger.error("Webseite", f"✕ Job '{name}' abgebrochen: {type(e).__name__}: {str(e)[:180]}")
             logger.error("Webseite", "Traceback: " + traceback.format_exc().strip().replace("\n", " | ")[-500:])
+        except Exception:
+            pass
+    finally:
+        _makeover_name = _prev_mname
+        try:
+            _makeover_gate.release()
         except Exception:
             pass
 

@@ -16,9 +16,17 @@ Dashboard: http://localhost:5000 · Server-/Dauerbetrieb: `python serve.py` (wai
 
 Beim Start laufen automatisch an:
 - **Auto-Builder** (wenn vorher aktiv → setzt fort; sonst per Dashboard „Start").
-- **Live-Watcher** (immer): prüft alle ~120 s jede Seite per HTTP, heilt 404 selbst.
+- **Live-Watcher / Heal-Mode** (immer): prüft alle ~120 s jede Seite per HTTP, setzt das
+  live-Flag ehrlich und deployt kaputte lokale Seiten automatisch neu (eine nach der anderen,
+  600 s Cooldown). **Redeploy und Makeover schließen sich über denselben Lock aus** → keine
+  Git-Kollision; ein Deploy während eines Makeovers wird sauber verschoben und später erneut
+  versucht.
 - **Discord-Bot** (wenn Token/Kanal gesetzt): Freigabe-Voting + 12-Uhr-Versand.
 - **Demo-Teardown**: nicht verkaufte Demos nach `JARVIS_DEMO_TEARDOWN_DAYS` (7) ab.
+
+Die **Home-Seite** zeigt jetzt alles auf einen Blick: Testphasen-Banner mit Reifegrad-Balken
+und „Fortschritt aktualisieren"-Button, ein Fähigkeits-Grid („Was jetzt alles gebaut ist",
+mit Icons), die Live-Pipeline-Grafik und den 7-Schritt-Workflow mit Status.
 
 ---
 

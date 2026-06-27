@@ -687,9 +687,39 @@
       </div>
     </div>
 
+    <!-- ══ TESTPHASE-BANNER ══ -->
+    <div class="testphase">
+      <div class="tp-left">
+        <span class="tp-badge">🧪 Finale Testphase</span>
+        <div class="tp-title">System komplett gebaut — jetzt im Dauertest</div>
+        <div class="tp-sub">Alle 7 Schritte laufen autonom durch. Läuft es stabil, nur noch SMTP scharf schalten — dann verdient es Geld.</div>
+        <div class="tp-progress"><div class="tp-progress-fill" id="tp-progress-fill" style="width:0%"></div></div>
+        <div class="tp-progress-lbl" id="tp-progress-lbl">Reifegrad wird berechnet …</div>
+      </div>
+      <div class="tp-right">
+        <button class="tp-btn" onclick="loadHome()">↻ Fortschritt aktualisieren</button>
+        <a class="tp-btn ghost" href="#" onclick="showPage('websites');return false;">🌐 Seiten ansehen</a>
+      </div>
+    </div>
+
+    <!-- ══ WAS JETZT ALLES GEBAUT IST (Fähigkeiten) ══ -->
+    <div class="feat-head">Was jetzt alles gebaut ist</div>
+    <div class="feat-grid">
+      <div class="feat-card"><div class="feat-ic">🏭</div><div class="feat-tx"><b>Auto-Builder</b><span>3 Bau-Sessions/Tag × 5 = bis zu 15 Seiten — voll automatisch</span></div></div>
+      <div class="feat-card"><div class="feat-ic">🛠️</div><div class="feat-tx"><b>Selbstheilung (Heal-Mode)</b><span>Live-Watcher prüft jede Seite alle ~2 Min und deployt tote Links selbst neu</span></div></div>
+      <div class="feat-card"><div class="feat-ic">🎨</div><div class="feat-tx"><b>Eigene Marke</b><span>Eigene Seiten bauen — zählen im selben Tagesrhythmus mit</span></div></div>
+      <div class="feat-card"><div class="feat-ic">✉️</div><div class="feat-tx"><b>Seriöse Angebotsmail</b><span>Betont selbst gebautes Design, Bilder, Animationen & laufende Betreuung</span></div></div>
+      <div class="feat-card"><div class="feat-ic">🔎</div><div class="feat-tx"><b>Kontakt-Finder</b><span>Findet die Kunden-E-Mail aktiv (Impressum/Kontakt) schon beim Bau</span></div></div>
+      <div class="feat-card"><div class="feat-ic">🗳️</div><div class="feat-tx"><b>Discord-Freigabe</b><span>1× 👍 gibt frei, 1× 👎 verwirft — 12-Uhr-Versand mit Einzel-Report</span></div></div>
+      <div class="feat-card"><div class="feat-ic">📈</div><div class="feat-tx"><b>Hochskalieren-bereit</b><span>Hardware-Empfehlung + Knöpfe für Sessions, Seiten & lokale KI</span></div></div>
+      <div class="feat-card"><div class="feat-ic">🖼️</div><div class="feat-tx"><b>Medien-Studio</b><span>Hero-Bilder & Werbevideos via Higgsfield-Abo, lokal-first</span></div></div>
+      <div class="feat-card"><div class="feat-ic">☁️</div><div class="feat-tx"><b>Cloud-Sync</b><span>Leads & Seiten über Supabase über mehrere PCs hinweg</span></div></div>
+      <div class="feat-card"><div class="feat-ic">⚖️</div><div class="feat-tx"><b>Rechtssicher</b><span>Impressum, Ein-Klick-Abmeldung & Opt-out in jeder Mail</span></div></div>
+    </div>
+
     <!-- ══ PIPELINE (dynamisch) ══ -->
     <div class="ov-flow-wrap">
-      <div class="ov-flow-title">Pipeline</div>
+      <div class="ov-flow-title">So funktioniert es — die Pipeline</div>
       <div class="ov-flow" id="home-pipeline">
         <div class="ofn done"><span class="ofn-num">1</span><span class="ofn-lbl">Leads</span></div>
         <span class="ofn-arr done">→</span>
@@ -737,10 +767,11 @@
           <div class="goal-col-h">✓ Läuft vollautomatisch</div>
           <ul>
             <li>Leads finden, bewerten, Preis vergeben</li>
-            <li>Webseite bauen (7/Tag, 2× täglich) + live schalten</li>
-            <li>Premium-Makeover in einem Durchgang</li>
-            <li>Freigabe über Discord (👍/👎)</li>
-            <li>Angebot per E-Mail (Discord-Freigabe → Versand)</li>
+            <li>Webseiten bauen — bis 15/Tag (3×5) + Eigene-Marke</li>
+            <li>Premium-Makeover (7 Skill-Stufen) in einem Durchgang</li>
+            <li>Kontakt-E-Mail automatisch finden (schon beim Bau)</li>
+            <li>Selbstheilung: tote Links automatisch neu deployen</li>
+            <li>Freigabe über Discord (👍/👎) + 12-Uhr-Versand-Report</li>
             <li>Alte Demos automatisch nach 7 Tagen abbauen</li>
           </ul>
         </div>
@@ -756,7 +787,7 @@
       </div>
       <div class="goal-note">
         Das System bringt dich automatisch bis „Angebot versandt". Den Rest — Zustellbarkeit und erster Verkauf — geht ein Mensch. Danach ist alles Wiederholung bei nahezu null Stückkosten.
-        <b>Beispiel: 1.000 Angebote × 1 % × 350 € = 3.500 €.</b>
+        <b>Beispiel: 1.000 Angebote × 1 % × fairer Erstpreis = solider Nebenverdienst.</b>
       </div>
     </div>
 
@@ -776,7 +807,7 @@
 
       <div class="ov-step">
         <div class="ov-step-top"><span class="ov-num">3</span><span class="ov-step-title">Webseite bauen</span><span class="ov-badge done">Fertig</span></div>
-        <div class="ov-now">Django-Landingpage mit Hero-Bild (Higgsfield), WhatsApp/E-Mail/Anruf-CTAs, Recht + WVM-Credit → Deploy auf Railway. 7 Seiten/Session, 2 Sessions/Tag.</div>
+        <div class="ov-now">Django-Landingpage mit Hero-Bild (Higgsfield), WhatsApp/E-Mail/Anruf-CTAs, Recht + WVM-Credit → Deploy auf Railway. <b>5 Seiten/Session × 3 Sessions/Tag = bis 15/Tag</b> (10–20 bei Limit). Eigene-Marke-Seiten zählen mit. Selbstheilung (Live-Watcher) deployt tote Links automatisch neu.</div>
       </div>
 
       <div class="ov-step">
@@ -791,13 +822,13 @@
 
       <div class="ov-step">
         <div class="ov-step-top"><span class="ov-num">6</span><span class="ov-step-title">Angebots-Mail</span><span class="ov-badge partial" id="step6-badge">Teilweise</span></div>
-        <div class="ov-now">Menschliche Mail mit Live-Link, Tier-Preis, rechtssicherem Footer (Impressum, Abmelde-Link, Opt-out). Trockenlauf-Schalter sichert ab. <span id="step6-sent-info"></span></div>
+        <div class="ov-now">Seriöse, persönliche Mail mit Live-Link: betont <b>komplett selbst gebautes Design, Farben & Bilder</b>, dezente Animationen, volle Anpassung und <b>laufende Betreuung</b>. Kein Festpreis (kostenlose Demo, fairer Preis bei Zusammenarbeit). Rechtssicherer Footer (Impressum, Abmelde-Link, Opt-out). <span id="step6-sent-info"></span></div>
         <div class="ov-todo"><b>Offen:</b> SMTP einrichten + scharf schalten (SPF/DKIM/DMARC).</div>
       </div>
 
       <div class="ov-step">
         <div class="ov-step-top"><span class="ov-num">7</span><span class="ov-step-title">Abschluss + Zahlung</span><span class="ov-badge todo">Offen</span></div>
-        <div class="ov-now">Antworten landen im Postfach — Abschluss, Rechnung und Übergabe manuell. Bei 350 € ist ein menschlicher Abschluss sogar von Vorteil.</div>
+        <div class="ov-now">Antworten landen im Postfach — Abschluss, Rechnung und Übergabe manuell. Bei einem fairen Erstauftrag ist ein menschlicher Abschluss sogar von Vorteil.</div>
       </div>
 
     </div>

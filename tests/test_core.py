@@ -797,6 +797,38 @@ def test_contact_finder_extrahiert_email(monkeypatch):
     assert res["ansprechpartner"] == "Anna Beispiel" and res["website"] == "https://betrieb.de"
 
 
+def test_deploy_respects_makeover_gate(tmp_path, monkeypatch):
+    # Heal-Redeploy darf NICHT gleichzeitig mit einem Makeover am selben Git-Repo laufen:
+    # ist der Makeover-Gate belegt, verschiebt _run_deploy sauber (kein _deploy_folder-Aufruf).
+    import website_builder as wb
+    folder = tmp_path / "web_x"; folder.mkdir()
+    (folder / "content.json").write_text('{"site_name":"X"}', encoding="utf-8")
+    calls = {"deploy": 0}
+    monkeypatch.setattr(wb, "_deploy_folder",
+                        lambda *a, **k: (calls.__setitem__("deploy", calls["deploy"] + 1) or
+                                         {"railway_log": "", "repo_url": "", "live_url": "",
+                                          "live_ok": False, "railway_note": "ok"}))
+    monkeypatch.setattr(wb, "_sync_push", lambda *a, **k: None)
+    monkeypatch.setattr(wb, "_persist", lambda *a, **k: None)
+    monkeypatch.setattr(wb, "_django_secret_key", lambda: "k")
+    jid = "testdeploygate"
+    wb._jobs[jid] = {"id": jid, "status": "queued", "progress": 0, "step": ""}
+    try:
+        assert wb._makeover_gate.acquire(blocking=False)      # „Makeover läuft"
+        try:
+            wb._run_deploy(jid, str(folder), "X")
+        finally:
+            wb._makeover_gate.release()
+        assert calls["deploy"] == 0
+        assert "verschoben" in wb._jobs[jid].get("step", "").lower()
+        # Gate frei → Deploy läuft normal durch.
+        wb._run_deploy(jid, str(folder), "X")
+        assert calls["deploy"] == 1
+        assert not wb._makeover_gate.locked()                 # Gate sauber freigegeben
+    finally:
+        wb._jobs.pop(jid, None)
+
+
 def test_auto_builder_sessions(monkeypatch):
     import auto_builder
     # Explizite Session-Fenster gewinnen und werden sortiert.

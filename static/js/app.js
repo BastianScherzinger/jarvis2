@@ -1682,14 +1682,15 @@ function _renderHomeBuilderPanel(ab) {
     dot.className  = 'hm-dot running';
     const phase    = ab.phase   || 'läuft';
     const today    = ab.today_count ?? 0;
-    const limit    = ab.daily_limit ?? 7;
-    const pct      = Math.min(100, Math.round(today / limit * 100));
+    const limit    = ab.daily_limit ?? 5;
+    const pct      = Math.min(100, Math.round(today / Math.max(1, limit) * 100));
     lbl.textContent  = `Auto-Builder aktiv · ${phase}`;
     if(fill) fill.style.width = pct + '%';
     if(cnt)  cnt.textContent  = `${today} / ${limit}`;
     if(sess) {
-      const h = new Date().getHours();
-      sess.textContent = h < 12 ? 'AM-Session' : 'PM-Session';
+      // Session-Key '{datum}_s{n}' → "Session n/3"; Fallback aus der Uhrzeit.
+      const m = /_s(\d+)$/.exec(ab.session || '');
+      sess.textContent = m ? `Session ${m[1]}` : 'Session';
     }
   } else {
     dot.className    = 'hm-dot idle';
@@ -1777,6 +1778,21 @@ function _renderHomeProgress(d) {
       gt.textContent = `${live} Seite${live>1?'n':''} live — SMTP einrichten und erstes Angebot rausschicken.`;
     else
       gt.textContent = 'Technik läuft — SMTP einrichten und ersten Testlauf starten.';
+  }
+
+  // Testphasen-Reifegrad (Banner): alle Module gebaut (Basis 80) + live (+10) + Echtversand (+10)
+  const tpFill = document.getElementById('tp-progress-fill');
+  const tpLbl  = document.getElementById('tp-progress-lbl');
+  if(tpFill){
+    const maturity = Math.min(100, 80 + (live > 0 ? 10 : 0) + (sent > 0 ? 10 : 0));
+    tpFill.style.width = maturity + '%';
+    if(tpLbl){
+      let s = `Reifegrad ${maturity} % · alle Module gebaut & getestet`;
+      if(sent > 0)      s += ` · ${sent} Angebot${sent>1?'e':''} live versandt`;
+      else if(live > 0) s += ` · ${live} Seite${live>1?'n':''} live · nur noch SMTP scharf schalten`;
+      else              s += ` · SMTP scharf schalten für den Echtversand`;
+      tpLbl.textContent = s;
+    }
   }
 }
 

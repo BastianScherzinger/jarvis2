@@ -2228,6 +2228,48 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 }
 .hm-session-cnt{ font-size:11.5px; color:var(--tx2); font-family:var(--fm); flex-shrink:0; }
 
+/* ── Testphase-Banner ─────────────────────────────────────────────────────── */
+.testphase{
+  display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap;
+  background:linear-gradient(135deg, rgba(255,196,0,.10), rgba(13,20,32,.6));
+  border:1px solid rgba(255,196,0,.28); border-radius:16px; padding:20px 24px;
+}
+.tp-left{ flex:1; min-width:260px; }
+.tp-badge{
+  display:inline-block; font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  color:#ffc400; background:rgba(255,196,0,.12); border:1px solid rgba(255,196,0,.3);
+  border-radius:999px; padding:4px 12px; margin-bottom:10px;
+}
+.tp-title{ font-family:var(--fh); font-size:19px; font-weight:800; color:var(--tx); margin-bottom:6px; }
+.tp-sub{ font-size:13.5px; line-height:1.6; color:var(--tx2); margin-bottom:12px; max-width:70ch; }
+.tp-progress{ height:8px; border-radius:8px; background:var(--bg3); border:1px solid var(--bdr2); overflow:hidden; }
+.tp-progress-fill{ height:100%; border-radius:8px; background:linear-gradient(90deg,#ffc400,var(--g)); transition:width .6s ease-out; }
+.tp-progress-lbl{ font-size:11.5px; color:var(--tx3); margin-top:6px; font-family:var(--fm); }
+.tp-right{ display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
+.tp-btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;
+  font-size:12.5px; font-weight:700; color:#04121f; text-decoration:none;
+  background:linear-gradient(90deg,var(--c),#5fd0ff); border:none; border-radius:9px; padding:9px 16px;
+  transition:transform .15s, box-shadow .15s;
+}
+.tp-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,212,255,.3); }
+.tp-btn.ghost{ background:transparent; color:var(--tx2); border:1px solid var(--bdr2); }
+.tp-btn.ghost:hover{ box-shadow:none; color:var(--tx); border-color:var(--c); }
+
+/* ── Was ist gebaut (Fähigkeiten-Grid) ────────────────────────────────────── */
+.feat-head{ font-family:var(--fh); font-size:15px; font-weight:800; letter-spacing:.04em; color:var(--tx); margin-top:6px; }
+.feat-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:12px; }
+.feat-card{
+  display:flex; align-items:flex-start; gap:12px;
+  background:rgba(13,20,32,.6); border:1px solid var(--bdr2); border-radius:12px; padding:14px 16px;
+  transition:border-color .2s, transform .15s;
+}
+.feat-card:hover{ border-color:var(--c); transform:translateY(-2px); }
+.feat-ic{ font-size:22px; line-height:1; flex-shrink:0; }
+.feat-tx{ display:flex; flex-direction:column; gap:3px; }
+.feat-tx b{ font-size:13.5px; color:var(--tx); }
+.feat-tx span{ font-size:12px; line-height:1.5; color:var(--tx3); }
+
 /* ── Programm-Übersicht (Home) ────────────────────────────────────────────── */
 .ov{ display:flex; flex-direction:column; gap:18px; }
 .ov-intro{
