@@ -114,10 +114,14 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
         f"ich bin {wvm['person']}, ein junger Entwickler der Firma {wvm['name']} aus Österreich. "
         f"Ich bin auf {name}{region} gestoßen und habe Ihnen einfach mal eine moderne, "
         f"professionelle Webseite gebaut – komplett kostenlos und unverbindlich.\n\n"
+        f"Das Besondere: Ich baue alles selbst und von Hand. Das Layout, das Design, die Farben "
+        f"und sogar die Bilder habe ich eigens für {name} erstellt – kein Baukasten, keine "
+        f"Vorlage, keine Stockfotos von der Stange. Jede Seite ist ein Einzelstück.\n\n"
         f"{linkblock}"
         f"Wenn sie Ihnen gefällt, arbeite ich gerne mit Ihnen zusammen und baue Ihnen für einen "
         f"sehr fairen Preis eine hochwertige Webseite, individuell auf {fach} zugeschnitten – "
-        f"mit Ihren Texten, Farben und Bildern. Gefällt sie nicht, kostet es Sie nichts.\n\n"
+        f"komplett selbst gestaltet, mit eigenem Design, abgestimmten Farben und eigens für Sie "
+        f"erstellten Bildern. Gefällt sie nicht, kostet es Sie nichts.\n\n"
         f"Meine Referenzen und Kundenerfahrungen sehen Sie auf {wvm['shop']}. Die Abrechnung "
         f"läuft seriös über die Firma {wvm['name']} ({wvm['domain']}).\n\n"
         f"Antworten Sie einfach kurz auf diese Mail, dann besprechen wir alles Weitere.\n\n"
@@ -186,7 +190,8 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
       <h1 style="margin:0;font-size:27px;line-height:1.22;font-weight:800">{e_name}<br>ist startklar.</h1>
       <p style="margin:14px 0 0;font-size:15px;line-height:1.6;color:#c4d4e6">
         {e_anrede} ich bin {e_wvm_person}, ein junger Entwickler der Firma {e_wvm_name} aus Österreich,
-        und habe {e_name}{e_region} eine moderne Webseite gebaut — komplett kostenlos. Sehen Sie selbst,
+        und habe {e_name}{e_region} eine moderne Webseite gebaut — komplett kostenlos und von Hand:
+        Design, Farben und sogar die Bilder eigens für Sie erstellt. Sehen Sie selbst,
         wie Ihr Betrieb online wirken könnte:</p>
       {cta_html}
     </div>
@@ -194,8 +199,9 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     <div style="background:#fff;border-radius:0 0 20px 20px;padding:30px 32px;box-shadow:0 14px 44px rgba(11,22,38,.12)">
       <ul style="margin:0 0 22px;padding:0;list-style:none;font-size:15px;line-height:1.75;color:#2c3743">
         <li style="margin-bottom:7px">✅ Die fertige Webseite ist <strong>komplett kostenlos</strong> — einfach ansehen</li>
+        <li style="margin-bottom:7px">✅ <strong>Alles selbst von Hand gebaut</strong> — individuelles Design, abgestimmte Farben und eigens für {e_name} erstellte Bilder. Kein Baukasten, keine Vorlage, keine Stockfotos</li>
         <li style="margin-bottom:7px">✅ Gefällt sie Ihnen, baue ich Ihnen für einen <strong>sehr fairen Preis</strong> eine hochwertige, individuelle Seite für {e_fach}</li>
-        <li style="margin-bottom:7px">✅ Alles anpassbar — Texte, Farben, Bilder, eigene Domain</li>
+        <li style="margin-bottom:7px">✅ Komplett anpassbar — Texte, Farben, Bilder, eigene Domain</li>
         <li>✅ Unverbindlich: gefällt sie nicht, kostet es Sie nichts</li>
       </ul>
       <div style="border-left:3px solid #1e8eff;background:#f7faff;padding:12px 16px;border-radius:0 10px 10px 0;margin:0 0 22px;font-size:14.5px;color:#3a4654;line-height:1.6">
