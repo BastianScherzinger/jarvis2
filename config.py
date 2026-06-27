@@ -1,11 +1,47 @@
 import os
 from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
-except ImportError:
-    pass   # python-dotenv optional — .env wird auch manuell gelesen
+
+def _load_env() -> None:
+    """Lädt .env robust gegen die Datei-Kodierung. Wird die .env in einem Windows-Editor
+    gespeichert, ist sie oft cp1252 (ANSI) statt UTF-8 — `python-dotenv` liest aber UTF-8 und
+    macht aus Umlauten (ä/ö/ü/ß) sonst kaputte Zeichen (z.B. im Impressum der Kundenmails).
+    Darum dekodieren wir die Bytes selbst (UTF-8, sonst cp1252) und füttern den Text in dotenv.
+    Bestehende Umgebungsvariablen werden NICHT überschrieben (wie load_dotenv-Default)."""
+    p = Path(__file__).parent / ".env"
+    if not p.exists():
+        return
+    raw = p.read_bytes()
+    text = None
+    for enc in ("utf-8", "cp1252"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = raw.decode("utf-8", "replace")
+    try:
+        from io import StringIO
+        from dotenv import dotenv_values
+        for k, v in dotenv_values(stream=StringIO(text)).items():
+            if v is not None and k not in os.environ:
+                os.environ[k] = v
+        return
+    except ImportError:
+        pass
+    # Manueller Fallback, falls python-dotenv fehlt.
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_env()
 
 
 def get_api_key() -> str:
