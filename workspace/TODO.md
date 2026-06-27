@@ -1,4 +1,25 @@
-# JARVIS — TODO / Offene Punkte (Stand 23.06.2026)
+# JARVIS — TODO / Offene Punkte (Stand 27.06.2026)
+
+## ✅ PROJEKT ABGESCHLOSSEN (27.06.2026) — finale Testphase
+Betriebsbereit. Übergabe/Handbuch: `workspace/PROJEKT_ABSCHLUSS.md`.
+- [x] **3×5 = 15 Seiten/Tag** (3 Bau-Sessions, Fenster `0,12,18`), Eigene-Marke zählt mit.
+- [x] **12-Uhr-Report einmalig + schön** (Tages-Latch, kein Doppelpost; Embed mit Name +
+      Live-Link + „verschickt an"); Verabschiedung ehrlich (makeovert vs. versendet/wartend).
+- [x] **Bessere E-Mail-Findung** (Kontaktseiten-Scan/mailto, info@-Ranking, Domain-Schätzung;
+      schon beim Bau, nicht erst beim Versand).
+- [x] **Angebotsmail komplett seriös + verkaufsstark**: betont selbst gebautes Design/Farben/
+      Bilder, Animationen, volle Anpassung/Erweiterung **und laufende Betreuung** (fester
+      Ansprechpartner). Emoji-arm, rechtssicherer Footer.
+- [x] **Hochskalieren bereit**: Env-Knöpfe + `auto_builder.scaling_info()` +
+      `GET /api/auto-build/scaling`.
+- [x] **Bugfrei verifiziert**: 101 Tests grün, compile-all OK.
+
+> **Nur noch manuell (kein Code):** siehe `PROJEKT_ABSCHLUSS.md` Abschnitt 5
+> (EMAIL_REDIRECT leeren, SMTP scharf, PUBLIC_URL, 2.-PC-Update, GitHub/Railway-Scopes).
+
+---
+
+## Alt-Historie (Stand 23.06.2026)
 
 ## Erledigt 23.06. (Video-Cloud-Auto-Fallback)
 - [x] **Kein GPU-Video-Fehler mehr:** `generate_video` mit `JARVIS_VIDEO_BACKEND`

@@ -121,7 +121,12 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
         f"Wenn sie Ihnen gefällt, arbeite ich gerne mit Ihnen zusammen und baue Ihnen für einen "
         f"sehr fairen Preis eine hochwertige Webseite, individuell auf {fach} zugeschnitten – "
         f"komplett selbst gestaltet, mit eigenem Design, abgestimmten Farben und eigens für Sie "
-        f"erstellten Bildern. Gefällt sie nicht, kostet es Sie nichts.\n\n"
+        f"erstellten Bildern.\n\n"
+        f"Selbstverständlich passe ich alles ganz nach Ihren Wünschen an – auf Wunsch mit "
+        f"hochwertigen, dezenten Animationen, jederzeit erweiterbar um neue Inhalte und Funktionen. "
+        f"Und ich lasse Sie damit nicht allein: Ich betreue Ihre Webseite auch danach laufend – "
+        f"Pflege, technische Wartung, Aktualisierungen und Änderungen übernehme ich zuverlässig "
+        f"für Sie. Sie haben einen festen Ansprechpartner. Gefällt sie nicht, kostet es Sie nichts.\n\n"
         f"Meine Referenzen und Kundenerfahrungen sehen Sie auf {wvm['shop']}. Die Abrechnung "
         f"läuft seriös über die Firma {wvm['name']} ({wvm['domain']}).\n\n"
         f"Antworten Sie einfach kurz auf diese Mail, dann besprechen wir alles Weitere.\n\n"
@@ -154,9 +159,9 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
 
     cta_html = (
         f"""<p style="margin:22px 0 6px">
-        <a href="{e_url}" style="display:inline-block;background:#1e8eff;color:#fff;font-weight:700;font-size:16px;padding:15px 34px;border-radius:999px;text-decoration:none;box-shadow:0 8px 22px rgba(30,142,255,.45)">🌐 Webseite ansehen →</a>
+        <a href="{e_url}" style="display:inline-block;background:#1e8eff;color:#fff;font-weight:700;font-size:16px;padding:15px 34px;border-radius:10px;text-decoration:none;box-shadow:0 8px 22px rgba(30,142,255,.35)">Webseite ansehen →</a>
       </p>
-      <p style="margin:10px 0 0;font-size:12px;color:#8fa6c0">Komplett kostenlos · unverbindlich · in 10 Sekunden offen</p>"""
+      <p style="margin:10px 0 0;font-size:12px;color:#8fa6c0">Komplett kostenlos und unverbindlich</p>"""
         if url else
         """<p style="margin:18px 0 0;font-size:14px;color:#c4d4e6">Antworten Sie kurz auf diese Mail — ich sende Ihnen den Live-Link sofort zu.</p>"""
     )
@@ -198,11 +203,12 @@ def build(name: str, link: str, branche: str = "", stadt: str = "",
     <!-- Body -->
     <div style="background:#fff;border-radius:0 0 20px 20px;padding:30px 32px;box-shadow:0 14px 44px rgba(11,22,38,.12)">
       <ul style="margin:0 0 22px;padding:0;list-style:none;font-size:15px;line-height:1.75;color:#2c3743">
-        <li style="margin-bottom:7px">✅ Die fertige Webseite ist <strong>komplett kostenlos</strong> — einfach ansehen</li>
-        <li style="margin-bottom:7px">✅ <strong>Alles selbst von Hand gebaut</strong> — individuelles Design, abgestimmte Farben und eigens für {e_name} erstellte Bilder. Kein Baukasten, keine Vorlage, keine Stockfotos</li>
-        <li style="margin-bottom:7px">✅ Gefällt sie Ihnen, baue ich Ihnen für einen <strong>sehr fairen Preis</strong> eine hochwertige, individuelle Seite für {e_fach}</li>
-        <li style="margin-bottom:7px">✅ Komplett anpassbar — Texte, Farben, Bilder, eigene Domain</li>
-        <li>✅ Unverbindlich: gefällt sie nicht, kostet es Sie nichts</li>
+        <li style="margin-bottom:9px"><span style="color:#1e8eff;font-weight:700">✓</span> Die fertige Webseite ist <strong>komplett kostenlos</strong> — Sie sehen sie einfach an</li>
+        <li style="margin-bottom:9px"><span style="color:#1e8eff;font-weight:700">✓</span> <strong>Alles selbst von Hand gebaut</strong> — individuelles Design, abgestimmte Farben und eigens für {e_name} erstellte Bilder. Kein Baukasten, keine Vorlage, keine Stockfotos</li>
+        <li style="margin-bottom:9px"><span style="color:#1e8eff;font-weight:700">✓</span> <strong>Lebendig und modern</strong> — auf Wunsch mit hochwertigen, dezenten Animationen</li>
+        <li style="margin-bottom:9px"><span style="color:#1e8eff;font-weight:700">✓</span> <strong>Jederzeit erweiterbar und voll anpassbar</strong> — Texte, Farben, Bilder, neue Funktionen, eigene Domain</li>
+        <li style="margin-bottom:9px"><span style="color:#1e8eff;font-weight:700">✓</span> <strong>Laufende Betreuung</strong> — Pflege, technische Wartung und Änderungen übernehme ich für Sie. Sie haben einen festen Ansprechpartner</li>
+        <li><span style="color:#1e8eff;font-weight:700">✓</span> Bei Interesse baue ich Ihnen die finale Seite für einen <strong>sehr fairen Preis</strong>, individuell für {e_fach} — unverbindlich, gefällt sie nicht, kostet es Sie nichts</li>
       </ul>
       <div style="border-left:3px solid #1e8eff;background:#f7faff;padding:12px 16px;border-radius:0 10px 10px 0;margin:0 0 22px;font-size:14.5px;color:#3a4654;line-height:1.6">
         Meine Referenzen und Kundenerfahrungen finden Sie auf
