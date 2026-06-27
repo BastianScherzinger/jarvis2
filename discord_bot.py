@@ -70,6 +70,35 @@ def enabled() -> bool:
     return _HAS_DISCORD and bool(_token()) and _channel_id() > 0
 
 
+# ── Mittags-Report-Latch: Report nur EINMAL pro Tag posten ─────────────────────
+# Verhindert den doppelten 12-Uhr-Report (z.B. wenn die App um 12 Uhr neu startet und der
+# tasks.loop erneut feuert). Persistiert das letzte Report-Datum lokal.
+from pathlib import Path as _Path
+_NOON_STATE = _Path(__file__).parent / "data" / "noon_state.json"
+
+
+def _noon_ran_today() -> bool:
+    try:
+        import json as _j
+        from datetime import date as _d
+        data = _j.loads(_NOON_STATE.read_text(encoding="utf-8"))
+        return data.get("date") == _d.today().isoformat()
+    except Exception:
+        return False
+
+
+def _mark_noon_ran() -> None:
+    try:
+        import json as _j
+        from datetime import date as _d
+        _NOON_STATE.parent.mkdir(parents=True, exist_ok=True)
+        _NOON_STATE.write_text(_j.dumps({"date": _d.today().isoformat(),
+                                         "ts": __import__("time").time()}, ensure_ascii=False),
+                               encoding="utf-8")
+    except Exception:
+        pass
+
+
 def status() -> dict:
     return {
         "has_lib": _HAS_DISCORD, "enabled": enabled(), "running": _started,
@@ -319,6 +348,7 @@ def send_approved_now() -> dict:
         todo = rq.approved_unsent()
         sent, failed, lines = 0, 0, []
         sent_reviews = []
+        sent_items, failed_items = [], []
         for r in todo:
             # Pro Review erneut prüfen, ob er noch sendebereit ist (nicht zwischenzeitlich gesendet).
             cur = rq.get(r["id"])
@@ -326,19 +356,28 @@ def send_approved_now() -> dict:
                 continue
             ok, info = _send_one_real(r)
             rq.mark_sent(r["id"], ok, info)
+            # Empfänger-Anzeige: Einzeladresse oder „N Empfänger" im Custom-Modus.
+            rec   = r.get("recipients") or []
+            to_disp = (f"{len(rec)} Empfänger" if rec else (r.get("email") or "—"))
+            item = {"name": r.get("name", "?"), "link": (r.get("link") or "").strip(),
+                    "email": to_disp, "branche": r.get("branche", ""),
+                    "stadt": r.get("stadt", ""), "info": info}
             if ok:
                 sent += 1
-                lines.append(f"✅ {r.get('name','?')} → {r.get('email','?')}")
+                lines.append(f"✅ {item['name']} → {to_disp}")
                 _archive_lead_after_send(r)          # Lead archivieren → kein Neubau
                 sent_reviews.append(r)
+                sent_items.append(item)
             else:
                 failed += 1
-                lines.append(f"⚠️ {r.get('name','?')}: {info}")
+                lines.append(f"⚠️ {item['name']}: {info}")
+                failed_items.append(item)
         logger.info("Discord", f"{_send_hour()}-Uhr-Versand: {sent} gesendet, {failed} übersprungen")
         # Verschickte Seiten jetzt im Hintergrund auf 1A-Premium-Standard heben (Master-Prompt).
         if sent_reviews:
             _schedule_premium_after_send(sent_reviews)
-        return {"sent": sent, "failed": failed, "lines": lines, "total": len(todo)}
+        return {"sent": sent, "failed": failed, "lines": lines, "total": len(todo),
+                "sent_items": sent_items, "failed_items": failed_items}
     finally:
         _send_lock.release()
 
@@ -572,16 +611,57 @@ if _HAS_DISCORD:
             _diagnose_channel()                       # klare Meldung bei „Unknown Channel"
             await _send_startup_embed()
 
+    def _noon_report_embed(res: dict) -> "discord.Embed":
+        """Schöner Mittags-Report: pro versendeter Seite Name + klickbarer Live-Link +
+        Empfänger — man sieht direkt, was an Kunden rausging."""
+        sent  = res.get("sent", 0)
+        items = res.get("sent_items", [])
+        fails = res.get("failed_items", [])
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime("%d.%m.%Y · %H:%M")
+        color = 0x2ecc71 if sent else 0x95a5a6
+        e = discord.Embed(
+            title=f"📨 {_send_hour()}-Uhr-Versand — {sent} Webseite{'n' if sent != 1 else ''} an Kunden verschickt",
+            description=(f"🕐 {ts}\nDiese frisch freigegebenen Webseiten sind heute "
+                         f"an die echten Kunden rausgegangen:" if sent
+                         else f"🕐 {ts}\nKeine neuen Freigaben zum Versand."),
+            color=color)
+        for i, it in enumerate(items[:20], 1):
+            link = it.get("link", "")
+            name = it.get("name", "?")
+            head = f"[{name}]({link})" if link.startswith("http") else name
+            meta = " · ".join(x for x in (it.get("branche"), it.get("stadt")) if x)
+            val  = f"📬 verschickt an `{it.get('email','—')}`"
+            if link.startswith("http"):
+                val += f"\n🔗 {link}"
+            if meta:
+                val = f"{meta}\n{val}"
+            e.add_field(name=f"✅ {i}. {head}", value=val, inline=False)
+        if len(items) > 20:
+            e.add_field(name="…", value=f"und {len(items) - 20} weitere.", inline=False)
+        if fails:
+            fl = "\n".join(f"• {f.get('name','?')}: {f.get('info','—')}" for f in fails[:10])
+            e.add_field(name=f"⚠️ {len(fails)} offen / übersprungen", value=fl, inline=False)
+        e.set_footer(text="JARVIS LeadHunter · Freigabe per 👍 → Versand 12 Uhr an den Kunden")
+        return e
+
     @tasks.loop(time=dtime(hour=_send_hour(), minute=0))
     async def _noon_loop():
+        # Tages-Latch: Report nur EINMAL pro Tag (verhindert Doppel-Post bei Neustart um 12 Uhr).
+        if _noon_ran_today():
+            logger.info("Discord", "12-Uhr-Report heute bereits gepostet — übersprungen.")
+            return
+        _mark_noon_ran()
         res = await asyncio.to_thread(send_approved_now)
         try:
             ch = _bot.get_channel(_channel_id())
-            if ch and res["total"]:
-                head = f"📨 **{_send_hour()}-Uhr-Versand** — {res['sent']} gesendet, {res['failed']} offen"
-                await ch.send(head + ("\n" + "\n".join(res["lines"]) if res["lines"] else ""))
-        except Exception:
-            pass
+            if ch is None and _bot is not None:
+                ch = await _bot.fetch_channel(_channel_id())
+            # Nur posten, wenn es etwas zu berichten gibt (versendet ODER offene Freigaben).
+            if ch and (res.get("sent") or res.get("total")):
+                await ch.send(embed=_noon_report_embed(res))
+        except Exception as ex:
+            logger.warn("Discord", f"12-Uhr-Report fehlgeschlagen: {type(ex).__name__}")
 
 
 # ── Öffentliche API (vom Auto-Builder / app.py genutzt) ────────────────────────

@@ -194,6 +194,17 @@ def _watch_build(job_id: str) -> None:
          stages_done=_stages_done(folder),
          phase="Fertig — bereit zum Verbessern" if folder else "Fertig (lokal)")
     logger.success("CustomBuild", f"Custom-Build gebaut: {job_id} ({live or 'lokal'})")
+    # Im Tagesplan erfassen → zählt zum 3×5-Session-Rhythmus + erscheint im Mittags-Report.
+    try:
+        import auto_builder
+        import db_websites
+        cj  = _jobs.get(job_id) or {}
+        row = db_websites.get_by_job(job_id) or {}
+        auto_builder.record_custom(
+            cj.get("name", ""), row.get("stadt", ""), row.get("branche", ""),
+            live, row.get("kontakt_email", ""), folder)
+    except Exception as e:
+        logger.warn("CustomBuild", f"Tagesplan-Eintrag übersprungen: {type(e).__name__}")
 
 
 # ── Schritt 2: Verbessern (Skill-Makeover, wiederholbar) ──────────────────────

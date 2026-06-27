@@ -797,6 +797,73 @@ def test_contact_finder_extrahiert_email(monkeypatch):
     assert res["ansprechpartner"] == "Anna Beispiel" and res["website"] == "https://betrieb.de"
 
 
+def test_auto_builder_sessions(monkeypatch):
+    import auto_builder
+    # Explizite Session-Fenster gewinnen und werden sortiert.
+    monkeypatch.setenv("JARVIS_SESSION_HOURS", "0,12,18")
+    assert auto_builder._session_hours() == [0, 12, 18]
+    # Ohne Override: gleichmäßige Verteilung aus _SESSIONS_PER_DAY.
+    monkeypatch.delenv("JARVIS_SESSION_HOURS", raising=False)
+    monkeypatch.setattr(auto_builder, "_SESSIONS_PER_DAY", 3)
+    assert auto_builder._session_hours() == [0, 8, 16]
+    # Session-Key trägt das '_s{n}'-Suffix.
+    monkeypatch.setenv("JARVIS_SESSION_HOURS", "0,12,18")
+    assert "_s" in auto_builder._session()
+
+
+def test_auto_builder_keys_for_date():
+    import auto_builder
+    log = {"2026-06-27": [1], "2026-06-27_s1": [2], "2026-06-27_pm": [3],
+           "2026-06-26_s2": [4]}
+    keys = set(auto_builder._keys_for_date(log, "2026-06-27"))
+    assert keys == {"2026-06-27", "2026-06-27_s1", "2026-06-27_pm"}
+
+
+def test_auto_builder_record_custom(tmp_path, monkeypatch):
+    import auto_builder, db_websites
+    monkeypatch.setattr(auto_builder, "_LOG_PATH", tmp_path / "daily_builds.json")
+    fa = tmp_path / "web_marke"; fa.mkdir()
+    auto_builder.record_custom("Meine Marke", "Ulm", "Maler",
+                               "https://marke.de", "info@marke.de", str(fa))
+    # Erneuter Aufruf mit gleichem Ordner darf NICHT doppelt zählen (idempotent).
+    auto_builder.record_custom("Meine Marke", "Ulm", "Maler",
+                               "https://marke.de", "info@marke.de", str(fa))
+    monkeypatch.setattr(db_websites, "get_all",
+                        lambda *a, **k: [{"folder": str(fa), "archived": 0}])
+    assert auto_builder._count_today() == 1
+    names = [s["name"] for d in auto_builder.daily_log()["days"] for s in d["sites"]]
+    assert names.count("Meine Marke") == 1
+
+
+def test_contact_finder_ranking_und_filter():
+    import contact_finder
+    # noreply/postmaster werden gefiltert; info@ wird vor chef@ bevorzugt.
+    ranked = contact_finder._rank_emails(
+        ["noreply@x.de", "chef@x.de", "INFO@x.de", "postmaster@x.de"])
+    assert ranked == ["info@x.de", "chef@x.de"]
+    assert contact_finder._domain_of("https://www.Betrieb.de/impressum") == "betrieb.de"
+
+
+def test_contact_finder_domain_schaetzung(monkeypatch):
+    import contact_finder
+    import agents.evaluator.web_analyst as wa
+    # web_analyst findet Website aber KEINE E-Mail; Seiten-Scan liefert nichts →
+    # letzter Ausweg: info@<domain> als markierte Schätzung.
+    monkeypatch.setattr(wa, "analyze", lambda lead: {
+        "email_adresse": "", "email_alle": [], "discovered_website": "https://betrieb.de"})
+    monkeypatch.setattr(contact_finder, "_scan_pages", lambda url, limit=4: [])
+    res = contact_finder.find("Betrieb", "Ulm", "Maler")
+    assert res["ok"] and res["email"] == "info@betrieb.de" and res["geraten"] is True
+
+
+def test_discord_noon_latch(tmp_path, monkeypatch):
+    import discord_bot
+    monkeypatch.setattr(discord_bot, "_NOON_STATE", tmp_path / "noon_state.json")
+    assert discord_bot._noon_ran_today() is False
+    discord_bot._mark_noon_ran()
+    assert discord_bot._noon_ran_today() is True
+
+
 def test_auto_builder_pick_next_lead(monkeypatch):
     import db_evaluated, db_websites, auto_builder
     from leadkey import lead_key

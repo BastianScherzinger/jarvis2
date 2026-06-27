@@ -7,8 +7,11 @@
 
 ## 0. Grundprinzipien
 
-- **5 Seiten/Tag.** Werden Seiten gelöscht, füllt der Builder automatisch wieder auf 5 auf
-  (neue Leads, nie Doppelte — gelöschte Leads sind archiviert).
+- **3 × 5 = 15 Seiten/Tag.** 3 Bau-Sessions über den Tag verteilt (Default-Fenster `0,12,18`),
+  jede mit frischem Limit von 5. Ist das Limit erschöpft, füllt die nächste Session wieder auf
+  → 10–20 Seiten/Tag (untere Grenze bei Claude-Limit). Eigene-Marke-Seiten zählen mit.
+  Knöpfe: `JARVIS_SESSIONS_PER_DAY`, `JARVIS_DAILY_SITES`, `JARVIS_SESSION_HOURS`,
+  `JARVIS_LOCAL_CONCURRENCY` (0 = automatisch aus der Hardware).
 - **Dauer-Live-Check.** Jede Seite wird laufend geprüft, ob sie wirklich antwortet (HTTP 200,
   **kein 404**). 404/nicht erreichbar → automatisch neu deployen (Selbstheilung).
 - **Stufen-Pipeline pro Seite.** Stufe 1–4 laufen **lokal** (0 Claude-Tokens), Stufe 5 ist der

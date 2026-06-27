@@ -1227,6 +1227,14 @@ def api_autobuild_daily():
     return jsonify(auto_builder.daily_log())
 
 
+@app.route("/api/auto-build/scaling")
+def api_autobuild_scaling():
+    """Skalierungs-Empfehlung (Hochskalieren): aktive vs. hardware-empfohlene
+    Sessions/Seiten/lokale Parallelität."""
+    import auto_builder
+    return jsonify(auto_builder.scaling_info())
+
+
 # ── Eigene Marke (Custom-Build) ───────────────────────────────────────────────
 
 @app.route("/api/custom-build", methods=["POST"])

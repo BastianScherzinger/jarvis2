@@ -28,11 +28,17 @@ _BASTIAN = "bastian.scherzinger05@gmail.com"
 _BASE     = Path(__file__).parent
 _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
-_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "7") or "7")
+_DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
-# 2× täglich bauen: erste Session 00:00–_PM_START, zweite Session _PM_START–23:59.
-# Jede Session hat ihr eigenes Tageslimit (_DAILY_LIMIT). Default: Mittagsstart um 12:00.
-_PM_START      = int(os.environ.get("JARVIS_PM_START", "12") or "12")
+# N× täglich bauen (Default 3 Sessions × _DAILY_LIMIT = 15 Seiten/Tag). Jede Session hat ihr
+# eigenes Tageslimit; nach Ablauf des Session-Fensters startet die nächste Runde mit frischen 5.
+# So entstehen 10–20 Seiten/Tag (untere Grenze bei Limit-Erschöpfung). Fenster über
+# JARVIS_SESSION_HOURS (z.B. "0,12,18"); sonst gleichmäßig über den Tag verteilt.
+_SESSIONS_PER_DAY = max(1, int(os.environ.get("JARVIS_SESSIONS_PER_DAY", "3") or "3"))
+_PM_START      = int(os.environ.get("JARVIS_PM_START", "12") or "12")  # Legacy (2-Session-Kompat)
+# Lokale-KI-Parallelität (für Hochskalieren): wie viele lokale Sub-Tasks gleichzeitig laufen
+# dürfen. 0 = automatisch aus der Hardware ableiten (siehe scaling_info()).
+_LOCAL_CONCURRENCY = int(os.environ.get("JARVIS_LOCAL_CONCURRENCY", "0") or "0")
 # Die Cutoff-Stunde ist ein Konzept für den unbeaufsichtigten Dauerbetrieb. Ein
 # MANUELLER Start soll sofort arbeiten — sonst „passiert nichts", wenn Sir den
 # Builder tagsüber startet. Mit JARVIS_IMPROVE_RESPECT_CUTOFF=1 gilt wieder die
@@ -132,7 +138,9 @@ def start(_resume: bool = False) -> dict:
         _nstages = 3
     logger.info("AutoBuilder",
                 ("fortgesetzt" if _resume else "gestartet")
-                + f" — {_DAILY_LIMIT} Seiten/Tag, Makeover {_nstages} Stufen/Seite")
+                + f" — {_SESSIONS_PER_DAY}×{_DAILY_LIMIT} = {_SESSIONS_PER_DAY * _DAILY_LIMIT} "
+                + f"Seiten/Tag (Sessions {_session_hours()}), Makeover {_nstages} Stufen/Seite, "
+                + f"lokale Parallelität {local_concurrency()}")
     return {"ok": True}
 
 
@@ -166,11 +174,44 @@ def _today() -> str:
     return date.today().isoformat()
 
 
-def _session() -> str:
-    """Aktuelle Bau-Session (2× täglich): '{datum}_am' (00:00–_PM_START) oder '{datum}_pm'.
-    Wird statt _today() für Bau-Zählung genutzt — so startet nach _PM_START eine 2. Runde."""
+def _session_hours() -> list:
+    """Startstunden der Bau-Sessions (aufsteigend). Aus JARVIS_SESSION_HOURS (z.B. '0,12,18')
+    oder — wenn leer — gleichmäßig über 24 h verteilt aus _SESSIONS_PER_DAY abgeleitet.
+    Bei genau 2 Sessions gilt der Legacy-Mittagsstart _PM_START (0 und _PM_START)."""
+    raw = os.environ.get("JARVIS_SESSION_HOURS", "").strip()
+    if raw:
+        hrs = sorted({max(0, min(23, int(x))) for x in raw.split(",")
+                      if x.strip().lstrip("-").isdigit()})
+        if hrs:
+            return hrs
+    n = _SESSIONS_PER_DAY
+    if n <= 1:
+        return [0]
+    if n == 2:
+        return [0, max(1, min(23, _PM_START))]
+    return [int(i * 24 / n) for i in range(n)]
+
+
+def _session_index() -> int:
+    """Index (0-basiert) der aktuell laufenden Session anhand der Tagesstunde."""
     h = datetime.now().hour
-    return _today() + ("_am" if h < _PM_START else "_pm")
+    idx = 0
+    for i, start in enumerate(_session_hours()):
+        if h >= start:
+            idx = i
+    return idx
+
+
+def _session() -> str:
+    """Aktuelle Bau-Session: '{datum}_s{n}' (n = 1-basiert). Wird statt _today() für die
+    Bau-Zählung genutzt — nach jedem Session-Fenster startet eine frische Runde (Limit 5)."""
+    return f"{_today()}_s{_session_index() + 1}"
+
+
+def _keys_for_date(log: dict, date_str: str) -> list:
+    """Alle Log-Schlüssel, die zu einem Datum gehören — inkl. neuer '_s{n}'- und alter
+    '_am'/'_pm'-Suffixe sowie des ungesuffixten Legacy-Keys."""
+    return [k for k in log if k == date_str or k.startswith(date_str + "_")]
 
 
 def _load_log() -> dict:
@@ -232,6 +273,71 @@ def _record(entry: dict) -> None:
     _set(today_count=len(log[sess]))
 
 
+def record_custom(name: str, stadt: str = "", branche: str = "", link: str = "",
+                  email: str = "", folder: str = "") -> None:
+    """Trägt eine im 'Eigene-Marke'-Modus gebaute Seite in die Tages-Historie ein —
+    so zählt sie zum Session-Kontingent und taucht im Mittags-Report auf (Sirs Vorgabe:
+    Custom-Seiten laufen im selben 3×5-Tagesrhythmus mit). Idempotent je Ordner/Session."""
+    if not (name or "").strip():
+        return
+    try:
+        sess = _session()
+        for e in _load_log().get(sess, []):
+            same_folder = folder and (e.get("folder") or "").strip() == folder.strip()
+            same_name   = (e.get("name") or "").strip().lower() == name.strip().lower()
+            if same_folder or same_name:
+                return                                # schon erfasst → nicht doppelt zählen
+        _record({"name": name.strip(), "stadt": stadt, "branche": branche, "link": link,
+                 "email": email, "folder": folder, "source": "custom",
+                 "review": True, "ts": time.time()})
+        logger.info("AutoBuilder", f"Eigene-Marke-Seite in Tagesplan erfasst: {name}")
+    except Exception as e:
+        logger.warn("AutoBuilder", f"record_custom übersprungen: {type(e).__name__}")
+
+
+def scaling_info() -> dict:
+    """Hardware-basierte Skalierungs-Empfehlung für den Dauerbetrieb (Hochskalieren).
+    Liest das System-Profil und schlägt Sessions/Seiten + lokale Parallelität vor.
+    Die aktiven Werte stammen weiter aus den Env-Knöpfen — das hier ist die Empfehlung."""
+    ram = 8.0
+    tier = "LAPTOP"
+    try:
+        import system_profile
+        prof = system_profile.analyze()
+        ram  = float(prof.get("ram_gb") or 8.0)
+        tier = prof.get("tier", "LAPTOP")
+    except Exception:
+        pass
+    # Empfehlung skaliert mit dem RAM (= Indikator für lokale KI-Kapazität).
+    if ram >= 64:
+        rec_sites, rec_sessions, rec_conc = 10, 4, 6
+    elif ram >= 32:
+        rec_sites, rec_sessions, rec_conc = 8, 3, 4
+    elif ram >= 16:
+        rec_sites, rec_sessions, rec_conc = 5, 3, 2
+    else:
+        rec_sites, rec_sessions, rec_conc = 5, 3, 1
+    conc = _LOCAL_CONCURRENCY or rec_conc
+    return {
+        "tier": tier, "ram_gb": round(ram, 1),
+        "active": {"daily_sites": _DAILY_LIMIT, "sessions_per_day": _SESSIONS_PER_DAY,
+                   "session_hours": _session_hours(), "local_concurrency": conc},
+        "recommended": {"daily_sites": rec_sites, "sessions_per_day": rec_sessions,
+                        "local_concurrency": rec_conc},
+        "max_per_day_active": _DAILY_LIMIT * _SESSIONS_PER_DAY,
+    }
+
+
+def local_concurrency() -> int:
+    """Effektive lokale-KI-Parallelität: Env-Wert, sonst aus der Hardware abgeleitet."""
+    if _LOCAL_CONCURRENCY > 0:
+        return _LOCAL_CONCURRENCY
+    try:
+        return int(scaling_info()["recommended"]["local_concurrency"])
+    except Exception:
+        return 1
+
+
 def daily_log(days: int = 14) -> dict:
     """Tages-Historie (neueste Tage zuerst, begrenzt) für die UI.
     Session-Schlüssel (_am/_pm) werden nach echtem Datum gruppiert."""
@@ -239,12 +345,14 @@ def daily_log(days: int = 14) -> dict:
     from collections import defaultdict
     grouped: dict = defaultdict(list)
     for k, entries in log.items():
-        # '_am'/'_pm'-Suffix abschneiden → echtes Datum als Gruppenkey
-        date_k = k.rsplit("_", 1)[0] if k.endswith(("_am", "_pm")) else k
+        # Session-Suffix ('_s1'/'_am'/'_pm') abschneiden → echtes Datum als Gruppenkey.
+        # Das Datum selbst enthält nur '-', also trennt der erste '_' Datum von Suffix.
+        date_k = k.split("_", 1)[0]
         grouped[date_k].extend(entries)
     tage = sorted(grouped.keys(), reverse=True)[:max(1, days)]
     return {"today": _today(), "daily_limit": _DAILY_LIMIT,
-            "sessions_per_day": 2, "pm_start_hour": _PM_START,
+            "sessions_per_day": _SESSIONS_PER_DAY, "session_hours": _session_hours(),
+            "pm_start_hour": _PM_START,
             "days": [{"date": t, "sites": grouped[t]} for t in tage]}
 
 
@@ -303,7 +411,7 @@ def _today_folders() -> set:
     out: set = set()
     log = _load_log()
     today = _today()
-    for key in (today, f"{today}_am", f"{today}_pm"):
+    for key in _keys_for_date(log, today):
         for e in log.get(key, []):
             f = (e.get("folder") or "").strip()
             if f:
@@ -605,9 +713,9 @@ def _today_links() -> list:
     seen: set = set()
     log   = _load_log()
     today = _today()
-    # Alle möglichen Session-Schlüssel für heute zusammenführen
+    # Alle Session-Schlüssel für heute zusammenführen (s1..sN + Legacy am/pm)
     entries: list = []
-    for key in (today, f"{today}_am", f"{today}_pm"):
+    for key in _keys_for_date(log, today):
         entries.extend(log.get(key, []))
     for e in reversed(entries):
         name = (e.get("name") or "").strip()
@@ -639,6 +747,22 @@ def _farewell_if_done() -> None:
 
     head = (f"Alle **{n} Webseiten** sind durch alle 7 Skill-Stufen makeovert — alle auf "
             f"demselben Niveau, **{live} live**, deployt und als erledigt markiert.")
+
+    # Ehrlich: makeovert ≠ verschickt. Offene Freigaben (warten auf 👍) klar ausweisen,
+    # damit keine widersprüchliche „gebaut & verschickt, aber eine wartet"-Meldung entsteht.
+    try:
+        import review_queue as _rq
+        st = _rq.stats()
+        pend, sent_n = int(st.get("pending", 0)), int(st.get("sent", 0))
+        status_line = []
+        if sent_n:
+            status_line.append(f"📨 {sent_n} bereits an Kunden verschickt")
+        if pend:
+            status_line.append(f"🕓 {pend} warten noch auf deine Freigabe (👍)")
+        if status_line:
+            head += "\n" + " · ".join(status_line) + "."
+    except Exception:
+        pass
 
     # Alle heutigen Seiten als klickbare Links zum Bewerten auflisten.
     links = _today_links()
@@ -738,6 +862,24 @@ def _build_and_email(lead: dict) -> None:
         pass
     email_addr    = wrow.get("kontakt_email", "")
     ansprechpart  = wrow.get("ansprechpartner", "")
+    # E-Mail schon JETZT (beim Bau) aktiv suchen, nicht erst beim Versand — so steht die
+    # Kundenadresse früh fest und erscheint in Discord/Report. Best-effort, blockiert kurz.
+    if "@" not in (email_addr or ""):
+        try:
+            import contact_finder
+            cf = contact_finder.find(name, stadt, branche, link)
+            if cf.get("email"):
+                email_addr   = cf["email"]
+                ansprechpart = ansprechpart or cf.get("ansprechpartner", "")
+                try:
+                    db_websites.update(jid, kontakt_email=email_addr,
+                                       ansprechpartner=ansprechpart or "")
+                except Exception:
+                    pass
+                logger.info("AutoBuilder",
+                            f"Kontakt für {name} gefunden ({cf.get('quelle','?')}): {email_addr}")
+        except Exception as _ce:
+            logger.warn("AutoBuilder", f"Kontaktsuche übersprungen: {type(_ce).__name__}")
     _record({"name": name, "stadt": stadt, "branche": branche, "link": link,
              "email": email_addr, "folder": folder,
              "review": True, "ts": time.time()})
