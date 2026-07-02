@@ -2256,6 +2256,17 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 .tp-btn.ghost{ background:transparent; color:var(--tx2); border:1px solid var(--bdr2); }
 .tp-btn.ghost:hover{ box-shadow:none; color:var(--tx); border-color:var(--c); }
 
+/* ── Testphase-Ergebnis (mehrere Tage Dauertest, erste Antwort) ───────────── */
+.tp-result{
+  display:flex; align-items:flex-start; gap:12px; margin-top:14px;
+  background:linear-gradient(135deg, rgba(46,204,113,.10), rgba(13,20,32,.55));
+  border:1px solid rgba(46,204,113,.30); border-radius:14px; padding:14px 18px;
+}
+.tpr-ic{ font-size:20px; line-height:1.5; flex-shrink:0; }
+.tpr-tx{ font-size:13.5px; line-height:1.65; color:var(--tx2); }
+.tpr-tx b{ color:var(--tx); }
+.tpr-hl{ color:#3ee27f; font-weight:700; }
+
 /* ── Was ist gebaut (Fähigkeiten-Grid) ────────────────────────────────────── */
 .feat-head{ font-family:var(--fh); font-size:15px; font-weight:800; letter-spacing:.04em; color:var(--tx); margin-top:6px; }
 .feat-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:12px; }

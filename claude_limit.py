@@ -25,7 +25,9 @@ State liegt in data/claude_budget.json (gitignored, maschinenlokal).
 from __future__ import annotations
 
 import json
+import re
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _FILE = Path(__file__).resolve().parent / "data" / "claude_budget.json"
@@ -36,8 +38,44 @@ _COOLDOWN    = 4 * 3600          # nach einem Session-Limit: 4 h Pause (Sirs Vor
 _RETRY_EVERY = 3600              # danach stündlich ein neuer Versuch
 _WEEKLY_RECHECK = 6 * 3600       # Weekly-Limit: alle 6 h erneut testen (Reset rollt ~wöchentlich)
 _NEAR        = 0.95              # ab 95 % Verbrauch = „gleich voll" (5 % übrig)
-_EMA_ALPHA   = 0.4               # Lerngewicht neuer Limit-Beobachtungen
+_EMA_ALPHA   = 0.4               # Lerngewicht neuer Limit-Beobachtungen (Sekundär-Schätzer)
 _DEFAULT_LIMIT = 1_800_000       # Start-Schätzung Token/Fenster bis Limit (wird gelernt)
+_MIN_LIMIT   = 200_000           # untere Klemme: unter so wenig Token kommt kein echtes Limit
+_MAX_LIMIT   = 30_000_000        # obere Klemme: Ausreißer nach oben abfangen
+_MEDIAN_N    = 10                # robustes Lernen: Median der letzten N Limit-Beobachtungen
+
+
+def _parse_reset_hint(text: str) -> float:
+    """Liest aus einer Limit-Meldung wie „resets 5am (Europe/Vienna)" oder „resets at 11pm"
+    die nächste Reset-Uhrzeit und gibt den Unix-Zeitpunkt (lokale Zeit) zurück. 0 = nicht erkannt.
+    So kann der Retry EXAKT auf den Reset gelegt werden statt blind 4 h zu warten."""
+    if not text:
+        return 0.0
+    m = re.search(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text.lower())
+    if not m:
+        return 0.0
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    ampm = m.group(3)
+    if ampm == "pm" and hour < 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        return 0.0
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:                      # Uhrzeit heute schon vorbei → morgen
+        target += timedelta(days=1)
+    return target.timestamp()
+
+
+def _median(vals: list) -> float:
+    s = sorted(v for v in vals if v)
+    n = len(s)
+    if not n:
+        return 0.0
+    return float(s[n // 2]) if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
 
 # Fixkosten (Abos) in EUR
 CLAUDE_MONTHLY = 20.0
@@ -101,33 +139,56 @@ def record_usage(tokens: int) -> None:
 
 # ── Limit-Ereignis (Zeichen + Lernen + Retry-Plan) ────────────────────────────
 
-def mark(stage: str = "", wait_seconds: int = 0, site: str = "", scope: str = "session") -> None:
+def mark(stage: str = "", wait_seconds: int = 0, site: str = "", scope: str = "session",
+         reset_hint: str = "") -> None:
     """Markiert das Claude-Limit als erschöpft. Speichert Uhrzeit + Scope (session|weekly), LERNT
-    die Token-Schwelle (nur Session) und plant den nächsten Versuch: Session 4 h dann stündlich,
-    Weekly alle 6 h erneut testen. `wait_seconds` bleibt nur für Rückwärtskompatibilität."""
+    robust die Token-Schwelle (Median der letzten Beobachtungen, nur Session) und plant den nächsten
+    Versuch. Reihenfolge der Retry-Planung:
+      1. `reset_hint` enthält eine Uhrzeit (z.B. „resets 5am") → EXAKT bis dahin warten.
+      2. Weekly-Limit → alle 6 h erneut testen.
+      3. Sonst gelernt: erstes Session-Limit 4 h Cooldown, danach stündlich.
+    `wait_seconds` bleibt nur für Rückwärtskompatibilität."""
     now = time.time()
     d = _read()
     _maybe_reset_window(d, now)
     used = int(d.get("tokens_used") or 0)
     # Lernen nur beim Session-Limit (Weekly hängt nicht am 5-h-Token-Fenster).
     if used > 0 and scope != "weekly":
-        prev = float(d.get("learned_limit") or _DEFAULT_LIMIT)
-        d["learned_limit"] = int(prev * (1 - _EMA_ALPHA) + used * _EMA_ALPHA)
         ev = d.get("events") or []
         mins = int((now - float(d.get("session_start") or now)) // 60)
         ev.append({"ts": now, "tokens": used, "mins": mins})
-        d["events"] = ev[-30:]
+        ev = ev[-30:]
+        d["events"] = ev
+        # Robuster Schätzer: Median der letzten _MEDIAN_N Beobachtungen (immun gegen Ausreißer),
+        # geklemmt auf einen plausiblen Bereich. Zusätzlich als Sekundär-Wert die EMA für Trends.
+        recent = [e.get("tokens", 0) for e in ev[-_MEDIAN_N:]]
+        med = _median(recent)
+        prev = float(d.get("learned_limit") or _DEFAULT_LIMIT)
+        ema = prev * (1 - _EMA_ALPHA) + used * _EMA_ALPHA
+        learned = med if med > 0 else ema
+        d["learned_limit"] = int(max(_MIN_LIMIT, min(_MAX_LIMIT, learned)))
+        d["learned_ema"] = int(max(_MIN_LIMIT, min(_MAX_LIMIT, ema)))
+        d["obs_count"] = len(ev)
+        d["typical_minutes"] = int(_median([e.get("mins", 0) for e in ev[-_MEDIAN_N:]]))
     was_limited = bool(d.get("limited"))
     d["limited"] = True
     d["scope"] = scope
     d["since"] = d.get("since") if was_limited else now
     d["stage"] = stage or d.get("stage", "")
     d["site"] = site or d.get("site", "")
-    if scope == "weekly":
+    # Reset-Zeit direkt aus der Meldung? Dann exakt bis dahin warten (bester Fall).
+    reset_ts = _parse_reset_hint(reset_hint)
+    d["reset_at"] = reset_ts or 0
+    if reset_ts:
+        d["next_try"] = reset_ts
+        d["retry_source"] = "reset_hint"
+    elif scope == "weekly":
         d["next_try"] = now + _WEEKLY_RECHECK
+        d["retry_source"] = "weekly"
     else:
         # Erstes Session-Limit → 4 h Cooldown; läuft ein späterer Versuch erneut aufs Limit → stündlich.
         d["next_try"] = now + (_RETRY_EVERY if was_limited else _COOLDOWN)
+        d["retry_source"] = "cooldown"
     d["updated"] = now
     _write(d)
 
@@ -141,6 +202,8 @@ def reset() -> dict:
     d["scope"] = ""
     d["since"] = 0
     d["next_try"] = 0
+    d["reset_at"] = 0
+    d["retry_source"] = ""
     d["session_start"] = now
     d["tokens_used"] = 0
     d["updated"] = now
@@ -224,6 +287,8 @@ def state() -> dict:
         "site": d.get("site", ""),
         "until": nxt,
         "minutes_left": mins,
+        "reset_at": float(d.get("reset_at") or 0),      # exakte Reset-Zeit aus der Meldung (0 = unbekannt)
+        "retry_source": d.get("retry_source", ""),       # reset_hint | weekly | cooldown
     }
 
 
@@ -256,6 +321,11 @@ def status() -> dict:
                              if limited else 0),
         "tokens_used": int(d.get("tokens_used") or 0),
         "learned_limit": _learned_limit(d),
+        "learned_ema": int(d.get("learned_ema") or 0),
+        "obs_count": int(d.get("obs_count") or len(d.get("events") or [])),
+        "typical_minutes": int(d.get("typical_minutes") or 0),
+        "retry_source": d.get("retry_source", "") if limited else "",
+        "reset_at": float(d.get("reset_at") or 0) if limited else 0,
         "events_count": len(d.get("events") or []),
         "window_minutes_left": max(0, int((float(d.get("session_start") or now)
                                            + _WINDOW - now) // 60)),

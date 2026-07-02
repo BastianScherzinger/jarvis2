@@ -38,11 +38,16 @@ _LEVELS = {
     "SCRAPE":  ("\033[38;5;214m", "SCRAPE "),  # orange
 }
 
+_WK_W = 13   # feste Spaltenbreite für den Worker-Namen → Meldungen stehen sauber untereinander
+
+
 def _log(level: str, worker: str, msg: str) -> None:
     col, tag = _LEVELS.get(level, (_GY, level.ljust(7)))
     ts  = datetime.now().strftime("%H:%M:%S")
+    # Worker auf feste Breite bringen (kürzen/auffüllen) — sonst „zerfranst" die msg-Spalte.
+    wk  = (worker if len(worker) <= _WK_W else worker[:_WK_W - 1] + "…").ljust(_WK_W)
     # Console — robust gegen Encoding-Fehler (Windows-cp1252)
-    line = f"  {_GY}[{ts}]{_R} {col}{_B}{tag}{_R} {_GY}[{worker}]{_R}  {msg}"
+    line = f"  {_GY}[{ts}]{_R} {col}{_B}{tag}{_R} {_GY}[{wk}]{_R} {msg}"
     try:
         print(line)
     except UnicodeEncodeError:

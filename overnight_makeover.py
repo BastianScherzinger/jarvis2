@@ -1073,8 +1073,9 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
             changed = _fingerprint(folder) != fp0
             if not _is_limit(res, changed):
                 break
-            # Limit erkannt. Scope (Session/Weekly) bestimmen.
-            scope = _limit_scope((res.get("summary") or "") + " " + (res.get("reason") or ""))
+            # Limit erkannt. Scope (Session/Weekly) + Roh-Meldung (für Reset-Zeit) bestimmen.
+            _ltext = (res.get("summary") or "") + " " + (res.get("reason") or "")
+            scope = _limit_scope(_ltext)
             # Mehrere Keys? Aktiven Key erschöpft setzen und SOFORT auf den nächsten „Claude"
             # wechseln (ohne die ganze Cooldown-Pause).
             try:
@@ -1091,8 +1092,20 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
                         continue                       # sofort mit nächstem Key erneut
             except Exception:
                 pass
-            # Limit-Zeichen fürs Dashboard setzen + Budget lernen (Weekly = langer Cooldown).
-            claude_limit.mark(stage["label"], _LIMIT_WAIT, site=name, scope=scope)
+            # Limit-Zeichen fürs Dashboard setzen + Budget lernen. reset_hint übergibt die
+            # Roh-Meldung — enthält sie eine Uhrzeit („resets 5am"), wird der Retry exakt dahin gelegt.
+            claude_limit.mark(stage["label"], _LIMIT_WAIT, site=name, scope=scope, reset_hint=_ltext)
+            # Debug-Kontext an der Problemstelle: was gelernt wurde + wann der nächste Versuch liegt.
+            try:
+                _ls = claude_limit.status()
+                _ra = _ls.get("reset_at") or 0
+                _when = (time.strftime("%H:%M", time.localtime(_ra)) if _ra
+                         else f"in {_ls.get('minutes_to_retry', 0)} Min")
+                logger.debug("Makeover", f"⤷ {scope}-Limit gelernt: ~{_ls.get('learned_limit',0):,} Tok/Fenster "
+                                         f"(n={_ls.get('obs_count',0)}, Quelle {_ls.get('retry_source','?')}) "
+                                         f"· nächster Versuch {_when}")
+            except Exception:
+                pass
             if attempt >= _LIMIT_RETRIES:
                 say(pct, f"Claude-Session-Limit auch nach {_LIMIT_RETRIES} Versuchen aktiv — "
                          "Makeover pausiert (später fortsetzbar).")
@@ -1284,8 +1297,9 @@ def run_premium_upgrade(folder: "str | Path", meta: dict, say=None, stop=None) -
     changed = _fingerprint(folder) != fp0
 
     if _is_limit(res, changed):
-        scope = _limit_scope((res.get("summary") or "") + " " + (res.get("reason") or ""))
-        claude_limit.mark("Premium-Ausbau", _LIMIT_WAIT, site=name, scope=scope)
+        _ltext = (res.get("summary") or "") + " " + (res.get("reason") or "")
+        scope = _limit_scope(_ltext)
+        claude_limit.mark("Premium-Ausbau", _LIMIT_WAIT, site=name, scope=scope, reset_hint=_ltext)
         return {"ok": False, "reason": "session_limit", "changed": False}
     if not res.get("ok"):
         logger.warn("Makeover", f"Premium-Ausbau fehlgeschlagen ({name}): {str(res.get('reason',''))[:140]}")

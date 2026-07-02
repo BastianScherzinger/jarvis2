@@ -813,8 +813,16 @@ function _renderLimitBanner(lim){
     if(txt){
       const scope = (lim.scope === 'weekly') ? 'Weekly-Limit' : 'Session-Limit';
       const stage = lim.stage ? ` (Stufe „${lim.stage}")` : '';
-      const wait  = lim.minutes_left ? ` — nächster Versuch in ~${lim.minutes_left} Min` : '';
-      txt.textContent = `Claude-${scope} erreicht${stage} — pausiert, läuft automatisch weiter${wait}.`;
+      // Exakte Reset-Uhrzeit anzeigen, wenn Claude sie gemeldet hat („resets 5am"),
+      // sonst Fallback auf die Restminuten des gelernten Retry-Plans.
+      let wait = '';
+      if(lim.reset_at){
+        const t = new Date(lim.reset_at * 1000);
+        wait = ` — läuft um ${t.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})} Uhr automatisch weiter`;
+      } else if(lim.minutes_left){
+        wait = ` — nächster Versuch in ~${lim.minutes_left} Min`;
+      }
+      txt.textContent = `Claude-${scope} erreicht${stage} — pausiert${wait || ', läuft automatisch weiter'}.`;
     }
     // „Nochmal testen"-Button einmalig anhängen (manueller Retry / Limit zurücksetzen).
     if(!document.getElementById('claude-limit-retry')){

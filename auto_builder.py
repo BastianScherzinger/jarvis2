@@ -1080,8 +1080,15 @@ def _improve_existing_once() -> bool:
 # (auch wenn der Night-Builder aus/pausiert ist), damit „alle Links live" werden + bleiben.
 _LIVE_WATCH_INTERVAL = int(os.environ.get("JARVIS_LIVE_WATCH_INTERVAL", "120") or "120")
 _LIVE_REDEPLOY_COOLDOWN = int(os.environ.get("JARVIS_LIVE_REDEPLOY_COOLDOWN", "600") or "600")
+# Nach so vielen erfolglosen Re-Deploys in Folge gilt eine Seite als dauerhaft kaputt
+# (z.B. Railway-Build schlägt reproduzierbar fehl). Dann NICHT weiter alle 10 Min hämmern,
+# sondern auf einen langen Backoff gehen — spart Railway-Builds und Log-Rauschen.
+_LIVE_MAX_FAILS = int(os.environ.get("JARVIS_LIVE_MAX_FAILS", "3") or "3")
+_LIVE_GIVEUP_COOLDOWN = int(os.environ.get("JARVIS_LIVE_GIVEUP_COOLDOWN", "14400") or "14400")  # 4 h
 _live_watch_started = False
 _live_redeploy_at: dict = {}        # folder → letzter Re-Deploy-Zeitpunkt (Cooldown)
+_live_fail_count: dict = {}         # folder → erfolglose Re-Deploys in Folge (Backoff-Zähler)
+_live_gaveup: set = set()           # folder → „gebe vorerst auf" bereits geloggt (einmal pro Serie)
 
 
 def start_live_watch() -> None:
@@ -1139,7 +1146,20 @@ def _live_check_once() -> None:
                     _sync_one(job_id)
                 except Exception:
                     pass
+                # Zustandswechsel an der Problemstelle klar loggen (nicht nur still in die DB).
+                _nm = (w.get("name") or "Seite").strip()
+                if live_now and folder in _live_fail_count:
+                    logger.success("LiveWatch", f"'{_nm}' ist nach {_live_fail_count.get(folder, 0)} "
+                                                "Re-Deploy(s) wieder live. ✓")
+                elif not live_now:
+                    logger.warn("LiveWatch", f"'{_nm}' offline geworden → "
+                                             + ("Selbstheilung startet." if has_local
+                                                else "auf anderem PC gebaut, hier nicht reparierbar."))
             if live_now:
+                # Seite (wieder) gesund → Backoff-Zähler zurücksetzen, damit ein späterer
+                # Ausfall wieder normal (nicht im langen Give-up-Cooldown) behandelt wird.
+                _live_fail_count.pop(folder, None)
+                _live_gaveup.discard(folder)
                 continue                     # alles gut
         # Hier: Seite NICHT live (oder ohne URL).
         if not has_local:
@@ -1147,17 +1167,29 @@ def _live_check_once() -> None:
         # Nichts deployen, solange ein Build/Makeover läuft (eine Seite gleichzeitig).
         if website_builder.makeover_busy():
             continue
-        # Cooldown je Ordner, damit nicht im Kreis neu deployt wird.
+        # Cooldown je Ordner, damit nicht im Kreis neu deployt wird. Nach mehreren
+        # erfolglosen Versuchen (Seite gilt als dauerhaft kaputt) auf langen Backoff gehen,
+        # statt eine tote Seite endlos alle 10 Min neu zu deployen.
+        fails = _live_fail_count.get(folder, 0)
+        cooldown = _LIVE_GIVEUP_COOLDOWN if fails >= _LIVE_MAX_FAILS else _LIVE_REDEPLOY_COOLDOWN
         last = _live_redeploy_at.get(folder, 0)
-        if time.time() - last < _LIVE_REDEPLOY_COOLDOWN:
+        if time.time() - last < cooldown:
             continue
-        _live_redeploy_at[folder] = time.time()
         name = (w.get("name") or "Seite").strip()
-        logger.info("LiveWatch", f"'{name}' nicht erreichbar → Re-Deploy wird angestoßen.")
+        if fails >= _LIVE_MAX_FAILS and folder not in _live_gaveup:
+            _live_gaveup.add(folder)
+            logger.warn("LiveWatch", f"'{name}' nach {fails} erfolglosen Re-Deploys weiterhin tot — "
+                                     f"seltener Versuch (alle {_LIVE_GIVEUP_COOLDOWN // 3600} h). "
+                                     "Railway-Build-Log prüfen.")
+        _live_redeploy_at[folder] = time.time()
+        _live_fail_count[folder] = fails + 1     # zählt hoch bis die Seite wieder live ist
+        logger.info("LiveWatch", f"'{name}' nicht erreichbar → Re-Deploy wird angestoßen "
+                                 f"(Versuch {fails + 1}).")
         try:
             website_builder.deploy_existing(folder, name)
         except Exception as e:
-            logger.warn("LiveWatch", f"Re-Deploy '{name}' fehlgeschlagen: {type(e).__name__}")
+            logger.warn("LiveWatch", f"Re-Deploy '{name}' ({url or 'ohne URL'}) fehlgeschlagen: "
+                                     f"{type(e).__name__}: {str(e)[:120]}")
         return                               # nur EINE Seite pro Durchlauf neu deployen
 
 
@@ -1241,6 +1273,10 @@ def _loop() -> None:
                 _rescue_tries.clear()
                 globals()["_farewell_sent"] = False
                 if neuer_tag:
+                    # Neuer Tag → LiveWatch-Backoff für dauerhaft tote Seiten zurücksetzen,
+                    # falls die Infrastruktur (Railway) sich über Nacht erholt hat.
+                    _live_fail_count.clear()
+                    _live_gaveup.clear()
                     logger.info("AutoBuilder", f"Neuer Tag {today} — Tagesplan startet neu")
                 else:
                     sess_label = cur_session.split("_")[-1].upper()

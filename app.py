@@ -31,6 +31,35 @@ db_evaluated.init_db()
 db_websites.init_db()
 
 
+# ── HTTP-Zugriffslog entrümpeln ───────────────────────────────────────────────
+# Der Flask-Dev-Server (Werkzeug) loggt JEDEN Request. Das Dashboard pollt einige
+# Status-Endpunkte im Sekundentakt → 95 % des Logs sind identische „GET … 200"-Zeilen,
+# die echte Ereignisse (Bau, Deploy, Fehler) zuscrollen. Dieser Filter wirft NUR
+# erfolgreiche (200/304) Polling-Requests weg — Fehler (4xx/5xx) und alle anderen
+# Endpunkte bleiben vollständig sichtbar. Abschaltbar via JARVIS_QUIET_ACCESS_LOG=0.
+if (os.environ.get("JARVIS_QUIET_ACCESS_LOG", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
+    import logging as _logging
+
+    _QUIET_PATHS = (
+        "/api/websites/grouped", "/api/auto-build/status", "/api/status", "/api/top",
+        "/api/activity/recent", "/api/home/stats", "/api/logs", "/api/limit/status",
+        "/api/costs", "/favicon.ico",
+    )
+
+    class _AccessLogFilter(_logging.Filter):
+        def filter(self, record: "_logging.LogRecord") -> bool:
+            try:
+                msg = record.getMessage()
+            except Exception:
+                return True
+            # Nur erfolgreiche Poll-Requests schlucken — Fehlerstatus immer durchlassen.
+            if ('" 200 ' in msg or '" 304 ' in msg) and any(p in msg for p in _QUIET_PATHS):
+                return False
+            return True
+
+    _logging.getLogger("werkzeug").addFilter(_AccessLogFilter())
+
+
 # Globaler Fehler-Handler: jede unbehandelte Exception in einer Route landet mit vollem
 # Traceback in der CMD (logger.error) + im Frontend-Konsolen-Ringpuffer — damit Sir
 # Fehler wirklich SIEHT, statt dass sie still als 500 verschwinden.
