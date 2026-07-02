@@ -16,7 +16,8 @@ from agents.evaluator import pipeline as evaluator_pipeline
 import db_raw
 import logger
 
-_stop_event        = threading.Event()
+_stop_event        = threading.Event()   # stoppt den EVALUATOR (+ Watchdog) — "Master"-Stop
+_scraper_stop_event = threading.Event()  # stoppt NUR die 6 Scraper-Worker
 _active            = False
 _evaluator_started = False   # läuft der Evaluator (via Scraper ODER standalone)?
 _eval_lock         = threading.Lock()   # schützt _evaluator_started gegen Race Condition
@@ -148,6 +149,7 @@ def start() -> None:
     if _active:
         return
     _stop_event.clear()
+    _scraper_stop_event.clear()
     _active = True
 
     logger.info("Controller", f"Starte {6} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
@@ -204,8 +206,10 @@ def start() -> None:
 
 
 def stop() -> None:
+    """Voller Stop: Scraper UND Evaluator sofort beenden (Dashboard-Stop-Button)."""
     global _active, _evaluator_started
     logger.info("Controller", "Stop-Signal gesendet — alle Worker beenden")
+    _scraper_stop_event.set()
     _stop_event.set()
     _active = False
     # Reset unter demselben Lock, unter dem _spawn_evaluator ihn prüft/setzt (Flag-Race).
@@ -213,6 +217,27 @@ def stop() -> None:
     # _stop_event, bevor langsame Alt-Threads es gesehen haben. Aufrufer, die stop→start
     # zyklisch fahren (lead_collector), lassen darum einen Puffer (JARVIS_LEAD_STOP_BUFFER).
     # Vollständiger Fix (Generationen-Event pro start()) steht im Backlog.
+    with _eval_lock:
+        _evaluator_started = False
+
+
+def stop_scrapers() -> None:
+    """Stoppt NUR die 6 Scraper-Worker, der Evaluator läuft weiter und arbeitet den
+    Rest-Backlog (bereits gesammelte, noch nicht bewertete Leads) ab. Für den
+    Lead-Collector: Sammel-Fenster ist um, aber frisch gesammelte Leads sollen noch
+    bewertet werden, bevor auch der Evaluator gestoppt wird (siehe stop_evaluator)."""
+    global _active
+    logger.info("Controller", "Stop-Signal an Scraper — Evaluator arbeitet Rest-Backlog ab")
+    _scraper_stop_event.set()
+    _active = False
+
+
+def stop_evaluator() -> None:
+    """Stoppt den Evaluator (+ Watchdog) separat, NACHDEM der Rest-Backlog leer ist
+    (oder die Wartezeit dafür abgelaufen ist). Gegenstück zu stop_scrapers()."""
+    global _evaluator_started
+    logger.info("Controller", "Stop-Signal an Evaluator")
+    _stop_event.set()
     with _eval_lock:
         _evaluator_started = False
 
@@ -234,7 +259,7 @@ def _spawn(name: str, fn, combos, delay: float = 0, **kwargs):
     def _run():
         if delay:
             time.sleep(delay)
-        fn(combos, _on_lead, _stop_event, **kwargs)
+        fn(combos, _on_lead, _scraper_stop_event, **kwargs)
 
     t = threading.Thread(target=_run, name=f"Worker-{name}", daemon=True)
     t.start()

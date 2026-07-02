@@ -12,6 +12,7 @@ Schlägt ein Schritt fehl, liefert deploy() einen ehrlichen Log statt zu crashen
 from __future__ import annotations
 
 import os
+import re
 
 import requests
 
@@ -19,9 +20,63 @@ import config  # noqa: F401 — lädt die .env in os.environ (sonst Token evtl. 
 
 ENDPOINT = "https://backboard.railway.com/graphql/v2"
 
-# Alle generierten Seiten landen als Services in EINEM geteilten Sammel-Projekt.
-# Existiert es noch nicht, wird es einmalig angelegt. Name via .env überschreibbar.
+# Alle generierten Seiten landen als Services im Sammel-Projekt. Name via .env
+# überschreibbar. Läuft EIN Sammel-Projekt voll (Railway-Service-/Guthabenlimit,
+# Default 50), rotiert deploy() automatisch in ein nummeriertes Folgeprojekt
+# ("<Name> 2", "<Name> 3", …) — siehe _target_project_name(). PROJECT_NAME bleibt
+# der Basisname für Anzeige/Suche/Cleanup.
 PROJECT_NAME = (os.environ.get("JARVIS_RAILWAY_PROJECT") or "Generated Websites").strip()
+
+
+def _rotate_at() -> int:
+    """Service-Zahl, ab der ein neues Folgeprojekt angelegt wird (Default 50, min. 5)."""
+    try:
+        return max(5, int(os.environ.get("JARVIS_RAILWAY_ROTATE_AT", "50") or "50"))
+    except (ValueError, TypeError):
+        return 50
+
+
+def _project_name_for_suffix(suffix: int) -> str:
+    return PROJECT_NAME if suffix <= 1 else f"{PROJECT_NAME} {suffix}"
+
+
+def all_generated_projects(token: str) -> list[dict]:
+    """Alle Sammel-Projekte dieser Rotation (Basis-Name + '<Name> 2', '<Name> 3', …),
+    aufsteigend nach Suffix sortiert. Lebt komplett aus der Railway-API (kein lokaler
+    State nötig) — funktioniert darum unverändert über mehrere PCs hinweg, die
+    denselben Railway-Account nutzen."""
+    lp = list_projects()
+    if not lp.get("ok"):
+        return []
+    base = PROJECT_NAME.strip().lower()
+    pat = re.compile(r"^" + re.escape(base) + r"(?: (\d+))?$")
+    out = []
+    for p in lp["projects"]:
+        m = pat.match((p.get("name") or "").strip().lower())
+        if m:
+            suffix = int(m.group(1)) if m.group(1) else 1
+            out.append({"id": p["id"], "name": p["name"], "suffix": suffix})
+    out.sort(key=lambda x: x["suffix"])
+    return out
+
+
+def _target_project_name(token: str) -> str:
+    """Wählt den Namen des aktuell aktiven Sammel-Projekts für den nächsten Deploy.
+    Ist das JÜNGSTE bekannte Projekt bereits voll (>= _rotate_at() Services), wird
+    der NÄCHSTE Name zurückgegeben — deploy()s bestehender find-or-create-Pfad legt
+    ihn dann automatisch neu an. So blockiert ein volles Sammel-Projekt nie wieder
+    neue Deploys (Ursache für „Seiten werden gebaut, gehen aber nie live")."""
+    projects = all_generated_projects(token)
+    if not projects:
+        return PROJECT_NAME
+    newest = projects[-1]
+    try:
+        n_svc = _service_count(token, newest["id"])
+    except Exception:
+        n_svc = -1
+    if n_svc >= _rotate_at():
+        return _project_name_for_suffix(newest["suffix"] + 1)
+    return newest["name"]
 
 
 def _token() -> str:
@@ -189,26 +244,28 @@ def project_delete(project_id: str) -> dict:
 
 
 def service_delete_by_name(service_name: str) -> dict:
-    """Löscht den Service mit diesem Namen im Sammel-Projekt 'Generated Websites'
-    (best-effort). Gibt {ok, error}."""
+    """Löscht den Service mit diesem Namen (best-effort). Sucht über ALLE rotierten
+    Sammel-Projekte ('Generated Websites', '… 2', '… 3', …), da eine Seite je nach
+    Baudatum in einem beliebigen davon liegen kann. Gibt {ok, error}."""
     token = _token()
     if not token:
         return {"ok": False, "error": "RAILWAY_TOKEN fehlt"}
-    found = _find_project_with_env(token, PROJECT_NAME)
-    if not found.get("found"):
-        return {"ok": False, "error": f"Projekt '{PROJECT_NAME}' nicht gefunden"}
-    pid = found["project_id"]
-    q = ("query($id:String!){ project(id:$id){ services { edges { node { id name } } } } }")
-    r = _gql(q, {"id": pid}, token)
-    if not r["ok"]:
-        return {"ok": False, "error": r["error"]}
-    edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
-    sid = next((e["node"]["id"] for e in edges
-                if (e["node"].get("name") or "").strip() == service_name.strip()), "")
-    if not sid:
-        return {"ok": True, "error": "Service nicht gefunden (bereits gelöscht?)"}
-    d = _gql("mutation($id:String!){ serviceDelete(id:$id) }", {"id": sid}, token)
-    return {"ok": d["ok"], "error": d.get("error", "")}
+    projects = all_generated_projects(token)
+    if not projects:
+        return {"ok": False, "error": f"Kein Sammel-Projekt '{PROJECT_NAME}*' gefunden"}
+    want = service_name.strip()
+    for proj in projects:
+        q = ("query($id:String!){ project(id:$id){ services { edges { node { id name } } } } }")
+        r = _gql(q, {"id": proj["id"]}, token)
+        if not r["ok"]:
+            continue
+        edges = (((r["data"].get("project") or {}).get("services") or {}).get("edges") or [])
+        sid = next((e["node"]["id"] for e in edges
+                    if (e["node"].get("name") or "").strip() == want), "")
+        if sid:
+            d = _gql("mutation($id:String!){ serviceDelete(id:$id) }", {"id": sid}, token)
+            return {"ok": d["ok"], "error": d.get("error", "")}
+    return {"ok": True, "error": "Service nicht gefunden (bereits gelöscht?)"}
 
 
 def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
@@ -235,52 +292,72 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
     if not repo_full_name:
         return {"ok": False, "error": "Kein GitHub-Repo für den Deploy.", "log": log}
 
-    # 1) Geteiltes Sammel-Projekt "Generated Websites" finden ODER anlegen ----
-    found = _find_project_with_env(token, PROJECT_NAME)
-    if found.get("found") and found.get("env_id"):
-        project_id = found["project_id"]
-        env_id = found["env_id"]
-        _say(f"Projekt „{PROJECT_NAME}“ gefunden — Seite kommt als neuer Service hinein")
-    else:
-        q_proj = """
-        mutation($name:String!){ projectCreate(input:{name:$name}){
-          id environments{edges{node{id name}}} } }"""
-        r = _gql(q_proj, {"name": PROJECT_NAME[:60]}, token)
-        if not r["ok"]:
-            return {"ok": False, "error": f"projectCreate: {r['error']}", "log": log}
-        proj = r["data"]["projectCreate"]
-        project_id = proj["id"]
-        envs = [e["node"] for e in proj.get("environments", {}).get("edges", [])]
-        env_id = next((e["id"] for e in envs if e.get("name") == "production"),
-                      envs[0]["id"] if envs else None)
-        if not env_id:
-            return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
-        _say(f"Sammel-Projekt „{PROJECT_NAME}“ neu angelegt")
-
-    # Limit-Frühwarnung: Railway limitiert Services/Guthaben. Läuft das Sammel-Projekt voll,
-    # scheitern neue serviceCreate-Aufrufe → Seiten werden gebaut, gehen aber nie live. Klar warnen.
-    try:
-        n_svc = _service_count(token, project_id)
-        warn_at = int(os.environ.get("JARVIS_RAILWAY_MAX_SERVICES", "40") or "40")
-        if n_svc >= warn_at:
-            _say(f"⚠ {n_svc} Services im Projekt „{PROJECT_NAME}“ — Railway-Limit/Guthaben kann neue "
-                 "Deploys blockieren. Alte Demos abbauen: python railway_cleanup.py --keep <name> --yes")
-    except Exception:
-        pass
-
-    # 2) Service: bestehenden WIEDERVERWENDEN (kein doppeltes serviceCreate!), sonst neu anlegen.
-    # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt. Da der Servicename
-    # deterministisch ist (web-<slug>), suchen wir IHN ZUERST — so kommt der Fehler
-    # „serviceCreate: A service named … already exists" gar nicht mehr zustande (Re-Build/Resume).
     svc_name = name[:60]
     domain = ""
     service_id = ""
-    existing = _find_service(token, project_id, svc_name)
-    if existing.get("found"):
-        service_id = existing["service_id"]
-        domain = existing.get("domain", "")
-        _say(f"Service „{svc_name}“ existiert bereits — wird wiederverwendet"
-             + (f" (Domain {domain})" if domain else ""))
+    project_id = ""
+    env_id = ""
+
+    # 0) Resume-Check: existiert dieser Service SCHON in irgendeinem rotierten Sammel-
+    # Projekt (Re-Build/Redeploy einer älteren Seite)? Dann dort wiederverwenden — sonst
+    # würde eine spätere Rotation denselben Service doppelt in einem NEUEN Projekt anlegen
+    # und das Original verwaist zurücklassen.
+    for proj in all_generated_projects(token):
+        again = _find_service(token, proj["id"], svc_name)
+        if again.get("found"):
+            resume = _find_project_with_env(token, proj["name"])
+            if resume.get("found") and resume.get("env_id"):
+                project_id = resume["project_id"]
+                env_id = resume["env_id"]
+                service_id = again["service_id"]
+                domain = again.get("domain", "")
+                _say(f"Service „{svc_name}“ existiert bereits in „{proj['name']}“ — wird wiederverwendet"
+                     + (f" (Domain {domain})" if domain else ""))
+            break
+
+    # 1) Kein Resume-Treffer → aktives Sammel-Projekt finden ODER anlegen (rotiert
+    #    automatisch in ein Folgeprojekt, sobald das jüngste bekannte Projekt voll ist) --
+    if not project_id:
+        target_name = _target_project_name(token)
+        found = _find_project_with_env(token, target_name)
+        if found.get("found") and found.get("env_id"):
+            project_id = found["project_id"]
+            env_id = found["env_id"]
+            _say(f"Projekt „{target_name}“ gefunden — Seite kommt als neuer Service hinein")
+        else:
+            q_proj = """
+            mutation($name:String!){ projectCreate(input:{name:$name}){
+              id environments{edges{node{id name}}} } }"""
+            r = _gql(q_proj, {"name": target_name[:60]}, token)
+            if not r["ok"]:
+                return {"ok": False, "error": f"projectCreate: {r['error']}", "log": log}
+            proj = r["data"]["projectCreate"]
+            project_id = proj["id"]
+            envs = [e["node"] for e in proj.get("environments", {}).get("edges", [])]
+            env_id = next((e["id"] for e in envs if e.get("name") == "production"),
+                          envs[0]["id"] if envs else None)
+            if not env_id:
+                return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
+            _say(f"Sammel-Projekt „{target_name}“ neu angelegt"
+                 + (" (Rotation — voriges Projekt war voll)" if target_name != PROJECT_NAME else ""))
+
+        # Limit-Frühwarnung: Railway limitiert Services/Guthaben pro Projekt. Ab _rotate_at()
+        # (Default 50) rotiert der NÄCHSTE Deploy automatisch in ein neues Projekt (oben) —
+        # hier nur noch eine frühe Textwarnung, wenn es sich schon abzeichnet (Default 40).
+        try:
+            n_svc = _service_count(token, project_id)
+            warn_at = int(os.environ.get("JARVIS_RAILWAY_MAX_SERVICES", "40") or "40")
+            if n_svc >= warn_at:
+                _say(f"⚠ {n_svc} Services im Projekt „{target_name}“ — nähert sich der "
+                     f"Rotationsgrenze ({_rotate_at()}). Alte Demos abbauen: "
+                     "python railway_cleanup.py --keep <name> --yes")
+        except Exception:
+            pass
+
+    # 2) Service: bestehenden (aus Schritt 0) WIEDERVERWENDEN, sonst neu anlegen.
+    # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt.
+    if service_id:
+        pass
     else:
         q_svc = """
         mutation($projectId:String!,$repo:String!,$branch:String!,$name:String!){

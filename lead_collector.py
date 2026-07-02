@@ -66,6 +66,35 @@ def _stop_buffer() -> int:
     return max(0, _int_env("JARVIS_LEAD_STOP_BUFFER", 20))
 
 
+def _drain_max_seconds() -> int:
+    """Maximale Wartezeit NACH Fensterende, bis der Evaluator den Rest-Backlog (schon
+    gesammelte, aber noch nicht bewertete Leads) abgearbeitet hat, bevor er zwangsweise
+    mitgestoppt wird (Default 5 Min, min. 30s) — verhindert, dass ein hartnäckiger Rest
+    den nächsten stündlichen Lauf verzögert."""
+    return max(30, _int_env("JARVIS_LEAD_DRAIN_MAX", 300))
+
+
+def _drain_evaluator_backlog() -> None:
+    """Wartet, bis leads_raw keine 'pending'-Leads mehr hat (Scraper sind schon gestoppt,
+    der Evaluator läuft aber noch weiter) — gekappt per _drain_max_seconds()."""
+    import db_raw
+    deadline = time.time() + _drain_max_seconds()
+    n_start = None
+    while time.time() < deadline:
+        try:
+            n = db_raw.count_pending()
+        except Exception:
+            return
+        if n_start is None:
+            n_start = n
+        if n <= 0:
+            return
+        time.sleep(5)
+    if n_start:
+        logger.info("LeadCollector",
+                     f"Drain-Zeitlimit erreicht — Evaluator wird trotz Rest-Backlog gestoppt.")
+
+
 # ── Latch (überlebt Neustarts) ─────────────────────────────────────────────────
 
 def _last_run() -> float:
@@ -191,7 +220,14 @@ def _run_once() -> None:
             logger.info("LeadCollector", "Manueller Start während des Fensters erkannt — "
                                          "Sammler bleibt an.")
         else:
-            controller.stop()                  # NUR stoppen, was WIR gestartet haben
+            # Zweistufig statt hartem controller.stop(): erst nur die Scraper stoppen,
+            # dann den Evaluator noch den Rest-Backlog abarbeiten lassen (gekappt), ERST
+            # DANN auch ihn stoppen. Sonst blieben frisch gesammelte, aber noch nicht
+            # bewertete Leads bis zum nächsten Stunden-Lauf als 'pending' liegen — der
+            # stündliche Sammler hätte dann Leads gefunden, aber nicht alle bewertet.
+            controller.stop_scrapers()         # NUR stoppen, was WIR gestartet haben
+            _drain_evaluator_backlog()
+            controller.stop_evaluator()
             # Race-Puffer: Alt-Workern Zeit geben, das Stop-Signal zu sehen, bevor gezählt
             # wird. Echtes sleep — _stop_event ist gerade GESETZT, ein wait() darauf wäre
             # ein No-Op und würde sofort zurückkehren.

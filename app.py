@@ -1647,6 +1647,27 @@ def api_vs_submit_edit():
     return jsonify({"ok": True, "job_id": job_id, "tool": res["tool"]})
 
 
+@app.route("/api/video-studio/run-tool", methods=["POST"])
+def api_vs_run_tool():
+    """Direkte Werkzeug-Steuerung: ruft EIN vom Nutzer gewähltes Filmora-Tool mit
+    eigenen Argumenten auf — unabhängig von der Auto-Erkennung (resolve_edit_tool).
+    Läuft über denselben media_queue-Job-Typ wie der geführte Editor (identischer
+    Poll-/Ergebnis-Fluss im Frontend)."""
+    import filmora_mcp
+    import media_queue
+    body      = request.get_json(silent=True) or {}
+    tool_name = (body.get("tool_name") or "").strip()
+    arguments = body.get("arguments")
+    if not tool_name:
+        return jsonify({"ok": False, "reason": "tool_name fehlt"}), 400
+    if not isinstance(arguments, dict):
+        return jsonify({"ok": False, "reason": "arguments muss ein JSON-Objekt sein"}), 400
+    if not filmora_mcp.is_configured():
+        return jsonify({"ok": False, "reason": "not_connected"}), 400
+    job_id = media_queue.submit("filmora_edit", {"tool_name": tool_name, "arguments": arguments})
+    return jsonify({"ok": True, "job_id": job_id, "tool": tool_name})
+
+
 @app.route("/api/video-studio/chat", methods=["POST"])
 def api_vs_chat():
     import video_prompt

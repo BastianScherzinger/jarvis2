@@ -845,6 +845,38 @@ def test_media_ad_video_route(monkeypatch):
     assert r2.status_code == 400
 
 
+# ── Video-Studio: direkte Werkzeug-Steuerung (jedes Filmora-Tool manuell) ───────
+def test_vs_run_tool_route(monkeypatch):
+    import app, media_queue, filmora_mcp
+    monkeypatch.setattr(filmora_mcp, "is_configured", lambda: True)
+    cap = {}
+    monkeypatch.setattr(media_queue, "submit",
+                        lambda kind, params: (cap.update(kind=kind, params=params), "jid")[1])
+    c = app.app.test_client()
+    r = c.post("/api/video-studio/run-tool",
+               json={"tool_name": "edit_video", "arguments": {"url": "https://youtu.be/x"}})
+    d = r.get_json()
+    assert d.get("ok") is True and d.get("job_id") == "jid"
+    assert cap["kind"] == "filmora_edit"
+    assert cap["params"] == {"tool_name": "edit_video", "arguments": {"url": "https://youtu.be/x"}}
+
+
+def test_vs_run_tool_route_validates_input(monkeypatch):
+    import app, filmora_mcp
+    monkeypatch.setattr(filmora_mcp, "is_configured", lambda: True)
+    c = app.app.test_client()
+    # tool_name fehlt
+    r1 = c.post("/api/video-studio/run-tool", json={"arguments": {}})
+    assert r1.status_code == 400
+    # arguments ist kein Objekt
+    r2 = c.post("/api/video-studio/run-tool", json={"tool_name": "x", "arguments": "nope"})
+    assert r2.status_code == 400
+    # nicht verbunden
+    monkeypatch.setattr(filmora_mcp, "is_configured", lambda: False)
+    r3 = c.post("/api/video-studio/run-tool", json={"tool_name": "x", "arguments": {}})
+    assert r3.get_json().get("reason") == "not_connected"
+
+
 def test_contact_finder_extrahiert_email(monkeypatch):
     # web_analyst liefert E-Mail + Ansprechpartner → contact_finder reicht sie sauber durch.
     import contact_finder
@@ -1257,6 +1289,77 @@ def test_railway_find_service_nicht_gefunden(monkeypatch):
     assert ar._find_service("tok", "proj", "web-x") == {"found": False}
 
 
+# ── Railway: Projekt-Rotation ab Service-Limit (02.07.2026) ────────────────────
+def test_railway_all_generated_projects_filters_and_sorts(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "list_projects", lambda: {"ok": True, "projects": [
+        {"id": "x1", "name": "Generated Websites 3"},
+        {"id": "x2", "name": "Some Other Project"},          # kein Treffer
+        {"id": "x3", "name": "Generated Websites"},
+        {"id": "x4", "name": "Generated Websites 2"},
+    ]})
+    out = ar.all_generated_projects("tok")
+    assert [p["name"] for p in out] == \
+        ["Generated Websites", "Generated Websites 2", "Generated Websites 3"]
+    assert [p["suffix"] for p in out] == [1, 2, 3]
+
+
+def test_railway_target_project_name_rotates_when_full(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "all_generated_projects",
+                        lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_service_count", lambda tok, pid: 55)
+    monkeypatch.setenv("JARVIS_RAILWAY_ROTATE_AT", "50")
+    assert ar._target_project_name("tok") == "Generated Websites 2"
+
+
+def test_railway_target_project_name_stays_when_not_full(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "all_generated_projects",
+                        lambda tok: [{"id": "p2", "name": "Generated Websites 2", "suffix": 2}])
+    monkeypatch.setattr(ar, "_service_count", lambda tok, pid: 10)
+    monkeypatch.setenv("JARVIS_RAILWAY_ROTATE_AT", "50")
+    assert ar._target_project_name("tok") == "Generated Websites 2"
+
+
+def test_railway_deploy_resumes_existing_service_across_rotated_projects(monkeypatch):
+    # Ein Service, der VOR einer Rotation angelegt wurde, darf bei einem Redeploy NICHT
+    # doppelt im (jetzt aktiven) neuen Projekt angelegt werden — er muss im alten
+    # Projekt gefunden und dort wiederverwendet werden.
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_token", lambda: "tok")
+    monkeypatch.setattr(ar, "all_generated_projects", lambda tok: [
+        {"id": "p1", "name": "Generated Websites", "suffix": 1},
+        {"id": "p2", "name": "Generated Websites 2", "suffix": 2},
+    ])
+
+    def fake_find_service(tok, project_id, name):
+        if project_id == "p1" and name == "web-old":
+            return {"found": True, "service_id": "svc-old", "domain": "old.up.railway.app"}
+        return {"found": False}
+    monkeypatch.setattr(ar, "_find_service", fake_find_service)
+    monkeypatch.setattr(ar, "_find_project_with_env", lambda tok, name:
+                        {"found": True, "project_id": "p1", "env_id": "e1"}
+                        if name == "Generated Websites" else {"found": False})
+
+    calls = {"project_create": 0, "service_create": 0}
+
+    def fake_gql(query, variables, tok):
+        if "projectCreate" in query:
+            calls["project_create"] += 1
+            return {"ok": True, "data": {}}
+        if "serviceCreate(input" in query:
+            calls["service_create"] += 1
+            return {"ok": True, "data": {"serviceCreate": {"id": "new"}}}
+        return {"ok": True, "data": {}}
+    monkeypatch.setattr(ar, "_gql", fake_gql)
+
+    res = ar.deploy("web-old", "user/repo", {})
+    assert res["ok"] is True
+    assert res["project_id"] == "p1" and res["service_id"] == "svc-old"
+    assert calls["project_create"] == 0 and calls["service_create"] == 0   # kein Duplikat
+
+
 # ── Video: CPU faellt automatisch auf Higgsfield-Cloud (kein GPU-Fehler mehr) ──
 def test_video_cpu_faellt_auf_higgsfield(monkeypatch):
     import media_engine as me
@@ -1370,22 +1473,25 @@ def test_lead_collector_report_format():
     assert "0" in t0 and "Keine neuen" in d0 and f0 == []
 
 
-def _lc_stub_env(monkeypatch, running: bool):
+def _lc_stub_env(monkeypatch, running: bool, pending: int = 0):
     """Stubbt controller/db/discord für _run_once-Tests (kein Netzwerk, kein Warten)."""
     import lead_collector as lc
     import types, threading
-    calls = {"start": 0, "stop": 0, "report": [], "count_arg": None}
+    calls = {"start": 0, "stop_scrapers": 0, "stop_evaluator": 0, "report": [], "count_arg": None}
     ev = threading.Event()
     ev.set()                                          # .wait() kehrt sofort zurück
     ctrl = types.SimpleNamespace(
         is_running=lambda: running,
         start=lambda: calls.__setitem__("start", calls["start"] + 1),
-        stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
+        stop_scrapers=lambda: calls.__setitem__("stop_scrapers", calls["stop_scrapers"] + 1),
+        stop_evaluator=lambda: calls.__setitem__("stop_evaluator", calls["stop_evaluator"] + 1),
         _stop_event=ev)
     dbe = types.SimpleNamespace(
         max_id=lambda: 42,
         count_since=lambda mid: (calls.__setitem__("count_arg", mid), 7)[1],
         get_top=lambda n: [{"name": "X", "score": 50}])
+    # count_pending() liefert sofort 0 → _drain_evaluator_backlog() kehrt ohne Warten zurück.
+    draw = types.SimpleNamespace(count_pending=lambda: pending)
     disc = types.SimpleNamespace(
         post_report=lambda *a, **k: calls["report"].append(a) or True)
     import sys
@@ -1396,15 +1502,18 @@ def _lc_stub_env(monkeypatch, running: bool):
     import scrapers
     monkeypatch.setattr(scrapers, "controller", ctrl, raising=False)
     monkeypatch.setitem(sys.modules, "db_evaluated", dbe)
+    monkeypatch.setitem(sys.modules, "db_raw", draw)
     monkeypatch.setitem(sys.modules, "discord_bot", disc)
+    monkeypatch.setenv("JARVIS_LEAD_STOP_BUFFER", "0")
     return lc, calls
 
 
 def test_lead_collector_run_once_self_managed(monkeypatch):
-    # Sammler war AUS → Scheduler startet, sammelt, stoppt und meldet.
+    # Sammler war AUS → Scheduler startet, sammelt, stoppt Scraper+Evaluator und meldet.
     lc, calls = _lc_stub_env(monkeypatch, running=False)
     lc._run_once()
-    assert calls["start"] == 1 and calls["stop"] == 1
+    assert calls["start"] == 1
+    assert calls["stop_scrapers"] == 1 and calls["stop_evaluator"] == 1
     assert calls["count_arg"] == 42                   # Snapshot aus max_id()
     assert len(calls["report"]) == 1
     assert "7" in calls["report"][0][0]               # new_count im Titel
@@ -1414,8 +1523,33 @@ def test_lead_collector_run_once_respects_manual(monkeypatch):
     # Sammler lief MANUELL → Scheduler darf weder starten noch stoppen, meldet aber.
     lc, calls = _lc_stub_env(monkeypatch, running=True)
     lc._run_once()
-    assert calls["start"] == 0 and calls["stop"] == 0
+    assert calls["start"] == 0
+    assert calls["stop_scrapers"] == 0 and calls["stop_evaluator"] == 0
     assert len(calls["report"]) == 1
+
+
+def test_lead_collector_drains_backlog_before_stopping_evaluator(monkeypatch):
+    # Rest-Backlog leert sich nach dem ersten Poll → Drain kehrt zurück, Evaluator wird
+    # danach trotzdem gestoppt (nicht endlos weiterlaufen lassen).
+    lc, calls = _lc_stub_env(monkeypatch, running=False, pending=0)
+    monkeypatch.setenv("JARVIS_LEAD_DRAIN_MAX", "30")
+    lc._run_once()
+    assert calls["stop_scrapers"] == 1 and calls["stop_evaluator"] == 1
+
+
+def test_lead_collector_drain_caps_wait(monkeypatch):
+    # Backlog leert sich NIE → Drain darf nicht ewig (echte 30s) warten, Zeitlimit greift.
+    import time as _t
+    lc, calls = _lc_stub_env(monkeypatch, running=False, pending=3)
+    monkeypatch.setenv("JARVIS_LEAD_DRAIN_MAX", "30")     # min. erlaubt
+    clock = [0.0]
+    def _fake_time():
+        clock[0] += 6                                      # springt je Aufruf weiter als ein Poll
+        return clock[0]
+    monkeypatch.setattr(_t, "time", _fake_time)
+    monkeypatch.setattr(_t, "sleep", lambda s: None)       # Poll-Sleeps überspringen
+    lc._drain_evaluator_backlog()                          # darf nicht hängen (endliche Fake-Zeit)
+    assert clock[0] >= 30                                  # Schleife lief bis zum Limit durch
 
 
 # ── db_evaluated: schlanke Zähl-/Globus-Helfer ────────────────────────────────

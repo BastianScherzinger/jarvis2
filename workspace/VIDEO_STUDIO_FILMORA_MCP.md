@@ -166,3 +166,78 @@ nächsten `update.py`/Start auf dem betroffenen (zweiten) PC greifen, nicht sofo
 Ordner (`Urlaubsfotos`, `web_*` ohne Inhalt bleiben unberührt), DB-Pfad-Aktualisierung.
 **Gesamt-Suite: 149/149 grün** (148 + 1 vorbestehend flakiger Test, der isoliert immer
 grün ist — bestätigt schon vor diesem Durchlauf vorhanden, siehe Git-Historie).
+
+---
+
+# Nachtrag (2026-07-02, dritter Durchlauf): Fünf Baustellen — Filmora-Steuerung,
+# Design, Lead-Bewertung, Railway-Rotation, update.py-Henne-Ei-Bug
+
+## 1. Filmora-MCP: direkte Werkzeug-Steuerung
+Recherche (Explore-Agent) bestätigte: `filmora_mcp.py`/`resolve_edit_tool` ist sauber
+gebaut, aber **nie gegen einen echten viaSocket-Server verifiziert** — es gibt keine
+Zugangsdaten zum Testen, die Tool-Namen/Argument-Schemata sind reine Annahmen. Statt
+das zu erraten, bekommt Sir jetzt ein **immer verfügbares manuelles Kontroll-Panel**
+im Video-Studio-Tab ("Werkzeug direkt steuern"): Dropdown mit JEDEM von `tools/list`
+entdeckten Filmora-Tool, automatisch generiertes JSON-Argument-Skelett aus dem
+`inputSchema` des gewählten Tools (Feldname → Platzhalter je nach Typ), frei editierbar,
+"Werkzeug ausführen" → derselbe `media_queue`-Job-Pfad (`filmora_edit`) und Poll-Fluss
+wie der geführte YouTube-Editor. Damit ist Sir NIE auf die Auto-Erkennung angewiesen,
+egal wie Filmoras echte API aussieht.
+- Backend: `POST /api/video-studio/run-tool` (app.py) — validiert `tool_name`/`arguments`,
+  reicht an `media_queue.submit("filmora_edit", …)` durch (kein neuer Job-Typ nötig).
+- Frontend: `vsLoadFullTools()`/`vsToolSkeleton()`/`vsRunToolManual()` (video_studio.js).
+- Tests: `test_vs_run_tool_route`, `test_vs_run_tool_route_validates_input`.
+
+## 2. Design-Pass (design-pro-Skill angewendet)
+Video-Studio war laut Recherche "funktional, aber gestalterisch rudimentär" (nur
+bestehende Klassen zusammengesteckt). Neu: Eyebrow-Sektionslabels (`.vs-sec`, HUD-Cyan)
+geben den drei Karten (Verbindung / YouTube-Editor / Werkzeug-Steuerung) klare Hierarchie,
+Connect-Karte mit dezentem Akzent-Strich, konsistente `:focus-visible`-Ringe für
+Tastaturbedienung. Eigene-Marke-Seite war bereits hochwertig (eigenes Blau-Akzent-System,
+gute Schatten/Radien) — nur leichte Politur (Hover-Lift beim „Neue Marke"-Button), keine
+Neugestaltung nötig (taste-Prinzip: nicht anfassen was schon gut ist).
+
+## 3. Lead-Bewertung nach stündlichem Sammeln — echte Lücke gefunden & gefixt
+Der Evaluator lief während des 10-Minuten-Fensters parallel zu den Scrapern, wurde aber
+von `controller.stop()` **gemeinsam mit den Scrapern sofort mitgestoppt** — frisch
+gesammelte, aber noch nicht bewertete Leads blieben bis zum nächsten Stunden-Lauf als
+`pending` liegen. Fix: `scrapers/controller.py` hat jetzt zwei getrennte Stop-Events
+(`_scraper_stop_event` für die 6 Worker, `_stop_event` weiter für den Evaluator+Watchdog)
+und neue Funktionen `stop_scrapers()`/`stop_evaluator()` (der volle `stop()` — Dashboard-
+Button — setzt weiter beide sofort). `lead_collector._run_once()` stoppt jetzt zuerst nur
+die Scraper, wartet dann via `_drain_evaluator_backlog()` (Poll auf `db_raw.count_pending()`,
+neue Funktion) bis der Rest-Backlog leer ist — gekappt auf `JARVIS_LEAD_DRAIN_MAX`
+(Default 300s), damit ein hartnäckiger Rest den nächsten Stunden-Lauf nie blockiert —
+und stoppt danach erst den Evaluator. Tests: 4 neue in `tests/test_core.py`.
+
+## 4. Railway-Projekt-Rotation ab 50 Services
+Ursache für „nur 10 Webseiten live" bestätigt: dasselbe bereits bekannte Muster (Sammel-
+Projekt "Generated Websites" wieder ans Service-/Guthabenlimit gestoßen — `serviceCreate`
+scheitert still, Seiten werden gebaut, gehen aber nie live). Neu: `agent_railway.py`
+rotiert jetzt **automatisch** in ein nummeriertes Folgeprojekt ("Generated Websites 2",
+"… 3", …), sobald das jüngste bekannte Projekt `JARVIS_RAILWAY_ROTATE_AT` (Default 50)
+Services erreicht — `_target_project_name()` prüft das live über die Railway-API (kein
+lokaler State, funktioniert also unverändert über beide PCs hinweg, die denselben
+Railway-Account nutzen). **Resume-Schutz:** vor jedem Deploy wird zuerst über ALLE
+rotierten Projekte nach einem bereits existierenden Service mit demselben Namen gesucht
+(`all_generated_projects` + Schritt „0" in `deploy()`) — sonst würde ein Redeploy einer
+VOR der Rotation gebauten Seite einen doppelten Service im NEUEN Projekt anlegen und das
+Original verwaisen lassen. `service_delete_by_name` und `railway_cleanup.py` durchsuchen
+jetzt ebenfalls alle rotierten Projekte statt nur des Basis-Projekts. Neue Env-Doku:
+`JARVIS_RAILWAY_PROJECT`/`JARVIS_RAILWAY_MAX_SERVICES`/`JARVIS_RAILWAY_ROTATE_AT`.
+Tests: 4 neue (Filter/Sortierung der Rotation, Rotations-Trigger, Resume über Projekte
+hinweg via gemocktem `deploy()`-Lauf).
+
+## 5. update.py: Henne-Ei-Bug beim Ordner-Umzug gefunden & gefixt
+Root Cause für „Desktop des 2. PCs wurde nicht aufgeräumt" (Explore-Agent-Recherche):
+Python kompiliert `update.py` einmalig beim Prozessstart. `git pull` (Zeile 63) aktualisiert
+zwar die Datei auf der Platte, aber der BEREITS LAUFENDE Prozess führt weiter seinen alten,
+im Speicher stehenden Code aus — beim allerersten Lauf nach einem Push, der neue Schritte
+in `update.py` selbst hinzufügt (wie den Ordner-Umzug), werden diese neuen Zeilen also
+NIE ausgeführt, obwohl `website_builder.py` (separat importiert) bereits die neue Funktion
+enthält. Fix: nach einem erfolgreichen `git pull` startet sich `update.py` selbst per
+`os.execv(sys.executable, [sys.executable] + sys.argv)` neu — der zweite (jetzt aktuelle)
+Lauf sieht "bereits aktuell" beim erneuten Fetch und läuft normal durch, inklusive aller
+neuen Schritte. Selbstbegrenzt (kein Endlos-Neustart), betrifft nur den Update-Pfad.
+
+**Gesamt-Suite dieses Durchlaufs: 157/157 grün.**

@@ -626,6 +626,7 @@
 
     <!-- Connect-Karte -->
     <section class="vs-connect-card" id="vs-connect-card">
+      <div class="vs-sec">Verbindung</div>
       <div class="vs-connect-row">
         <span class="vs-badge off" id="vs-badge">● nicht verbunden</span>
         <span class="vs-tool-count" id="vs-tool-count"></span>
@@ -643,8 +644,9 @@
       <div class="vs-tools-list" id="vs-tools-list"></div>
     </section>
 
-    <!-- Edit-Formular -->
+    <!-- Edit-Formular (geführt: YouTube-Link + Anweisung, Tool wird automatisch erkannt) -->
     <section class="adform vs-edit-form" id="vs-edit-form">
+      <div class="vs-sec">YouTube-Editor <span class="vs-sec-hint">— Tool-Erkennung automatisch</span></div>
       <label class="af-field">
         <span class="af-lbl">YouTube-Link</span>
         <input type="text" id="vs-yt-url" class="af-in" placeholder="https://youtube.com/watch?v=…">
@@ -663,10 +665,28 @@
       <div class="vs-picker" id="vs-picker" style="display:none"></div>
     </section>
 
+    <!-- Direkte Werkzeug-Steuerung: jedes entdeckte Filmora-Tool manuell mit eigenen
+         Argumenten aufrufen — Sir ist damit NIE auf die Auto-Erkennung angewiesen. -->
+    <section class="adform vs-run-form" id="vs-run-form">
+      <div class="vs-sec">Werkzeug direkt steuern <span class="vs-sec-hint">— volle Kontrolle, jedes Tool</span></div>
+      <label class="af-field">
+        <span class="af-lbl">Filmora-Werkzeug</span>
+        <select id="vs-run-tool-select" class="af-in" onchange="vsToolSkeleton()">
+          <option value="">— erst verbinden —</option>
+        </select>
+      </label>
+      <div class="vs-run-desc" id="vs-run-desc"></div>
+      <label class="af-field">
+        <span class="af-lbl">Argumente (JSON)</span>
+        <textarea id="vs-run-args" class="af-in vs-run-args" rows="5" placeholder="{}"></textarea>
+      </label>
+      <button class="start-btn" id="vs-run-tool-btn" onclick="vsRunToolManual()">Werkzeug ausführen</button>
+    </section>
+
     <div id="vs-job-status" class="job-card" style="display:none"></div>
 
     <section class="vs-debug" id="vs-debug">
-      <div class="vs-debug-title">Debug</div>
+      <div class="vs-debug-title">Protokoll</div>
       <div class="vs-debug-log" id="vs-debug-log"></div>
     </section>
   </div>

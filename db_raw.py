@@ -191,6 +191,15 @@ def claim_next_pending() -> dict | None:
         return lead
 
 
+def count_pending() -> int:
+    """Anzahl der Roh-Leads, die noch auf Bewertung warten ('pending'). Für den
+    Lead-Collector: nach Sammel-Fensterende warten, bis dieser Rest-Backlog vom
+    Evaluator abgearbeitet ist, bevor auch der Evaluator gestoppt wird."""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) AS n FROM raw_leads WHERE eval_status='pending'").fetchone()
+        return int(row["n"]) if row else 0
+
+
 def reset_stale_running(max_minutes: int = 10) -> int:
     """Watchdog: setzt 'running'-Leads, deren claimed_at älter als max_minutes ist
     (oder fehlt — z.B. Crash mitten in analyze()), zurück auf 'pending'. Gibt die

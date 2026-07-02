@@ -69,6 +69,17 @@ def main() -> None:
                 print(f"  {GY}  Neu:{R}")
                 for line in log.stdout.strip().splitlines():
                     print(f"  {GY}    - {line}{R}")
+            # KRITISCH: dieser Prozess hat den ALTEN update.py-Code noch im Speicher --
+            # Python kompiliert das Skript einmal beim Start, git pull aendert nur die
+            # Datei auf der Platte. Ohne Neustart wuerden neue Schritte HIER IM SKRIPT
+            # (z.B. die Ordner-Aufraeumung unten) beim ALLERERSTEN Lauf nach einem Update
+            # schlicht nie ausgefuehrt werden -- Henne-Ei-Problem, bestaetigt am
+            # migrate_legacy_website_folders()-Schritt (02.07.2026). Fix: frischen
+            # Interpreter-Prozess mit dem NEUEN Code starten; der laeuft dann komplett
+            # durch (inkl. "bereits aktuell"-Zweig danach, kein Endlos-Neustart).
+            print(f"  {CY}[>]{R}  Starte Update-Skript neu (frischer Code)...")
+            print()
+            os.execv(sys.executable, [sys.executable] + sys.argv)
         else:
             print(f"  {RD}[X]{R}  Merge-Konflikt oder Fehler:")
             print(f"  {GY}     {pull.stderr.strip()[:100]}{R}")

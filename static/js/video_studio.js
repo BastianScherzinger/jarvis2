@@ -2,11 +2,13 @@
 //  VIDEO-STUDIO — Filmora-MCP-Tab (Connect, Prompt-Verbesserung, YouTube-Edit, Chat)
 // ════════════════════════════════════════════════════════════════════════════
 let _vsInit = false;
+let _vsToolsFull = [];   // volle Tool-Objekte (name+description+inputSchema) für die manuelle Steuerung
 
 function initVideoStudio(){
   if(_vsInit) return;
   _vsInit = true;
   vsLoadStatus();
+  vsLoadFullTools();
   vsWireChat();
 }
 
@@ -64,12 +66,82 @@ async function vsConnect(){
     vsDebugLog('error', 'Verbindung fehlgeschlagen: ' + (r.reason || 'unbekannt'));
   }
   vsLoadStatus();
+  vsLoadFullTools();
 }
 
 async function vsDisconnect(){
   try{ await fetch('/api/video-studio/disconnect', {method:'POST'}); }catch{}
   vsDebugLog('info', 'Getrennt.');
+  _vsToolsFull = [];
   vsLoadStatus();
+  vsLoadFullTools();
+}
+
+// ── Direkte Werkzeug-Steuerung (jedes entdeckte Tool, eigene Argumente) ─────────
+// Wichtig für Filmora: die echten Tool-Namen sind nicht dokumentiert (siehe
+// resolve_edit_tool-Heuristik im Backend) — dieses Panel gibt Sir IMMER volle
+// manuelle Kontrolle über jedes entdeckte Tool, unabhängig von der Auto-Erkennung.
+
+async function vsLoadFullTools(){
+  const sel = document.getElementById('vs-run-tool-select');
+  if(!sel) return;
+  let r;
+  try{ r = await(await fetch('/api/video-studio/tools')).json(); }
+  catch{ return; }
+  _vsToolsFull = (r && r.tools) || [];
+  if(!_vsToolsFull.length){
+    sel.innerHTML = '<option value="">— keine Tools entdeckt —</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">— Werkzeug wählen —</option>' +
+    _vsToolsFull.map(t => `<option value="${_e(t.name)}">${_e(t.name)}</option>`).join('');
+}
+
+function vsToolSkeleton(){
+  const sel  = document.getElementById('vs-run-tool-select');
+  const ta   = document.getElementById('vs-run-args');
+  const desc = document.getElementById('vs-run-desc');
+  const tool = _vsToolsFull.find(t => t.name === (sel && sel.value));
+  if(desc) desc.textContent = tool ? (tool.description || '') : '';
+  if(!tool || !ta) return;
+  const props = (tool.inputSchema && tool.inputSchema.properties) || {};
+  const skeleton = {};
+  Object.keys(props).forEach(k => {
+    const p = props[k] || {};
+    skeleton[k] = p.type === 'number' || p.type === 'integer' ? 0
+                : p.type === 'boolean' ? false
+                : p.type === 'array'   ? []
+                : '';
+  });
+  ta.value = JSON.stringify(skeleton, null, 2);
+}
+
+async function vsRunToolManual(){
+  const sel  = document.getElementById('vs-run-tool-select');
+  const ta   = document.getElementById('vs-run-args');
+  const btn  = document.getElementById('vs-run-tool-btn');
+  const tool = sel && sel.value;
+  if(!tool){ vsDebugLog('warn', 'Bitte zuerst ein Werkzeug wählen.'); return; }
+  let args;
+  try{ args = JSON.parse((ta && ta.value || '').trim() || '{}'); }
+  catch{ vsDebugLog('error', 'Argumente sind kein gültiges JSON.'); return; }
+  if(typeof args !== 'object' || args === null || Array.isArray(args)){
+    vsDebugLog('error', 'Argumente müssen ein JSON-Objekt sein, z.B. {"url": "…"}.'); return;
+  }
+  btn.disabled = true; btn.textContent = 'Sende…';
+  let r;
+  try{
+    r = await(await fetch('/api/video-studio/run-tool', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tool_name: tool, arguments: args})})).json();
+  }catch{ r = {ok:false, reason:'Netzwerkfehler'}; }
+  btn.disabled = false; btn.textContent = 'Werkzeug ausführen';
+  if(r.ok){
+    vsDebugLog('success', `Werkzeug „${tool}“ gestartet.`);
+    pollJob(r.job_id, 'vs');
+  }else{
+    vsDebugLog('error', 'Fehlgeschlagen: ' + (r.reason || 'unbekannt'));
+  }
 }
 
 // ── Prompt-Verbesserung ──────────────────────────────────────────────────────────

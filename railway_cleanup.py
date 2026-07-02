@@ -1,10 +1,14 @@
 """
-railway_cleanup.py — Railway-Services im Sammel-Projekt aufräumen (Keep-Liste).
+railway_cleanup.py — Railway-Services in ALLEN rotierten Sammel-Projekten aufräumen
+(Keep-Liste).
 
-Löscht ALLE Services im Railway-Projekt „Generated Websites" AUSSER den angegebenen
-(Keep-Liste). Gedacht, wenn sich zu viele Demo-Seiten angesammelt haben und Railway das
-Service-/Guthaben-Limit erreicht — dann bauen neue Deploys nicht mehr (Symptom: Seiten
-werden gebaut, gehen aber nie live).
+Löscht ALLE Services in „Generated Websites" UND seinen rotierten Folgeprojekten
+(„Generated Websites 2", „… 3", …, siehe agent_railway._target_project_name/Rotation)
+AUSSER den angegebenen (Keep-Liste). Gedacht, wenn sich zu viele Demo-Seiten angesammelt
+haben und ein Sammel-Projekt das Service-/Guthaben-Limit erreicht — dann bauen neue
+Deploys in DIESEM Projekt nicht mehr (Symptom: Seiten werden gebaut, gehen aber nie live).
+Seit der automatischen Projekt-Rotation (02.07.2026) rotiert deploy() zwar selbst in ein
+neues Projekt statt zu blockieren, aber altes Aufräumen bleibt sinnvoll (Guthaben, Übersicht).
 
 Arbeitet DIREKT über die Railway-API (unabhängig von der lokalen Webseiten-DB) — deshalb
 erfasst es auch Services, die auf einem ANDEREN PC gebaut und nur zu Railway gepusht wurden.
@@ -57,40 +61,46 @@ def main() -> int:
     if not tok:
         _p("RAILWAY_TOKEN fehlt in der .env.")
         return 1
-    found = R._find_project_with_env(tok, R.PROJECT_NAME)
-    if not found.get("found"):
-        _p(f"Railway-Projekt '{R.PROJECT_NAME}' nicht gefunden.")
+    projects = R.all_generated_projects(tok)
+    if not projects:
+        _p(f"Kein Railway-Projekt '{R.PROJECT_NAME}*' gefunden.")
         return 1
 
-    svcs = _list_services(tok, found["project_id"])
-    if not svcs:
-        _p("Keine Services im Projekt (oder Liste nicht lesbar).")
-        return 0
-    delete = [s for s in svcs if s["name"] not in keep]
-    keepers = [s for s in svcs if s["name"] in keep]
+    total_ok = total_fail = total_kept = 0
+    for proj in projects:
+        svcs = _list_services(tok, proj["id"])
+        if not svcs:
+            _p(f"\nProjekt '{proj['name']}': keine Services (oder Liste nicht lesbar).")
+            continue
+        delete = [s for s in svcs if s["name"] not in keep]
+        keepers = [s for s in svcs if s["name"] in keep]
+        total_kept += len(keepers)
 
-    _p(f"\nProjekt '{R.PROJECT_NAME}': {len(svcs)} Services")
-    _p(f"BEHALTEN ({len(keepers)}): " + (", ".join(s['name'] for s in keepers) or "—"))
-    _p(f"{'LOESCHE' if do_it else 'TROCKENLAUF - wuerde loeschen'} ({len(delete)}):")
-    for s in delete:
-        _p(f"   - {s['name']}")
+        _p(f"\nProjekt '{proj['name']}': {len(svcs)} Services")
+        _p(f"BEHALTEN ({len(keepers)}): " + (", ".join(s['name'] for s in keepers) or "—"))
+        _p(f"{'LOESCHE' if do_it else 'TROCKENLAUF - wuerde loeschen'} ({len(delete)}):")
+        for s in delete:
+            _p(f"   - {s['name']}")
+
+        if not do_it:
+            continue
+
+        for s in delete:
+            d = R._gql("mutation($id:String!){ serviceDelete(id:$id) }", {"id": s["id"]}, tok)
+            if d.get("ok"):
+                total_ok += 1
+            else:
+                total_fail += 1
+                _p(f"   [FAIL] {s['name']}: {str(d.get('error',''))[:80]}")
+            time.sleep(0.3)
 
     if not do_it:
         _p("\n-> Wirklich loeschen:  python railway_cleanup.py "
            + " ".join(f'--keep {k}' for k in keep) + " --yes")
         return 0
 
-    ok = fail = 0
-    for s in delete:
-        d = R._gql("mutation($id:String!){ serviceDelete(id:$id) }", {"id": s["id"]}, tok)
-        if d.get("ok"):
-            ok += 1
-        else:
-            fail += 1
-            _p(f"   [FAIL] {s['name']}: {str(d.get('error',''))[:80]}")
-        time.sleep(0.3)
-    rest = _list_services(tok, found["project_id"])
-    _p(f"\nFertig. Geloescht: {ok} | Fehlgeschlagen: {fail} | Verbleibend: {len(rest)}")
+    _p(f"\nFertig ({len(projects)} Projekt(e)). "
+       f"Geloescht: {total_ok} | Fehlgeschlagen: {total_fail} | Behalten: {total_kept}")
     return 0
 
 
