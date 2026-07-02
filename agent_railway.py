@@ -156,6 +156,15 @@ def _find_service(token: str, project_id: str, name: str) -> dict:
     return {"found": False}
 
 
+def _service_count(token: str, project_id: str) -> int:
+    """Anzahl der Services im Projekt (für die Limit-Frühwarnung). -1 wenn nicht lesbar."""
+    q = "query($id:String!){ project(id:$id){ services{ edges{ node{ id } } } } }"
+    r = _gql(q, {"id": project_id}, token)
+    if not r["ok"]:
+        return -1
+    return len((((r["data"].get("project") or {}).get("services") or {}).get("edges") or []))
+
+
 def _service_domain(token: str, service_id: str) -> str:
     """Liest die bestehende öffentliche Domain eines Service (best-effort, '' wenn keine)."""
     q = ("query($id:String!){ service(id:$id){ serviceInstances{ edges{ node{ "
@@ -247,6 +256,17 @@ def deploy(name: str, repo_full_name: str, env: dict, branch: str = "main",
         if not env_id:
             return {"ok": False, "error": "Keine Environment-ID erhalten.", "log": log}
         _say(f"Sammel-Projekt „{PROJECT_NAME}“ neu angelegt")
+
+    # Limit-Frühwarnung: Railway limitiert Services/Guthaben. Läuft das Sammel-Projekt voll,
+    # scheitern neue serviceCreate-Aufrufe → Seiten werden gebaut, gehen aber nie live. Klar warnen.
+    try:
+        n_svc = _service_count(token, project_id)
+        warn_at = int(os.environ.get("JARVIS_RAILWAY_MAX_SERVICES", "40") or "40")
+        if n_svc >= warn_at:
+            _say(f"⚠ {n_svc} Services im Projekt „{PROJECT_NAME}“ — Railway-Limit/Guthaben kann neue "
+                 "Deploys blockieren. Alte Demos abbauen: python railway_cleanup.py --keep <name> --yes")
+    except Exception:
+        pass
 
     # 2) Service: bestehenden WIEDERVERWENDEN (kein doppeltes serviceCreate!), sonst neu anlegen.
     # Jede Seite ist ein eigener, benannter Service IM Sammel-Projekt. Da der Servicename
