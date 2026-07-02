@@ -8,6 +8,15 @@ import sys
 import os
 from pathlib import Path
 
+# Konsole auf UTF-8 zwingen -- die Unicode-Rahmen unten ('─') crashen sonst mit
+# UnicodeEncodeError unter der Windows-Alt-Kodierung cp1252 (Kunden-Konsole ohne
+# UTF-8-Terminal). Defensiv HIER gesetzt (nicht nur beim Aufrufer), falls install.py
+# je von einem anderen Skript importiert wird, das das nicht schon selbst tut.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 os.system("")   # Windows ANSI aktivieren
 
 R  = "\033[0m";  B  = "\033[1m"

@@ -9,6 +9,15 @@ import sys
 import os
 from pathlib import Path
 
+# Konsole auf UTF-8 zwingen -- ohne das crasht install.py's Unicode-Rahmen (z.B. '─')
+# mit UnicodeEncodeError unter der Windows-Alt-Kodierung cp1252 (Kunden-Konsole ohne
+# UTF-8-Terminal), und update.py bricht ab, BEVOR der Ordner-Umzug/Deploy-Check je
+# laeuft. Gleiches Muster wie start.py (dort schon vorhanden).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+os.environ["PYTHONIOENCODING"] = "utf-8"
+os.environ["PYTHONUTF8"]       = "1"
 os.system("")
 R  = "\033[0m"; B = "\033[1m"
 GR = "\033[92m"; RD = "\033[91m"; YL = "\033[93m"; CY = "\033[96m"; GY = "\033[90m"
