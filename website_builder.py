@@ -1080,6 +1080,12 @@ def migrate_legacy_website_folders() -> dict:
     Aktualisiert passende db_websites-Zeilen auf den neuen Pfad, damit das Dashboard
     (Ordner-Links, Neu-Bau-Dedup) weiter korrekt funktioniert.
 
+    Sucht NICHT nur direkt auf dem Desktop, sondern auch EINE Ordner-Ebene tiefer
+    (z.B. Desktop/generated websites/web_<slug>) — Sir legt manchmal von Hand einen
+    Sammelordner an, bevor die jarvis_websites/<Datum>-Struktur existierte. Die
+    content.json/manage.py-Prüfung macht das breitere Suchen ungefährlich: fremde
+    Unterordner (die selbst keine web_*-Kinder haben) liefern schlicht 0 Kandidaten.
+
     Idempotent (ein zweiter Lauf findet nichts mehr zu tun) und wirft nie — best-effort,
     ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab.
     Gibt {"moved": [{"from","to"}], "errors": [{"folder","error"}]} zurück."""
@@ -1096,7 +1102,16 @@ def migrate_legacy_website_folders() -> dict:
     except Exception:
         db_websites = None
 
-    for d in sorted(_SHOP_BASE.glob("web_*")):
+    kandidaten = list(_SHOP_BASE.glob("web_*"))                    # Ebene 0: direkt auf dem Desktop
+    for sub in _SHOP_BASE.iterdir():                                # Ebene 1: ein Unterordner tiefer
+        if not sub.is_dir() or sub.name == "jarvis_websites":
+            continue                        # Zielordner selbst nie durchsuchen (schon einsortiert)
+        try:
+            kandidaten += list(sub.glob("web_*"))
+        except Exception:
+            continue
+
+    for d in sorted(set(kandidaten)):
         if not d.is_dir():
             continue
         if not ((d / "content.json").exists() or (d / "manage.py").exists()):

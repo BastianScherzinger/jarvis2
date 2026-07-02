@@ -372,6 +372,36 @@ def test_migrate_legacy_folders_ignores_unrelated_dirs(tmp_path, monkeypatch):
     assert unrelated.exists() and fake_web.exists()   # beide unberührt
 
 
+def test_migrate_legacy_folders_findet_eine_ebene_tiefer(tmp_path, monkeypatch):
+    # Realer Fund (02.07.2026): Sir hatte einen Sammelordner "generated websites" von
+    # Hand angelegt, DARIN lagen die web_*-Ordner — nicht direkt auf dem Desktop. Der
+    # reine Top-Level-Glob fand sie darum nie. Jetzt: eine Unterordner-Ebene tiefer
+    # wird ebenfalls durchsucht, fremde Unterordner ohne web_*-Kinder bleiben unberührt.
+    import website_builder, time
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    container = tmp_path / "generated websites"
+    container.mkdir()
+    legacy = container / "web_tief-verschachtelt"
+    legacy.mkdir()
+    (legacy / "content.json").write_text('{"site_name": "Tief"}', encoding="utf-8")
+    # Fremder Sammelordner OHNE web_*-Kinder — darf nicht durchwühlt/verändert werden.
+    fremd = tmp_path / "webseiten buisnes"
+    fremd.mkdir()
+    (fremd / "irgendein_projekt").mkdir()
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    assert not legacy.exists()
+    today = time.strftime("%Y-%m-%d")
+    target = tmp_path / "jarvis_websites" / today / "web_tief-verschachtelt"
+    assert target.is_dir() and (target / "content.json").exists()
+    assert (fremd / "irgendein_projekt").exists()          # fremder Ordner unangetastet
+
+    # Idempotent: zweiter Lauf findet nichts mehr (auch nicht im Container)
+    res2 = website_builder.migrate_legacy_website_folders()
+    assert res2["moved"] == [] and res2["errors"] == []
+
+
 def test_migrate_legacy_folders_updates_db_folder(tmp_path, monkeypatch):
     import website_builder
     import db_websites
