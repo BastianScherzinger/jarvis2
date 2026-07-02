@@ -372,6 +372,22 @@ def test_migrate_legacy_folders_ignores_unrelated_dirs(tmp_path, monkeypatch):
     assert unrelated.exists() and fake_web.exists()   # beide unberührt
 
 
+def test_migrate_legacy_folders_erkennt_unvollstaendigen_bau(tmp_path, monkeypatch):
+    # Realer Bugreport (02.07.2026, Kollegen-PC): ein web_*-Ordner mit einem abgebrochenen
+    # Bau (kein content.json/manage.py, aber z.B. schon ein requirements.txt vom Scaffold)
+    # wurde bisher NIE gefunden -- "keine verstreuten Alt-Ordner gefunden" trotz sichtbarem
+    # Ordner. Jetzt reicht IRGENDEIN Bau-Signal.
+    import website_builder
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    partial = tmp_path / "web_volker-werner-physiotherapeut"
+    partial.mkdir()
+    (partial / "requirements.txt").write_text("Django\n", encoding="utf-8")
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    assert not partial.exists()
+
+
 def test_migrate_legacy_folders_findet_eine_ebene_tiefer(tmp_path, monkeypatch):
     # Realer Fund (02.07.2026): Sir hatte einen Sammelordner "generated websites" von
     # Hand angelegt, DARIN lagen die web_*-Ordner — nicht direkt auf dem Desktop. Der
@@ -1555,6 +1571,37 @@ def test_teardown_stale_demos_skips_replied_and_converted(tmp_path, monkeypatch)
     assert rows["Beantwortet GmbH"]["archived"] == 0     # Antwort erkannt -> geschützt
     assert rows["Alt GmbH"]["archived"] == 1              # weder Antwort noch verkauft -> abgebaut
     assert rows["Frisch GmbH"]["archived"] == 0           # zu jung
+
+
+# ── inbox_reader: JEDE erkannte Antwort geht nach Discord (nicht nur "heiße") ──
+def test_inbox_announce_notifies_discord_fuer_jede_kategorie(monkeypatch):
+    import inbox_reader as ir
+    import discord_bot
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify",
+                        lambda *a, **k: calls.append((a, k)) or True)
+    monkeypatch.setattr(ir.logger, "activity", lambda *a, **k: None)
+    for kat in ("interesse", "rueckfrage", "preisfrage", "termin", "absage", "neutral"):
+        calls.clear()
+        ir._announce({"name": "Testfirma", "from": "test@example.de",
+                      "zusammenfassung": "x", "empfehlung": "y", "dringlichkeit": "niedrig",
+                      "kategorie": kat, "suggested_reply": {}})
+        assert len(calls) == 1, f"Kategorie '{kat}' hat NICHT nach Discord gemeldet"
+        assert calls[0][1].get("color") == ir._COLOR[kat]
+
+
+def test_inbox_announce_draft_hint_nur_wenn_entwurf_vorhanden(monkeypatch):
+    import inbox_reader as ir
+    import discord_bot
+    monkeypatch.setattr(ir.logger, "activity", lambda *a, **k: None)
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
+    ir._announce({"name": "Testfirma", "kategorie": "preisfrage",
+                  "suggested_reply": {"text": "Hallo"}})
+    assert "Antwort-Entwurf liegt bereit" in calls[0][1]
+    calls.clear()
+    ir._announce({"name": "Testfirma", "kategorie": "neutral", "suggested_reply": {}})
+    assert "Antwort-Entwurf liegt bereit" not in calls[0][1]
 
 
 # ── Video: CPU faellt automatisch auf Higgsfield-Cloud (kein GPU-Fehler mehr) ──

@@ -333,8 +333,17 @@ def check_once() -> dict:
     return {"new": len(new_items), "hot": hot, "error": ""}
 
 
+# Discord-Farbe je Kategorie — auch "kalte" Kategorien (Absage/Neutral) bekommen eine
+# eigene, ruhigere Farbe statt gar keine Meldung (Sirs Vorgabe 02.07.2026: JEDE erkannte
+# Antwort soll in Discord sichtbar sein, nicht nur die heißen).
+_COLOR = {"interesse": 0x2ecc71, "termin": 0x2ecc71,
+          "rueckfrage": 0xf1c40f, "preisfrage": 0xf1c40f,
+          "absage": 0x95a5a6, "neutral": 0x7f8c8d}
+
+
 def _announce(it: dict) -> None:
-    """In den Aktivitäts-Feed schreiben + bei echtem Interesse in Discord pingen."""
+    """In den Aktivitäts-Feed schreiben + JEDE erkannte Antwort in Discord melden
+    (unabhängig von der Kategorie — auch eine Absage/neutrale Antwort ist relevant)."""
     kat = it.get("kategorie", "neutral")
     icon = {"interesse": "🔥", "preisfrage": "💶", "rueckfrage": "❓", "termin": "📅",
             "absage": "🚫", "neutral": "✉️"}.get(kat, "✉️")
@@ -343,20 +352,19 @@ def _announce(it: dict) -> None:
         logger.activity("Posteingang", f"Antwort ({kat})", detail, icon=icon, category="email")
     except Exception:
         pass
-    if kat in _HOT:
-        draft_hint = "\n\n📝 Antwort-Entwurf liegt bereit (Dashboard → /api/inbox/replies)." \
-            if it.get("suggested_reply") else ""
-        try:
-            import discord_bot
-            discord_bot.notify(
-                f"{icon} Kundenantwort — {kat.upper()}",
-                f"**{it.get('name') or it.get('from')}**\n{it.get('zusammenfassung','')}\n\n"
-                f"→ {it.get('empfehlung','')}\nDringlichkeit: {it.get('dringlichkeit','?')}"
-                f"{draft_hint}",
-                color=0x2ecc71 if kat in ("interesse", "termin") else 0xf1c40f,
-            )
-        except Exception:
-            pass
+    draft_hint = "\n\n📝 Antwort-Entwurf liegt bereit (Dashboard → /api/inbox/replies)." \
+        if it.get("suggested_reply") else ""
+    try:
+        import discord_bot
+        discord_bot.notify(
+            f"{icon} Kundenantwort — {kat.upper()}",
+            f"**{it.get('name') or it.get('from')}**\n{it.get('zusammenfassung','')}\n\n"
+            f"→ {it.get('empfehlung','')}\nDringlichkeit: {it.get('dringlichkeit','?')}"
+            f"{draft_hint}",
+            color=_COLOR.get(kat, 0x7f8c8d),
+        )
+    except Exception:
+        pass
 
 
 # ── Hintergrund-Loop ──────────────────────────────────────────────────────────

@@ -1065,6 +1065,24 @@ def _run(job_id: str) -> None:
 
 # ── Alte, verstreute Desktop-Ordner in die Tagesablage umziehen ───────────────
 
+# Erkennungssignale für "das ist eine echte JARVIS-Webseite" — bewusst mehr als nur
+# content.json/manage.py (02.07.2026, sechster Durchlauf): ein Bau kann mitten im
+# Scaffold abgebrochen sein und dann nur EINEN Teil der üblichen Dateien haben. Der
+# web_*-Namenspräfix (schon vom Aufrufer geprüft) plus IRGENDEINES dieser Signale
+# reicht — hält das Risiko für falsch-positive Treffer bei fremden Ordnern niedrig,
+# ohne einen echten (aber unvollständigen) Bau zu übersehen.
+_SITE_SIGNALS = ("content.json", "manage.py", "requirements.txt", "railway.json",
+                 "Procfile", "templates", "static", "config")
+
+
+def _looks_like_jarvis_site(d: Path) -> bool:
+    """True, wenn der Ordner IRGENDEIN Anzeichen einer JARVIS-Webseite hat."""
+    try:
+        return any((d / s).exists() for s in _SITE_SIGNALS)
+    except Exception:
+        return False
+
+
 def migrate_legacy_website_folders() -> dict:
     """Räumt alte, direkt auf dem Desktop liegende Webseiten-Ordner (Desktop/web_*, aus
     der Zeit vor der Tagesordner-Struktur) nach Desktop/jarvis_websites/<Datum>/ um.
@@ -1083,20 +1101,26 @@ def migrate_legacy_website_folders() -> dict:
     Sucht NICHT nur direkt auf dem Desktop, sondern auch EINE Ordner-Ebene tiefer
     (z.B. Desktop/generated websites/web_<slug>) — Sir legt manchmal von Hand einen
     Sammelordner an, bevor die jarvis_websites/<Datum>-Struktur existierte. Die
-    content.json/manage.py-Prüfung macht das breitere Suchen ungefährlich: fremde
-    Unterordner (die selbst keine web_*-Kinder haben) liefern schlicht 0 Kandidaten.
+    Signatur-Prüfung (siehe _looks_like_jarvis_site) macht das breitere Suchen
+    ungefährlich: fremde Unterordner (die selbst keine web_*-Kinder haben) liefern
+    schlicht 0 Kandidaten.
 
     Idempotent (ein zweiter Lauf findet nichts mehr zu tun) und wirft nie — best-effort,
-    ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab.
+    ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab. Jeder übersprungene
+    web_*-Kandidat wird geloggt (mit Grund) — „nichts gefunden" bleibt so nachvollziehbar
+    statt einer stummen Blackbox.
     Gibt {"moved": [{"from","to"}], "errors": [{"folder","error"}]} zurück."""
     moved: list = []
     errors: list = []
-    if not _SHOP_BASE.exists():
-        return {"moved": moved, "errors": errors}
     try:
         import logger as _lg
     except Exception:
         _lg = None
+    if not _SHOP_BASE.exists():
+        if _lg:
+            _lg.warn("Webseite", f"Ordner-Umzug übersprungen — Basis-Ordner existiert nicht: "
+                                 f"{_SHOP_BASE}")
+        return {"moved": moved, "errors": errors}
     try:
         import db_websites
     except Exception:
@@ -1110,11 +1134,18 @@ def migrate_legacy_website_folders() -> dict:
             kandidaten += list(sub.glob("web_*"))
         except Exception:
             continue
+    if _lg:
+        _lg.info("Webseite", f"Ordner-Umzug durchsucht: {_SHOP_BASE} "
+                             f"({len(set(kandidaten))} web_*-Kandidat(en) gefunden)")
 
     for d in sorted(set(kandidaten)):
         if not d.is_dir():
             continue
-        if not ((d / "content.json").exists() or (d / "manage.py").exists()):
+        if not _looks_like_jarvis_site(d):
+            if _lg:
+                _lg.warn("Webseite", f"'{d.name}' übersprungen — keine JARVIS-Signatur erkannt "
+                                     f"(weder content.json/manage.py noch andere Bau-Spuren "
+                                     f"in {d})")
             continue                       # sieht nicht wie eine JARVIS-Seite aus → nicht anfassen
         try:
             day = time.strftime("%Y-%m-%d", time.localtime(d.stat().st_mtime))
