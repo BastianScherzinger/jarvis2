@@ -62,12 +62,12 @@ async function _initRankFilters(){
   fill(brSel, s.top_branchen);
 }
 
-// ── Auto-Refresh alle 3s (nur wenn Tab aktiv) ────────────────────────────────
+// ── Auto-Refresh alle 7s (nur wenn Tab aktiv) ────────────────────────────────
 function _startRankRefresh(){
   if(_rankTimer) return;
   _rankTimer = setInterval(() => {
     if(_rankActive()) rankReload();
-  }, 3000);
+  }, 7000);   // gedrosselt von 3 s → 7 s (nur wenn Rangliste-Tab aktiv)
 }
 
 // ── Reload: Query bauen, fetchen, rendern ────────────────────────────────────

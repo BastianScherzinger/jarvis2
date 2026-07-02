@@ -775,7 +775,7 @@ async function _autoPoll(){
     }
   }
   clearTimeout(_autoTimer);
-  if(_autoOn) _autoTimer = setTimeout(_autoPoll, 3000);
+  if(_autoOn) _autoTimer = setTimeout(_autoPoll, 6000);   // gedrosselt von 3 s → 6 s
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1590,7 +1590,7 @@ function toggleLogDrawer() {
 
 function _startLogPoll() {
   _pollLogs();
-  _logTimer = setInterval(_pollLogs, 2000);
+  _logTimer = setInterval(_pollLogs, 5000);   // gedrosselt von 2 s → 5 s (nur wenn Konsole offen)
 }
 
 async function _pollLogs() {

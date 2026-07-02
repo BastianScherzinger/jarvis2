@@ -77,7 +77,7 @@ function _wsEnsureTimer(){
     const pg = document.querySelector('.websites-page');
     if(!pg || !pg.classList.contains('active')) return;
     loadWebsites(true);
-  }, 2500);
+  }, 7000);   // gedrosselt: 7 s reicht fürs Nachziehen, spart Log-/Server-Last
 }
 
 let _wsArchivedOpen = false;

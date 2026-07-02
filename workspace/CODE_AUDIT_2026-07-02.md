@@ -116,3 +116,33 @@ Worker-Name auf feste Spaltenbreite (13) — Meldungen stehen sauber untereinand
 - `overnight_makeover.py` — Reset-Hinweis an `claude_limit.mark` + Debug-Zeile (E-3/E-4).
 - `claude_limit.py` — Reset-Parsing, Median-Lernen, neue Statusfelder (E-4).
 - `static/js/app.js` — exakte Reset-Uhrzeit im Limit-Banner (E-4).
+
+---
+
+## F. Runde 3 — restliche offene Punkte abgeschlossen
+
+### F-1 — Deploy-Rettung ohne No-Op-Makeover  ✅ (`auto_builder.py`)  [war C-3]
+Reine Deploy-Rettung (Seite fertig, 0 offene Stufen, nur nicht live) ruft jetzt **direkt
+`deploy_existing`** statt die ganze Makeover-Pipeline für einen No-Op hochzufahren. Spart
+Claude/Ollama-Overhead und beseitigt das „KOMPLETT 0.0s"-Log-Rauschen.
+
+### F-2 — Frontend-Polling gedrosselt  ✅  [war C-4]
+- `websites.js`: `/api/websites/grouped` 2,5 s → **7 s** (seiten-gated).
+- `app.js`: `/api/auto-build/status` 3 s → **6 s**; Log-Konsole 2 s → **5 s**.
+- `ranking.js`: Rangliste 3 s → **7 s** (tab-gated).
+Zusammen mit dem Access-Log-Filter (E-1) ist das Log jetzt ruhig und lesbar.
+
+### F-3 — Session-Reset über 5 Uhr bestätigbar  ✅ (`auto_builder.py`)  [war C-2]
+Wiederaufnahme-Kette verifiziert: `_claude_limited` → `_handle_exhaustion` →
+`_schedule_restart(seconds_to_retry())` → Timer → `start(_resume=True)`. Da `seconds_to_retry`
+nun die **exakte Reset-Zeit** (E-4) liefert, landet der Neustart genau auf dem Reset.
+Log jetzt eindeutig: Pause meldet **„pausiert bis HH:MM Uhr"**, Wiederaufnahme meldet als
+SUCCESS **„Reset-Zeit erreicht (HH:MM) — setze fort"**. Der nächste Dauertest über 5 Uhr
+hinaus zeigt beide Zeilen sauber → Reset bestätigt. (Reines Beobachten, kein Code mehr offen.)
+
+### Geänderte Dateien (Runde 3)
+- `auto_builder.py` — Deploy-Rettung direkt (F-1), klare Pause/Resume-Logs mit Uhrzeit (F-3).
+- `static/js/websites.js`, `static/js/app.js`, `static/js/ranking.js` — Poll-Intervalle gedrosselt (F-2).
+
+**Status: alle Punkte aus A–F abgeschlossen. Keine offenen Code-Punkte mehr —
+verbleibt nur die Laufzeit-Beobachtung des nächsten Nachtlaufs (F-3).**

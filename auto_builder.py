@@ -660,14 +660,16 @@ def _schedule_restart(seconds: int) -> None:
         def _restart():
             global _restart_timer
             _restart_timer = None
-            logger.info("AutoBuilder", "Wartezeit vorbei — teste & starte Night-Builder erneut.")
+            logger.success("AutoBuilder", f"Reset-Zeit erreicht ({time.strftime('%H:%M')}) — "
+                                          "teste Claude erneut & setze Night-Builder fort.")
             start(_resume=True)
 
         _restart_timer = threading.Timer(seconds, _restart)
         _restart_timer.daemon = True
         _restart_timer.start()
-    logger.warn("AutoBuilder", f"Claude- UND ChatGPT-Limit erschöpft — Builder pausiert "
-                               f"{seconds // 60} Min, dann automatischer Neustart.")
+    _target = time.strftime("%H:%M", time.localtime(time.time() + seconds))
+    logger.warn("AutoBuilder", f"Claude- UND ChatGPT-Limit erschöpft — Builder pausiert bis "
+                               f"{_target} Uhr ({seconds // 60} Min), dann automatischer Neustart.")
 
 
 def _handle_exhaustion() -> None:
@@ -1004,7 +1006,13 @@ def _improve_existing_once() -> bool:
     limited = False
     transient = False
     try:
-        mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
+        if rescue_before and open_before == 0:
+            # Reine Deploy-Rettung: Seite ist fertig (0 offene Stufen), nur nicht live.
+            # Direkt deployen statt die ganze Makeover-Pipeline für einen No-Op hochzufahren
+            # (spart Claude/Ollama-Overhead und das „KOMPLETT 0.0s"-Log-Rauschen).
+            mj = website_builder.deploy_existing(folder, name)
+        else:
+            mj = website_builder.makeover_existing(folder, name, stop=lambda: not is_running())
         mjob = _wait_job(mj, timeout=_MAKEOVER_WAIT)
         limited = _note_job_limit(mjob)
         job_txt = ((str((mjob or {}).get("step", "")) + " " + str((mjob or {}).get("error", "")))
