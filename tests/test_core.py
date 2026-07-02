@@ -939,6 +939,31 @@ def test_review_queue_voting(tmp_path, monkeypatch):
     assert rq.approved_unsent() == []
 
 
+def test_review_queue_promote_pending(tmp_path, monkeypatch):
+    # Auto-Send: promote_pending() hebt offene Reviews auf approved — ein 👎-Veto (REJECTED)
+    # bleibt ausgeschlossen, damit abgelehnte Seiten NICHT rausgehen.
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    a = rq.add("Alpha", "Berlin", "Dachdecker", "https://a")
+    b = rq.add("Beta", "Köln", "Friseur", "https://b")
+    rq.vote(b["id"], "u1", False)                 # Beta wird per 👎 abgelehnt
+    assert rq.get(b["id"])["status"] == rq.REJECTED
+    n = rq.promote_pending()
+    assert n == 1                                  # nur Alpha war pending
+    assert rq.get(a["id"])["status"] == rq.APPROVED
+    assert rq.get(b["id"])["status"] == rq.REJECTED   # Veto bleibt bestehen
+    assert len(rq.approved_unsent()) == 1
+
+
+def test_review_queue_latest_for_site(tmp_path, monkeypatch):
+    import review_queue as rq
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    assert rq.latest_for_site("Gibt", "Nicht") is None
+    r = rq.add("Firma X", "Ulm", "Elektriker", "https://x")
+    found = rq.latest_for_site("  firma x ", "ULM")   # Case/Whitespace-robust
+    assert found and found["id"] == r["id"]
+
+
 def test_review_queue_doppelstimme_zaehlt_einmal(tmp_path, monkeypatch):
     import review_queue as rq
     monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
@@ -1051,6 +1076,27 @@ def test_discord_send_recipients_loop(monkeypatch):
         {"name": "X", "link": "https://x", "branche": "", "stadt": "",
          "recipients": ["a@b.de", "c@d.de", "e@f.de"]})
     assert ok and sent == ["a@b.de", "c@d.de", "e@f.de"] and "3/3" in info
+
+
+def test_auto_send_versendet_altbestand_pending(tmp_path, monkeypatch):
+    # Kernwunsch: bereits gebaute, aber noch nicht versendete (pending) Seiten müssen im
+    # Auto-Send-Modus beim Versand automatisch mit rausgehen — ohne 👍.
+    import review_queue as rq
+    import discord_bot
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    monkeypatch.setenv("JARVIS_AUTO_SEND", "1")
+    # Altbestand: eine Seite steht noch auf pending (vor Auto-Send angelegt).
+    old = rq.add("Alt Firma", "Bremen", "Dachdecker", "https://alt.up.railway.app",
+                 email="kunde@alt.de", status=rq.PENDING)
+    assert old["status"] == rq.PENDING
+    # DB-Nachqueue in diesem Unit-Test ausklammern (kein echtes db_websites nötig).
+    monkeypatch.setattr(discord_bot, "enqueue_unsent_websites", lambda: 0)
+    real_send = []
+    monkeypatch.setattr(discord_bot, "_send_one_real",
+                        lambda r: real_send.append(r["name"]) or (True, "gesendet"))
+    res = discord_bot.send_approved_now()
+    assert res["sent"] == 1 and real_send == ["Alt Firma"]
+    assert rq.get(old["id"])["status"] == rq.SENT      # sauber als versendet markiert
 
 
 # ── Logo + Template-Slot + Render ─────────────────────────────────────────────

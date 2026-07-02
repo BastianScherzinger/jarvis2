@@ -345,6 +345,77 @@ def _schedule_premium_after_send(reviews: list) -> None:
     _threading.Thread(target=_worker, daemon=True, name="premium-after-send").start()
 
 
+def enqueue_unsent_websites() -> int:
+    """Auto-Send-Abgleich: bereits gebaute, live, aber noch NICHT versendete Seiten ohne
+    offenen Review-Eintrag nachträglich in die Versand-Queue holen — z.B. Seiten, die früher
+    in die Vorschau-Mail fielen, weil Discord gerade offline war, oder Altbestand aus der Zeit
+    vor Auto-Send. Respektiert strikt: bereits Versendetes (SENT / email_sent) und 👎-Vetos
+    (REJECTED) werden NIE erneut eingereiht. Gibt die Anzahl neu eingereihter Seiten zurück.
+    Ohne Auto-Send: No-op."""
+    if not auto_send():
+        return 0
+    try:
+        import db_websites
+        import overnight_makeover as om
+    except Exception:
+        return 0
+    added = 0
+    try:
+        rows = db_websites.get_all()
+    except Exception:
+        return 0
+    for w in rows:
+        try:
+            if not w.get("live") or w.get("email_sent"):
+                continue                              # nicht live oder schon versendet
+            folder = (w.get("folder") or "").strip()
+            name   = (w.get("name") or "").strip()
+            stadt  = (w.get("stadt") or "").strip()
+            if not folder or not name or not om.review_ready(folder):
+                continue                              # Pflicht-Stufen noch nicht durch
+            prev = rq.latest_for_site(name, stadt)
+            if prev and prev.get("status") in (rq.SENT, rq.REJECTED, rq.PENDING, rq.APPROVED):
+                continue                              # versendet / vetoed / schon in der Queue
+            branche = w.get("branche", "")
+            ap      = w.get("ansprechpartner", "")
+            link    = (w.get("live_url") or "").strip()
+            email   = (w.get("kontakt_email") or "").strip()
+            betreff = text = ""
+            try:
+                import offer_mail
+                betreff, text, _ = offer_mail.build(name, link, branche, stadt, ap)
+            except Exception:
+                pass
+            r = submit_for_review(name, stadt, branche, link, email, ap, folder,
+                                  email_text=text, email_subject=betreff)
+            if r:
+                added += 1
+        except Exception as e:
+            logger.warn("Discord", f"Nachqueue übersprungen ({w.get('name','?')}): {type(e).__name__}")
+    if added:
+        logger.info("Discord", f"Auto-Send: {added} bereits gebaute Seite(n) nachträglich "
+                               "in die Versand-Queue geholt.")
+    return added
+
+
+def prepare_queue_for_auto_send() -> dict:
+    """Bringt die Queue im Auto-Send-Modus auf Stand: offene (pending) Reviews freigeben +
+    bereits gebaute, noch nicht versendete Seiten nachqueuen. So gehen auch der Altbestand
+    und Seiten ohne Review-Eintrag beim nächsten Versand mit raus. Ohne Auto-Send: No-op."""
+    if not auto_send():
+        return {"promoted": 0, "enqueued": 0}
+    promoted = 0
+    try:
+        promoted = rq.promote_pending()
+        if promoted:
+            logger.info("Discord", f"Auto-Send: {promoted} offene Seite(n) freigegeben "
+                                   "(gehen beim nächsten Versand raus).")
+    except Exception as e:
+        logger.warn("Discord", f"Pending-Freigabe fehlgeschlagen: {type(e).__name__}")
+    enqueued = enqueue_unsent_websites()
+    return {"promoted": promoted, "enqueued": enqueued}
+
+
 def send_approved_now() -> dict:
     """Versendet sofort alle freigegebenen, noch nicht gesendeten Seiten. Gibt eine
     Zusammenfassung zurück. (Wird vom 12-Uhr-Scheduler und manuell genutzt.)
@@ -353,6 +424,13 @@ def send_approved_now() -> dict:
     if not _send_lock.acquire(blocking=False):
         return {"sent": 0, "failed": 0, "lines": ["Versand läuft bereits."], "total": 0}
     try:
+        # Auto-Send: unmittelbar vor dem Versand die Queue vervollständigen — offene Seiten
+        # freigeben + bereits gebaute, noch nicht versendete Seiten nachholen. So geht auch
+        # der Altbestand mit raus, egal ob 12-Uhr-Lauf oder manueller Versand.
+        try:
+            prepare_queue_for_auto_send()
+        except Exception as e:
+            logger.warn("Discord", f"Queue-Vorbereitung übersprungen: {type(e).__name__}")
         todo = rq.approved_unsent()
         sent, failed, lines = 0, 0, []
         sent_reviews = []
@@ -628,6 +706,15 @@ if _HAS_DISCORD:
             await asyncio.sleep(2)
             _diagnose_channel()                       # klare Meldung bei „Unknown Channel"
             await _send_startup_embed()
+            # Auto-Send: Altbestand einmalig aufbereiten (offene freigeben + gebaute, noch
+            # nicht versendete Seiten nachqueuen), damit auch sie beim Versand rausgehen.
+            try:
+                res = await asyncio.to_thread(prepare_queue_for_auto_send)
+                if res.get("promoted") or res.get("enqueued"):
+                    logger.info("Discord", f"Auto-Send-Aufbereitung: {res.get('promoted',0)} "
+                                           f"freigegeben, {res.get('enqueued',0)} nachgequeued.")
+            except Exception as ex:
+                logger.warn("Discord", f"Auto-Send-Aufbereitung fehlgeschlagen: {type(ex).__name__}")
 
     def _noon_report_embed(res: dict) -> "discord.Embed":
         """Schöner Mittags-Report: pro versendeter Seite Name + klickbarer Live-Link +

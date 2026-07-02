@@ -54,6 +54,42 @@
   No-op-Pfad + neues `auto_send`-Statusfeld.
 - **Gesamt: 103/103 Tests grün.**
 
+## Nachtrag (2026-07-02, 2. Runde): Altbestand geht auch raus
+
+Frage von Sir: „Gehen auch die noch nicht abgesendeten, aber existierenden Webseiten raus?"
+Antwort war: **nein** — der Versand nahm nur `approved` mit. Behoben:
+
+### `review_queue.py`
+- `promote_pending()` — hebt alle offenen (`pending`) Reviews auf `approved` (👎-Vetos =
+  `REJECTED` bleiben ausgeschlossen).
+- `latest_for_site(name, stadt)` — neuester Review zu einer Seite (case-/whitespace-robust),
+  für den Abgleich mit bereits gebauten Seiten.
+
+### `discord_bot.py`
+- `enqueue_unsent_websites()` — Auto-Send-Abgleich: scannt `db_websites` nach Seiten, die
+  **live** sind, **noch nicht versendet** (`email_sent==0`) und **review-ready**, aber KEINEN
+  offenen Review haben (z.B. früher in die Vorschau-Mail gefallen, weil Discord offline war).
+  Holt sie nachträglich in die Queue. Strikt ausgeschlossen: `SENT`, `REJECTED` und bereits
+  eingereihte (`PENDING`/`APPROVED`).
+- `prepare_queue_for_auto_send()` — bündelt Promote + Nachqueue.
+- **`send_approved_now()` ruft `prepare_queue_for_auto_send()` als ersten Schritt auf** →
+  der einzige Chokepoint (12-Uhr-Loop, Watchdog, manuelles `/api/discord/send-now`) nimmt so
+  IMMER den kompletten Altbestand mit. Zusätzlich läuft die Aufbereitung einmalig bei Bot-Start
+  (`on_ready`).
+
+### Tests (jetzt 106/106 grün)
+- `test_review_queue_promote_pending` (Veto bleibt außen vor)
+- `test_review_queue_latest_for_site`
+- `test_auto_send_versendet_altbestand_pending` (pending → wird versendet + als SENT markiert)
+- End-to-End manuell verifiziert: gebaute/live/unsent Seite ohne Review wird nachgequeued und
+  versendet; bereits versendete Seite wird übersprungen.
+
+### Bewusste Grenze
+Die alten Discord-Embeds der bereits geposteten `pending`-Reviews werden beim Promoten NICHT
+neu gerendert (Status wird still auf `approved` gesetzt) — rein kosmetisch, der Versand stimmt.
+Ist Discord komplett unkonfiguriert (kein Token), läuft der 12-Uhr-Watchdog nicht (er hängt am
+`start()` des Bots); mit konfiguriertem Discord (aktueller Zustand) ist alles abgedeckt.
+
 ## Standardverhalten danach
 Seite fertig makeovert → sofort `approved` in der Queue → **Versand automatisch um
 `DISCORD_SEND_HOUR` (12:00)** an den echten Kunden, ganz ohne 👍. Discord postet weiterhin

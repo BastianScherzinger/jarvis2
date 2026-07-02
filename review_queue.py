@@ -158,6 +158,36 @@ def pending() -> list:
         return [dict(r) for r in _load()["reviews"] if r["status"] == PENDING]
 
 
+def latest_for_site(name: str, stadt: str = "") -> "dict | None":
+    """Neuester Review zu einer Seite (Abgleich über name+stadt) — egal welcher Status,
+    oder None. Für den Auto-Send-Abgleich mit bereits gebauten Seiten: verhindert, dass eine
+    versendete (SENT) oder per 👎 abgelehnte (REJECTED) Seite erneut eingereiht wird."""
+    n = (name or "").lower().strip()
+    s = (stadt or "").lower().strip()
+    with _lock:
+        hits = [dict(r) for r in _load()["reviews"]
+                if (r.get("name", "").lower().strip() == n
+                    and r.get("stadt", "").lower().strip() == s)]
+    return hits[-1] if hits else None
+
+
+def promote_pending() -> int:
+    """Hebt alle offenen (pending) Reviews auf approved — für den Auto-Send-Modus, damit
+    bereits gebaute, aber noch nicht freigegebene Seiten beim nächsten Versand rausgehen.
+    Ein 👎 hat einen Review bereits auf REJECTED gesetzt → der bleibt außen vor. Gibt die
+    Anzahl der freigegebenen Reviews zurück."""
+    with _lock:
+        data = _load()
+        n = 0
+        for r in data["reviews"]:
+            if r.get("status") == PENDING:
+                r["status"] = APPROVED
+                n += 1
+        if n:
+            _save(data)
+    return n
+
+
 def mark_sent(rid: str, ok: bool, note: str = "") -> None:
     update(rid, status=SENT if ok else SKIPPED, sent_ts=time.time(), note=note)
 
