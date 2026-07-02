@@ -146,3 +146,41 @@ hinaus zeigt beide Zeilen sauber → Reset bestätigt. (Reines Beobachten, kein 
 
 **Status: alle Punkte aus A–F abgeschlossen. Keine offenen Code-Punkte mehr —
 verbleibt nur die Laufzeit-Beobachtung des nächsten Nachtlaufs (F-3).**
+
+---
+
+## G. Runde 4 — 12-Uhr-Versand-Stopp + Gmail-Antwort-Analyse
+
+### G-1 — Warum der 12-Uhr-Versand „nach 2 Tagen" aufhörte  ✅ GEFIXT (`discord_bot.py`)
+**Root Cause:** Der Tagesversand ist ein discord.py `tasks.loop(time=12:00)`. Der Loop-Rumpf rief
+`send_approved_now()` **ohne `try/except`** auf. In discord.py **stoppt eine unbehandelte Exception
+eine `tasks.loop` DAUERHAFT** — es gab weder `error`- noch Neustart-Handler. Ein einziger
+schiefgelaufener Versand (SMTP-Aussetzer, Netz-Blip, ein defekter Review) killte den Loop für
+immer → ab dann kam nie wieder etwas um 12 Uhr. Zusätzlich hing der ganze Versand allein an der
+Discord-Verbindung.
+
+**Fix:**
+- `_noon_loop`-Rumpf vollständig gekapselt (kann nicht mehr sterben); Tages-Latch erst **nach**
+  erfolgreichem Versand (ein Crash verbrennt den Tag nicht mehr).
+- `@_noon_loop.before_loop` (`wait_until_ready`) + `@_noon_loop.error` mit `restart()`.
+- **Neuer `NoonWatchdog`-Thread**, unabhängig von Discord: prüft jede Minute, ob die Versandstunde
+  erreicht und heute noch nichts raus ist → holt den Versand nach (Mailer hängt nicht an Discord).
+  Fängt auch „PC war um 12 Uhr aus" ab (Nachversand, sobald die App an dem Tag läuft).
+
+### G-2 — Gmail-Antwort-Analyse mit lokaler KI  ✅ NEU (`inbox_reader.py`)
+Schritt 7 automatisiert: liest per **IMAP (read-only)** die Antworten auf die Angebots-Mails,
+ordnet sie über die Absenderadresse dem versendeten Angebot zu und lässt sie von **Ollama lokal**
+einordnen (Interesse/Absage/Rückfrage/Preisfrage + Zusammenfassung/Dringlichkeit/Empfehlung).
+Ergebnisse → `data/replies.json`, Aktivitäts-Feed (Home) und Discord-Ping bei heißen Leads.
+- Opt-in: `JARVIS_INBOX_ENABLED=true` + IMAP-Zugang (Gmail-App-Passwort). Standard aus.
+- Read-only (`BODY.PEEK`, `select(readonly=True)`) — nichts wird gelöscht/verschickt/beantwortet.
+- 100 % lokal → keine Cloud-Kosten. MCP/Internet-Anreicherung ist als nächster Schritt andockbar
+  (Firma recherchieren + Antwort-Entwurf) — die Analyse-Pipeline ist dafür vorbereitet.
+- API: `GET /api/inbox/replies`, `POST /api/inbox/check`. Start beim Boot in `app.py`.
+
+### Geänderte/neue Dateien (Runde 4)
+- `discord_bot.py` — 12-Uhr-Loop gehärtet + NoonWatchdog (G-1).
+- `inbox_reader.py` (neu) — IMAP-Antwort-Analyse mit Ollama (G-2).
+- `app.py` — `inbox_reader.start()` beim Boot + `/api/inbox/*`-Endpunkte (G-2).
+- `.env.example` — IMAP-/Inbox-Variablen dokumentiert (G-2).
+- `templates/index.html` — Schritt 7 um die Antwort-Analyse ergänzt (G-2).

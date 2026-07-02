@@ -91,6 +91,14 @@ _startup_t.Thread(target=cloud_sync.pull_and_cache, daemon=True).start()
 import cloud_sync_websites
 cloud_sync_websites.start()
 
+# Posteingang-Analyse (Schritt 7): Kundenantworten per IMAP lesen + lokal (Ollama) einordnen.
+# Startet nur, wenn JARVIS_INBOX_ENABLED=true UND ein IMAP-Zugang gesetzt ist (sonst still aus).
+try:
+    import inbox_reader
+    inbox_reader.start()
+except Exception as _ie:
+    _logger.warn("Inbox", f"Antwort-Analyse nicht gestartet: {type(_ie).__name__}")
+
 
 def _websites_startup_sync():
     cloud_sync_websites.pull_into_db()      # remote → lokal
@@ -1085,6 +1093,28 @@ def api_metrics():
     """Observability: Claude-Token-Verbrauch + Tool-Latenzen/Fehlerraten."""
     import metrics
     return jsonify(metrics.snapshot())
+
+
+@app.route("/api/inbox/replies")
+def api_inbox_replies():
+    """Analysierte Kundenantworten (Schritt 7) + Status der Posteingang-Anbindung."""
+    try:
+        import inbox_reader
+        limit = int(request.args.get("limit", "100") or 100)
+        return jsonify({"ok": True, "status": inbox_reader.status(),
+                        "replies": inbox_reader.replies(limit)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}), 500
+
+
+@app.route("/api/inbox/check", methods=["POST"])
+def api_inbox_check():
+    """Manueller Sofort-Abruf des Posteingangs (statt auf den Poll-Takt zu warten)."""
+    try:
+        import inbox_reader
+        return jsonify({"ok": True, **inbox_reader.check_once()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}), 500
 
 
 @app.route("/api/claude/chat", methods=["POST"])
