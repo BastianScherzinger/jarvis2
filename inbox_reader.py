@@ -19,7 +19,7 @@ SICHERHEIT
   IMAP_PORT=993
   IMAP_USER=postfach@gmail.com      # Default: SMTP_USER
   IMAP_PASS=<Gmail-App-Passwort>     # 2FA nötig, dann App-Passwort erzeugen. Default: SMTP_PASS
-  JARVIS_INBOX_POLL=300              # Sekunden zwischen zwei Prüfläufen
+  JARVIS_INBOX_POLL=600               # Sekunden zwischen zwei Prüfläufen (Default 10 Min)
   JARVIS_INBOX_FOLDER=INBOX
   JARVIS_INBOX_LOOKBACK_DAYS=14      # nur Mails der letzten N Tage betrachten
   JARVIS_LOCAL_MODEL / JARVIS_TOOL_MODEL  # Ollama-Modell für die Analyse
@@ -63,7 +63,7 @@ def _cfg() -> dict:
         "user":   (os.environ.get("IMAP_USER") or os.environ.get("SMTP_USER") or "").strip(),
         "pass":   (os.environ.get("IMAP_PASS") or os.environ.get("SMTP_PASS") or ""),
         "folder": os.environ.get("JARVIS_INBOX_FOLDER", "INBOX").strip() or "INBOX",
-        "poll":   max(60, int(os.environ.get("JARVIS_INBOX_POLL", "300") or 300)),
+        "poll":   max(60, int(os.environ.get("JARVIS_INBOX_POLL", "600") or 600)),
         "lookback": max(1, int(os.environ.get("JARVIS_INBOX_LOOKBACK_DAYS", "14") or 14)),
     }
 

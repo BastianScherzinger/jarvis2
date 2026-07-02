@@ -1642,6 +1642,59 @@ def test_auto_builder_daily_limit_boost(monkeypatch):
     assert st["daily_limit"] == base * 2 and st["paid_boost"] is True
 
 
+# ── Extra-Nutzungs-Check (5-Min-Herzschlag ab Start, sofortige Meldung) ────────
+def test_extra_usage_check_once_activates_and_notifies(tmp_path, monkeypatch):
+    import extra_usage_watch as eu
+    import cost_tracker, discord_bot
+    monkeypatch.setattr(eu, "_LATCH", tmp_path / "extra_usage_state.json")
+    monkeypatch.setattr(cost_tracker, "paid_boost_active", lambda: True)
+    monkeypatch.setattr(cost_tracker, "paid_tokens_detected",
+                        lambda: {"paid": True, "reason": "heute 1.000 API-Tokens gebucht"})
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
+    res = eu.check_once()
+    assert res == {"active": True, "changed": True}
+    assert eu.status()["active"] is True
+    assert len(calls) == 1 and "Extra-Modus" in calls[0][0]
+
+
+def test_extra_usage_check_once_no_repeat_notify(tmp_path, monkeypatch):
+    import extra_usage_watch as eu
+    import cost_tracker, discord_bot
+    monkeypatch.setattr(eu, "_LATCH", tmp_path / "extra_usage_state.json")
+    monkeypatch.setattr(cost_tracker, "paid_boost_active", lambda: True)
+    monkeypatch.setattr(cost_tracker, "paid_tokens_detected", lambda: {"paid": True, "reason": ""})
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
+    eu.check_once()
+    res2 = eu.check_once()                      # weiter aktiv -> KEIN erneuter Ping
+    assert res2 == {"active": True, "changed": False}
+    assert len(calls) == 1
+
+
+def test_extra_usage_check_once_detects_deactivation(tmp_path, monkeypatch):
+    import extra_usage_watch as eu
+    import cost_tracker
+    monkeypatch.setattr(eu, "_LATCH", tmp_path / "extra_usage_state.json")
+    monkeypatch.setattr(cost_tracker, "paid_boost_active", lambda: True)
+    monkeypatch.setattr(cost_tracker, "paid_tokens_detected", lambda: {"paid": True, "reason": ""})
+    eu.check_once()
+    monkeypatch.setattr(cost_tracker, "paid_boost_active", lambda: False)
+    res = eu.check_once()
+    assert res == {"active": False, "changed": True}
+    assert eu.status()["active"] is False
+
+
+def test_extra_usage_interval_env(monkeypatch):
+    import extra_usage_watch as eu
+    monkeypatch.delenv("JARVIS_EXTRA_USAGE_POLL", raising=False)
+    assert eu._interval() == 300                # Default 5 Min
+    monkeypatch.setenv("JARVIS_EXTRA_USAGE_POLL", "30")
+    assert eu._interval() == 60                  # hart-minimiert
+    monkeypatch.setenv("JARVIS_EXTRA_USAGE_POLL", "600")
+    assert eu._interval() == 600
+
+
 # ── ask_ollama: Fehler loggen statt still verschlucken ────────────────────────
 def test_ask_ollama_unerwarteter_fehler_gibt_leer(monkeypatch):
     from scrapers import _http

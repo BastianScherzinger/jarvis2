@@ -161,6 +161,18 @@ def _start_lead_collector():
 _startup_t.Thread(target=_start_lead_collector, daemon=True).start()
 
 
+# Extra-Nutzungs-Check (alle 5 Min ab Start): erkennt bezahlte Extra-Tokens (Paid-Boost)
+# und meldet den Übergang SOFORT (Discord-Ping), statt eines stillen internen Flags.
+# Braucht keine Konfiguration/Zugangsdaten → immer gestartet.
+def _start_extra_usage_watch():
+    try:
+        import extra_usage_watch
+        extra_usage_watch.start()
+    except Exception:
+        pass
+_startup_t.Thread(target=_start_extra_usage_watch, daemon=True).start()
+
+
 # ── Startup-Aufräumen + Auto-Builder Resume ──────────────────────────────────
 def _startup_cleanup():
     """Beim App-Start: hängende 'running'-Seiten korrigieren und Night-Builder fortsetzen."""
@@ -309,11 +321,17 @@ def api_status():
         limit = claude_limit.state()
     except Exception:
         limit = {"limited": False}
+    try:
+        import extra_usage_watch
+        extra = extra_usage_watch.status()
+    except Exception:
+        extra = {"active": False}
     return jsonify({
         "running": controller.is_running(),
         "stats":   _stats(),
         "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
         "claude_limit": limit,                    # „Limit voll"-Zeichen fürs Dashboard
+        "extra_usage": extra,                      # Paid-Boost/Extra-Modus-Zeichen fürs Dashboard
     })
 
 
