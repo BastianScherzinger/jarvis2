@@ -756,10 +756,21 @@ def _farewell_if_done() -> None:
         import review_queue as _rq
         st = _rq.stats()
         pend, sent_n = int(st.get("pending", 0)), int(st.get("sent", 0))
+        appr = int(st.get("approved", 0))
         status_line = []
         if sent_n:
             status_line.append(f"📨 {sent_n} bereits an Kunden verschickt")
-        if pend:
+        try:
+            import discord_bot as _db
+            auto = _db.auto_send()
+            hour = _db._send_hour()
+        except Exception:
+            auto, hour = False, 12
+        if auto:
+            # Auto-Send: nichts wartet auf 👍 — freigegebene Seiten gehen automatisch raus.
+            if appr:
+                status_line.append(f"⚙️ {appr} gehen um {hour}:00 automatisch an die Kunden")
+        elif pend:
             status_line.append(f"🕓 {pend} warten noch auf deine Freigabe (👍)")
         if status_line:
             head += "\n" + " · ".join(status_line) + "."

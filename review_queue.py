@@ -51,12 +51,15 @@ def _needed() -> int:
 
 def add(name: str, stadt: str, branche: str, link: str, email: str = "",
         ansprechpartner: str = "", folder: str = "", recipients: "list | None" = None,
-        email_text: str = "", preis: int = 0) -> dict:
-    """Legt einen neuen Review (Status pending) an und gibt ihn zurück.
+        email_text: str = "", preis: int = 0, status: str = PENDING) -> dict:
+    """Legt einen neuen Review an und gibt ihn zurück.
 
     recipients: optionale Empfängerliste (Custom-Modus, 11+). Ist sie gesetzt, geht das
     Angebot nach Freigabe an JEDE dieser Adressen; sonst an die Einzeladresse `email`.
-    email_text: Plaintext-Version der Angebots-Mail (für Discord-Vorschau)."""
+    email_text: Plaintext-Version der Angebots-Mail (für Discord-Vorschau).
+    status: Anfangsstatus — Default PENDING (Freigabe per 👍). Im Auto-Send-Modus wird
+    APPROVED übergeben, dann geht die Seite ohne Bestätigung beim Tagesversand raus."""
+    status = status if status in (PENDING, APPROVED) else PENDING
     rid = uuid.uuid4().hex[:12]
     rec = [e.strip() for e in (recipients or []) if e and "@" in e]
     # Dedup: schon ein offener Review für dieselbe Seite → nicht nochmal posten.
@@ -70,7 +73,7 @@ def add(name: str, stadt: str, branche: str, link: str, email: str = "",
         review = {
             "id": rid, "name": name, "stadt": stadt, "branche": branche,
             "link": link, "email": email, "ansprechpartner": ansprechpartner,
-            "folder": folder, "recipients": rec, "status": PENDING,
+            "folder": folder, "recipients": rec, "status": status,
             "votes_up": [], "votes_down": [],
             "message_id": 0, "channel_id": 0, "ts": time.time(),
             "sent_ts": 0.0, "note": "", "email_text": (email_text or ""),

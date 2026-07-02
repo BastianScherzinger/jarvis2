@@ -145,8 +145,15 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   Rollback), wird in `content.json["makeover_stages"]` markiert (**resume-fähig**),
   per **Git-Commit** als Rollback-Punkt gesichert und ins Kostentracking gebucht. Job-Wrapper
   `website_builder.makeover_existing()` → `_run_makeover`: Commit je Stufe, **Railway-Deploy
-  einmal am Ende**, dann `finalize_review()` → Discord (**1× 👍 = Kunden-Mail / 1× 👎 =
-  verwerfen**, `DISCORD_APPROVALS_NEEDED` Default jetzt 1) oder Vorschau-Mail-Fallback.
+  einmal am Ende**, dann `finalize_review()` → `discord_bot.submit_for_review()`.
+  **Auto-Send-Modus** (`JARVIS_AUTO_SEND`, Default **AN**): die Seite wird direkt `approved`
+  in die Versand-Queue gelegt und geht ohne 👍-Bestätigung beim Tagesversand raus (👎 bleibt
+  als Not-Veto). Ist Auto-Send aus, gilt das klassische Gate (**1× 👍 = Kunden-Mail / 1× 👎 =
+  verwerfen**, `DISCORD_APPROVALS_NEEDED` Default 1). Wichtig: `submit_for_review` legt den
+  Review IMMER in die Queue — auch wenn der Discord-Bot gerade nicht verbunden ist (Discord-Post
+  ist nur Best-Effort obendrauf); so geht die Seite zuverlässig raus, statt still in den
+  Vorschau-Mail-Fallback zu fallen. `finalize_review` reicht bei Auto-Send ODER verbundenem Bot
+  ein; nur wenn beides fehlt greift die Vorschau-Mail an Bastian.
   Der Night-Builder fährt jede der 10 Seiten komplett durch; Phase 2 holt offene Stufen
   bestehender Seiten nach (`_pick_improve_target` bevorzugt Seiten mit offenen Stufen),
   bis ALLE Seiten auf 7/7 sind. Sind dann nichts mehr zu bauen/verbessern, postet

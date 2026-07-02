@@ -1385,12 +1385,16 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
 
     try:
         import discord_bot
-        if discord_bot.enabled():
+        # Auto-Send ODER verbundener Bot → in die Versand-Queue. Im Auto-Send-Modus geht die
+        # Seite ohne Bestätigung raus; ist Discord verbunden, wird sie zusätzlich gepostet.
+        if discord_bot.auto_send() or discord_bot.enabled():
             r = discord_bot.submit_for_review(
                 name, stadt, branche, live_url, email, ap, str(folder),
                 recipients=recipients, email_text=text, email_subject=betreff, preis=preis)
             if r:
-                logger.info("Makeover", f"Zur Discord-Freigabe gepostet: {name}")
+                verb = "automatisch freigegeben (Auto-Send)" if discord_bot.auto_send() \
+                    else "zur Discord-Freigabe gepostet"
+                logger.info("Makeover", f"{name}: {verb}")
                 _mark_review_submitted(folder)
                 return {"review": True}
     except Exception as e:

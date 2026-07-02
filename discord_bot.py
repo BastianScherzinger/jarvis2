@@ -70,6 +70,13 @@ def enabled() -> bool:
     return _HAS_DISCORD and bool(_token()) and _channel_id() > 0
 
 
+def auto_send() -> bool:
+    """Auto-Send-Modus: fertige Seiten werden OHNE 👍-Bestätigung direkt freigegeben und
+    gehen beim Tagesversand (DISCORD_SEND_HOUR) automatisch an den Kunden. Default: AN.
+    Ausschalten mit JARVIS_AUTO_SEND=0 (dann gilt wieder das 👍-Freigabe-Gate)."""
+    return os.environ.get("JARVIS_AUTO_SEND", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
+
 # ── Mittags-Report-Latch: Report nur EINMAL pro Tag posten ─────────────────────
 # Verhindert den doppelten 12-Uhr-Report (z.B. wenn die App um 12 Uhr neu startet und der
 # tasks.loop erneut feuert). Persistiert das letzte Report-Datum lokal.
@@ -104,6 +111,7 @@ def status() -> dict:
         "has_lib": _HAS_DISCORD, "enabled": enabled(), "running": _started,
         "channel": _channel_id(), "send_hour": _send_hour(),
         "needed": int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1"),
+        "auto_send": auto_send(),
         "reviews": rq.stats(),
     }
 
@@ -448,12 +456,19 @@ if _HAS_DISCORD:
                   f"  👎 {len(r.get('votes_down', []))}",
             inline=False)
 
+        auto = auto_send()
         if st == rq.APPROVED:
-            e.set_footer(text=f"✅ Freigegeben — Versand heute um {_send_hour()}:00 an den Kunden.")
+            if auto:
+                e.set_footer(text=f"✅ Automatisch freigegeben — Versand um {_send_hour()}:00 an den "
+                                  "Kunden. 👎 stoppt den Versand.")
+            else:
+                e.set_footer(text=f"✅ Freigegeben — Versand heute um {_send_hour()}:00 an den Kunden.")
         elif st == rq.REJECTED:
             e.set_footer(text="❌ Ein 👎 ist ein Veto — diese Seite wird nicht versendet.")
         elif st == rq.SENT:
             e.set_footer(text="📨 Versendet.")
+        elif auto:
+            e.set_footer(text=f"⚙️ Auto-Send aktiv — geht um {_send_hour()}:00 automatisch raus. 👎 stoppt sie.")
         else:
             e.set_footer(text=f"👍 {needed}× Daumen hoch (ohne 👎) gibt die Seite frei · Versand um {_send_hour()}:00")
         return e
@@ -571,7 +586,10 @@ if _HAS_DISCORD:
                         value=f"{'✅ Läuft' if is_running else '⏸️ Bereit'} · {builder_info}", inline=True)
             e.add_field(name="🗳️ Offene Reviews",
                         value=str(pending) if pending else "Keine", inline=True)
-            e.set_footer(text="JARVIS startet automatisch bei 0 Uhr neu · Abstimmung: 1× 👍 = Freigabe")
+            foot = ("JARVIS startet automatisch bei 0 Uhr neu · "
+                    + (f"Auto-Send AN — Versand {_send_hour()}:00 ohne Bestätigung"
+                       if auto_send() else "Abstimmung: 1× 👍 = Freigabe"))
+            e.set_footer(text=foot)
             await ch.send(embed=e)
         except Exception as ex:
             logger.warn("Discord", f"Startnachricht fehlgeschlagen: {type(ex).__name__}")
@@ -642,7 +660,9 @@ if _HAS_DISCORD:
         if fails:
             fl = "\n".join(f"• {f.get('name','?')}: {f.get('info','—')}" for f in fails[:10])
             e.add_field(name=f"⚠️ {len(fails)} offen / übersprungen", value=fl, inline=False)
-        e.set_footer(text="JARVIS LeadHunter · Freigabe per 👍 → Versand 12 Uhr an den Kunden")
+        foot = ("JARVIS LeadHunter · Auto-Send → Versand automatisch an den Kunden"
+                if auto_send() else "JARVIS LeadHunter · Freigabe per 👍 → Versand 12 Uhr an den Kunden")
+        e.set_footer(text=foot)
         return e
 
     async def _post_noon_report(res: dict) -> None:
@@ -724,26 +744,44 @@ def submit_for_review(name: str, stadt: str, branche: str, link: str,
                       email: str = "", ansprechpartner: str = "", folder: str = "",
                       recipients: "list | None" = None,
                       email_text: str = "", email_subject: str = "", preis: int = 0) -> "dict | None":
-    """Legt einen Review an und postet ihn (falls der Bot läuft) in den Discord-Kanal.
-    Gibt den Review zurück, oder None wenn der Bot nicht aktiv ist.
+    """Reiht eine fertige Seite in die Versand-Queue ein und postet sie (falls der Bot läuft)
+    best-effort in den Discord-Kanal.
+
+    WICHTIG: Der Review wird IMMER in die lokale Queue gelegt — auch wenn der Discord-Bot
+    gerade nicht verbunden ist. So geht die Seite beim Tagesversand zuverlässig raus, selbst
+    wenn Discord kurz weg war (früher fiel sie in diesem Fall still durch → nichts wurde
+    versendet). Der Discord-Post ist nur die Sichtbarkeit obendrauf.
+
+    Im Auto-Send-Modus (JARVIS_AUTO_SEND, Default AN) wird die Seite direkt APPROVED angelegt
+    und geht ohne 👍-Bestätigung beim Tagesversand an den Kunden.
+
+    Gibt den Review zurück, oder None nur wenn weder Auto-Send noch Discord aktiv sind
+    (dann greift beim Aufrufer die Vorschau-Mail an Bastian).
     recipients: optionale Empfängerliste (Custom-Modus, 11+).
     email_text: Plaintext der Angebots-Mail (wird im Embed angezeigt).
     email_subject: Betreffzeile der Angebots-Mail.
     preis: Angebotspreis (Tier) — 0 = fairer Standardpreis."""
-    if not enabled() or not _started or _loop is None:
-        return None
+    auto = auto_send()
+    if not auto and not enabled():
+        return None                                  # kein Auto-Send + kein Bot → Fallback-Mail
+    status = rq.APPROVED if auto else rq.PENDING
     review = rq.add(name, stadt, branche, link, email, ansprechpartner, folder, recipients,
-                    email_text=email_text, preis=preis)
+                    email_text=email_text, preis=preis, status=status)
     if email_subject:
         try:
             rq.update(review["id"], email_subject=email_subject)
             review["email_subject"] = email_subject
         except Exception:
             pass
-    try:
-        asyncio.run_coroutine_threadsafe(_post(review), _loop)
-    except Exception as e:
-        logger.warn("Discord", f"Review-Post nicht zustellbar: {type(e).__name__}")
+    # Discord-Post best-effort — Fehlen des Bots verhindert NICHT das spätere Versenden.
+    if enabled() and _started and _loop is not None:
+        try:
+            asyncio.run_coroutine_threadsafe(_post(review), _loop)
+        except Exception as e:
+            logger.warn("Discord", f"Review-Post nicht zustellbar: {type(e).__name__}")
+    elif auto:
+        logger.info("Discord", f"Auto-Send: '{name}' in Versand-Queue "
+                               f"(Discord offline — Post übersprungen, Versand läuft trotzdem).")
     return review
 
 

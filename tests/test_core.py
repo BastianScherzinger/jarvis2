@@ -961,12 +961,29 @@ def test_discord_bot_import_safe(monkeypatch):
     # Token/Kanal aus der Umgebung (z.B. echte .env) für diesen Test leeren.
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
     monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
+    monkeypatch.setenv("JARVIS_AUTO_SEND", "0")   # klassisches 👍-Gate für diesen Fall
     import discord_bot
     assert discord_bot.enabled() is False
     st = discord_bot.status()
-    assert "enabled" in st and "send_hour" in st
-    # submit_for_review darf ohne laufenden Bot einfach None liefern (kein Crash)
+    assert "enabled" in st and "send_hour" in st and "auto_send" in st
+    # Ohne Auto-Send UND ohne laufenden Bot liefert submit_for_review None (kein Crash).
     assert discord_bot.submit_for_review("X", "Y", "Z", "https://x") is None
+
+
+def test_discord_auto_send_queues_without_bot(tmp_path, monkeypatch):
+    # Auto-Send (Default AN): eine fertige Seite muss auch OHNE verbundenen Bot in die
+    # Versand-Queue wandern und direkt 'approved' sein — sonst ginge sie nie raus.
+    import review_queue as rq
+    import discord_bot
+    monkeypatch.setattr(rq, "_PATH", tmp_path / "reviews.json")
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
+    monkeypatch.setenv("JARVIS_AUTO_SEND", "1")
+    assert discord_bot.enabled() is False          # Bot bewusst offline
+    r = discord_bot.submit_for_review("Firma X", "Stadt", "Dachdecker",
+                                      "https://x.up.railway.app", email="kunde@example.de")
+    assert r is not None and r["status"] == rq.APPROVED
+    assert len(rq.approved_unsent()) == 1          # steht wirklich zum Versand bereit
 
 
 def test_mcp_bridge_schema_und_safe():
