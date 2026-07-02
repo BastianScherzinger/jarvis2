@@ -79,6 +79,45 @@ def _target_project_name(token: str) -> str:
     return newest["name"]
 
 
+def force_rotate(reason: str = "") -> dict:
+    """Erzwingt SOFORT ein neues Sammel-Projekt für KOMMENDE Deploys, unabhängig vom
+    Service-Zähler (_rotate_at()). Für den Live-Watcher: sieht er mehrere Seiten
+    gleichzeitig offline (typisches Symptom eines vollen/blockierten Projekts — die
+    historische Ursache für „Seiten werden gebaut, gehen aber nie live"), soll nicht
+    erst der nächste normale Deploy zufällig auf die Rotation stoßen.
+
+    Repariert NICHT die aktuell toten Seiten (die laufen weiter über den bestehenden
+    Redeploy-Pfad in ihrem bisherigen Projekt) — legt nur das nächste, leere
+    Sammel-Projekt an, damit NEUE Seiten dort landen. Da _target_project_name() das
+    "jüngste" Projekt immer live über die Railway-API neu bestimmt (kein lokaler
+    State), reicht das alleinige Anlegen — der nächste deploy() sieht es automatisch.
+
+    Gibt {"ok": True, "project": name, "already": bool} oder {"ok": False, "error"}."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "RAILWAY_TOKEN fehlt in .env"}
+    projects = all_generated_projects(token)
+    next_suffix = (projects[-1]["suffix"] + 1) if projects else 1
+    next_name = _project_name_for_suffix(next_suffix)
+    # Bereits vorhanden (Race mit einem parallelen deploy(), oder schon rotiert)?
+    found = _find_project_with_env(token, next_name)
+    if found.get("found"):
+        return {"ok": True, "project": next_name, "already": True}
+    q_proj = """
+    mutation($name:String!){ projectCreate(input:{name:$name}){
+      id environments{edges{node{id name}}} } }"""
+    r = _gql(q_proj, {"name": next_name[:60]}, token)
+    if not r["ok"]:
+        return {"ok": False, "error": f"projectCreate: {r['error']}"}
+    try:
+        import logger
+        logger.warn("Railway", f"Erzwungene Rotation -> Projekt „{next_name}“ angelegt"
+                                + (f" ({reason})" if reason else ""))
+    except Exception:
+        pass
+    return {"ok": True, "project": next_name, "already": False}
+
+
 def _token() -> str:
     return (os.environ.get("RAILWAY_TOKEN") or os.environ.get("RAILWAY_API_TOKEN") or "").strip()
 

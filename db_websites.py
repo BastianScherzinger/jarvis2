@@ -22,7 +22,7 @@ _lock   = threading.Lock()
 _UPDATE_SPALTEN = {
     "status", "progress", "step", "folder", "repo_url", "live_url", "error", "log", "live",
     "kontakt_email", "site_key", "ansprechpartner", "archived",
-    "email_sent", "email_sent_ts",
+    "email_sent", "email_sent_ts", "replied",
 }
 
 
@@ -90,6 +90,7 @@ def init_db() -> None:
             archived      INTEGER DEFAULT 0,
             email_sent    INTEGER DEFAULT 0,
             email_sent_ts REAL    DEFAULT 0,
+            replied       INTEGER DEFAULT 0,
             created       REAL,
             updated       REAL
         )
@@ -112,6 +113,8 @@ def init_db() -> None:
             c.execute("ALTER TABLE websites ADD COLUMN email_sent INTEGER DEFAULT 0")
         if "email_sent_ts" not in cols:
             c.execute("ALTER TABLE websites ADD COLUMN email_sent_ts REAL DEFAULT 0")
+        if "replied" not in cols:
+            c.execute("ALTER TABLE websites ADD COLUMN replied INTEGER DEFAULT 0")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_sitekey ON websites(site_key)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_websites_archived ON websites(archived)")
         for r in c.execute("SELECT id, name, stadt FROM websites WHERE site_key IS NULL OR site_key=''").fetchall():
@@ -274,6 +277,21 @@ def set_contact(wid: int, email: str = "", ansprechpartner: str = "") -> "dict |
         c.execute(f"UPDATE websites SET {', '.join(sets)} WHERE id=?", params)
         c.commit()
     return get(wid)
+
+
+def mark_replied(name: str, stadt: str) -> bool:
+    """Markiert die zur Lead-Adresse passende Webseite als 'vom Kunden beantwortet'
+    (site_key = name+stadt, wie überall sonst im Projekt für Cross-PC-Dedup). Für
+    inbox_reader.py: eine erkannte Kundenantwort schützt die Seite dauerhaft vor dem
+    Alt-Demo-Teardown (auto_builder.teardown_stale_demos), egal wie alt sie ist.
+    Gibt True zurück, wenn eine passende Zeile gefunden+markiert wurde."""
+    sk = _site_key(name or "", stadt or "")
+    row = get_by_site_key(sk)
+    if not row or not row.get("job_id"):
+        return False
+    if not row.get("replied"):
+        update(row["job_id"], replied=1)
+    return True
 
 
 def get_by_site_key(sk: str) -> "dict | None":

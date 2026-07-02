@@ -273,6 +273,14 @@ def check_once() -> dict:
                 if not body:
                     continue
                 analysis = _analyze(body, lead)
+                # Egal welche Kategorie (auch Absage) -- eine Antwort ist eine Antwort und
+                # schützt die Webseite dauerhaft vor dem Alt-Demo-Teardown (siehe
+                # auto_builder.teardown_stale_demos / db_websites.mark_replied).
+                try:
+                    import db_websites
+                    db_websites.mark_replied(lead.get("name", ""), lead.get("stadt", ""))
+                except Exception:
+                    pass
                 try:
                     when = parsedate_to_datetime(msg.get("Date", "")).strftime("%Y-%m-%d %H:%M")
                 except Exception:

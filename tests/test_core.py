@@ -1390,6 +1390,173 @@ def test_railway_deploy_resumes_existing_service_across_rotated_projects(monkeyp
     assert calls["project_create"] == 0 and calls["service_create"] == 0   # kein Duplikat
 
 
+# ── Railway: erzwungene Rotation (Live-Watch-Symptom-Trigger, 02.07.2026) ──────
+def test_railway_force_rotate_creates_next_project(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_token", lambda: "tok")
+    monkeypatch.setattr(ar, "all_generated_projects",
+                        lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_find_project_with_env", lambda tok, name: {"found": False})
+    calls = {"create": 0}
+
+    def fake_gql(query, variables, tok):
+        if "projectCreate" in query:
+            calls["create"] += 1
+            return {"ok": True, "data": {}}
+        return {"ok": True, "data": {}}
+    monkeypatch.setattr(ar, "_gql", fake_gql)
+
+    res = ar.force_rotate(reason="3 Seiten offline")
+    assert res == {"ok": True, "project": "Generated Websites 2", "already": False}
+    assert calls["create"] == 1
+
+
+def test_railway_force_rotate_already_exists_no_duplicate_create(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_token", lambda: "tok")
+    monkeypatch.setattr(ar, "all_generated_projects",
+                        lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_find_project_with_env", lambda tok, name:
+                        {"found": True, "project_id": "p2", "env_id": "e2"})
+
+    def fail_gql(*a, **k):
+        raise AssertionError("projectCreate haette hier nicht aufgerufen werden duerfen")
+    monkeypatch.setattr(ar, "_gql", fail_gql)
+
+    res = ar.force_rotate()
+    assert res == {"ok": True, "project": "Generated Websites 2", "already": True}
+
+
+def test_railway_force_rotate_no_token(monkeypatch):
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_token", lambda: "")
+    assert ar.force_rotate()["ok"] is False
+
+
+# ── Live-Watch: mehrere tote Seiten erzwingen sofort eine Railway-Rotation ─────
+def test_live_check_triggers_rotation_when_multiple_down(monkeypatch):
+    import auto_builder as ab
+    import db_websites
+    import types, sys
+    sites = [{"job_id": f"j{i}", "name": f"Site{i}", "folder": "", "live_url": f"https://s{i}.example",
+              "live": 0, "step": ""} for i in range(3)]
+    monkeypatch.setattr(db_websites, "get_all", lambda: sites)
+    monkeypatch.setitem(sys.modules, "discord_bot",
+                        types.SimpleNamespace(link_is_live=lambda u, timeout=8: False))
+    calls = []
+    monkeypatch.setattr(ab, "_maybe_force_rotation", lambda n: calls.append(n))
+    monkeypatch.setattr(ab, "_LIVE_ROTATE_THRESHOLD", 3)
+    ab._live_check_once()
+    assert calls == [3]
+
+
+def test_live_check_no_rotation_below_threshold(monkeypatch):
+    import auto_builder as ab
+    import db_websites
+    import types, sys
+    sites = [{"job_id": "j0", "name": "Site0", "folder": "", "live_url": "https://s0.example",
+              "live": 0, "step": ""}]
+    monkeypatch.setattr(db_websites, "get_all", lambda: sites)
+    monkeypatch.setitem(sys.modules, "discord_bot",
+                        types.SimpleNamespace(link_is_live=lambda u, timeout=8: False))
+    calls = []
+    monkeypatch.setattr(ab, "_maybe_force_rotation", lambda n: calls.append(n))
+    monkeypatch.setattr(ab, "_LIVE_ROTATE_THRESHOLD", 3)
+    ab._live_check_once()
+    assert calls == []
+
+
+def test_maybe_force_rotation_calls_railway_and_notifies(monkeypatch):
+    import auto_builder as ab
+    import agent_railway, discord_bot
+    monkeypatch.setattr(ab, "_live_last_forced_rotation", [0.0])
+    monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
+    monkeypatch.setattr(agent_railway, "force_rotate", lambda reason="":
+                        {"ok": True, "project": "Generated Websites 2", "already": False})
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
+    ab._maybe_force_rotation(4)
+    assert len(calls) == 1 and "Generated Websites 2" in calls[0][1]
+
+
+def test_maybe_force_rotation_respects_cooldown(monkeypatch):
+    import auto_builder as ab
+    import agent_railway
+    import time as _t
+    monkeypatch.setattr(ab, "_live_last_forced_rotation", [_t.time()])   # gerade eben ausgelöst
+    monkeypatch.setattr(ab, "_LIVE_ROTATE_COOLDOWN", 21600)
+    fr_calls = []
+    monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
+    monkeypatch.setattr(agent_railway, "force_rotate",
+                        lambda reason="": fr_calls.append(1) or {"ok": True})
+    ab._maybe_force_rotation(5)
+    assert fr_calls == []
+
+
+def test_maybe_force_rotation_no_duplicate_notify_when_already(monkeypatch):
+    import auto_builder as ab
+    import agent_railway, discord_bot
+    monkeypatch.setattr(ab, "_live_last_forced_rotation", [0.0])
+    monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
+    monkeypatch.setattr(agent_railway, "force_rotate", lambda reason="":
+                        {"ok": True, "project": "Generated Websites 2", "already": True})
+    calls = []
+    monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
+    ab._maybe_force_rotation(3)
+    assert calls == []
+
+
+# ── db_websites: Kundenantwort schützt vor Alt-Demo-Teardown ───────────────────
+def test_db_websites_mark_replied(tmp_path, monkeypatch):
+    import db_websites
+    monkeypatch.setattr(db_websites, "DB_PATH", tmp_path / "w.db")
+    db_websites.init_db()
+    db_websites.create("job-1", "Firma X", "Ulm", "Dachdecker")
+    assert db_websites.mark_replied("Firma X", "Ulm") is True
+    row = db_websites.get_by_job("job-1")
+    assert row["replied"] == 1
+    assert db_websites.mark_replied("Unbekannt", "Nirgendwo") is False   # wirft nicht
+
+
+def test_teardown_stale_demos_skips_replied_and_converted(tmp_path, monkeypatch):
+    import time
+    import auto_builder as ab
+    import db_websites
+    import agent_railway
+    monkeypatch.setattr(db_websites, "DB_PATH", tmp_path / "w.db")
+    db_websites.init_db()
+
+    def _age(job_id, days):
+        with db_websites._lock, db_websites._conn() as c:
+            c.execute("UPDATE websites SET created=? WHERE job_id=?",
+                      (time.time() - days * 86400, job_id))
+            c.commit()
+
+    db_websites.create("job-replied", "Beantwortet GmbH", "Ulm", "x")
+    db_websites.update("job-replied", live_url="https://a.example", live=1, replied=1)
+    _age("job-replied", 10)
+
+    db_websites.create("job-stale", "Alt GmbH", "Ulm", "x")
+    db_websites.update("job-stale", live_url="https://b.example", live=1)
+    _age("job-stale", 10)
+
+    db_websites.create("job-fresh", "Frisch GmbH", "Ulm", "x")
+    db_websites.update("job-fresh", live_url="https://c.example", live=1)
+    _age("job-fresh", 1)
+
+    monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
+    monkeypatch.setattr(agent_railway, "service_delete_by_name",
+                        lambda name: {"ok": True, "error": ""})
+    monkeypatch.setattr(ab, "_lead_converted", lambda lid: False)
+
+    n = ab.teardown_stale_demos(max_age_days=5)
+    assert n == 1
+    rows = {r["name"]: r for r in db_websites.get_all(include_archived=True)}
+    assert rows["Beantwortet GmbH"]["archived"] == 0     # Antwort erkannt -> geschützt
+    assert rows["Alt GmbH"]["archived"] == 1              # weder Antwort noch verkauft -> abgebaut
+    assert rows["Frisch GmbH"]["archived"] == 0           # zu jung
+
+
 # ── Video: CPU faellt automatisch auf Higgsfield-Cloud (kein GPU-Fehler mehr) ──
 def test_video_cpu_faellt_auf_higgsfield(monkeypatch):
     import media_engine as me

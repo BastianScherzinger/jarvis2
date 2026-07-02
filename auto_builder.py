@@ -1128,9 +1128,16 @@ _LIVE_REDEPLOY_COOLDOWN = int(os.environ.get("JARVIS_LIVE_REDEPLOY_COOLDOWN", "6
 # sondern auf einen langen Backoff gehen — spart Railway-Builds und Log-Rauschen.
 _LIVE_MAX_FAILS = int(os.environ.get("JARVIS_LIVE_MAX_FAILS", "3") or "3")
 _LIVE_GIVEUP_COOLDOWN = int(os.environ.get("JARVIS_LIVE_GIVEUP_COOLDOWN", "14400") or "14400")  # 4 h
+# Mehrere Seiten gleichzeitig offline = Symptom eines vollen/blockierten Railway-Sammel-
+# projekts (historische Ursache für „Seiten werden gebaut, gehen aber nie live"). Ab dieser
+# Zahl gleichzeitig toter Seiten wird SOFORT ein neues Sammel-Projekt für kommende Deploys
+# erzwungen (agent_railway.force_rotate), statt nur auf den Service-Zähler zu warten.
+_LIVE_ROTATE_THRESHOLD = max(2, int(os.environ.get("JARVIS_LIVE_ROTATE_THRESHOLD", "3") or "3"))
+_LIVE_ROTATE_COOLDOWN  = max(600, int(os.environ.get("JARVIS_LIVE_ROTATE_COOLDOWN", "21600") or "21600"))
 _live_watch_started = False
 _live_redeploy_at: dict = {}        # folder → letzter Re-Deploy-Zeitpunkt (Cooldown)
 _live_fail_count: dict = {}         # folder → erfolglose Re-Deploys in Folge (Backoff-Zähler)
+_live_last_forced_rotation = [0.0]  # Cooldown-Zeitstempel für die erzwungene Rotation
 _live_gaveup: set = set()           # folder → „gebe vorerst auf" bereits geloggt (einmal pro Serie)
 
 
@@ -1168,6 +1175,13 @@ def _live_check_once() -> None:
         _is_live = lambda u, timeout=8: False
 
     sites = db_websites.get_all()            # aktive (nicht archivierte)
+
+    # Symptom-Check VOR dem Redeploy-Durchgang: nutzt den zuletzt bekannten 'live'-Stand
+    # (dieser Loop hält ihn selbst aktuell) statt eines teuren Extra-HTTP-Durchgangs.
+    down = sum(1 for w in sites if (w.get("live_url") or "").strip() and not w.get("live"))
+    if down >= _LIVE_ROTATE_THRESHOLD:
+        _maybe_force_rotation(down)
+
     for w in sites:
         url    = (w.get("live_url") or "").strip()
         folder = (w.get("folder") or "").strip()
@@ -1236,6 +1250,39 @@ def _live_check_once() -> None:
         return                               # nur EINE Seite pro Durchlauf neu deployen
 
 
+def _maybe_force_rotation(down_count: int) -> None:
+    """Mehrere Seiten gleichzeitig offline -> erzwingt sofort ein neues Railway-Sammel-
+    projekt für KOMMENDE Deploys (repariert NICHT die aktuell toten Seiten selbst — das
+    macht weiter der normale Redeploy-Pfad in _live_check_once). Cooldown verhindert
+    Spam, solange dieselbe Ausfallserie andauert."""
+    if time.time() - _live_last_forced_rotation[0] < _LIVE_ROTATE_COOLDOWN:
+        return
+    try:
+        import agent_railway
+        if not agent_railway.is_ready():
+            return
+        res = agent_railway.force_rotate(reason=f"{down_count} Seiten gleichzeitig offline")
+        _live_last_forced_rotation[0] = time.time()
+        if res.get("ok") and not res.get("already"):
+            logger.warn("LiveWatch", f"{down_count} Seiten gleichzeitig offline -> neues "
+                                     f"Railway-Projekt '{res['project']}' für neue Deploys angelegt.")
+            try:
+                import discord_bot
+                discord_bot.notify(
+                    "⚠ Railway-Rotation erzwungen",
+                    f"{down_count} Seiten waren gleichzeitig nicht live — typisches Zeichen eines "
+                    f"vollen/blockierten Railway-Projekts. Neue Webseiten werden ab sofort in "
+                    f"'{res['project']}' gebaut.",
+                    color=0xff9500,
+                )
+            except Exception:
+                pass
+        elif not res.get("ok"):
+            logger.warn("LiveWatch", f"Erzwungene Rotation fehlgeschlagen: {res.get('error','')[:120]}")
+    except Exception as e:
+        logger.warn("LiveWatch", f"Erzwungene Rotation fehlgeschlagen: {type(e).__name__}")
+
+
 def _sync_one(job_id: str) -> None:
     """Eine Webseiten-Zeile nach Supabase pushen (best-effort)."""
     try:
@@ -1248,10 +1295,10 @@ def _sync_one(job_id: str) -> None:
         pass
 
 
-# Demo-Lebensdauer: nicht-konvertierte Live-Demos nach so vielen Tagen abbauen (Railway
+# Demo-Lebensdauer: Live-Demos OHNE Kundenantwort nach so vielen Tagen abbauen (Railway
 # freihalten, damit das Projekt nicht ans Service-/Guthaben-Limit läuft → sonst deployt nichts
-# mehr). Kürzer = Railway bleibt leerer. 0 = Teardown aus.
-_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "4") or "4")
+# mehr). Kürzer = Railway bleibt leerer. 0 = Teardown aus. Sirs Vorgabe (02.07.2026): 5 Tage.
+_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "5") or "5")
 
 
 def _lead_converted(lead_id) -> bool:
@@ -1267,9 +1314,12 @@ def _lead_converted(lead_id) -> bool:
 
 
 def teardown_stale_demos(max_age_days: int = 0) -> int:
-    """Baut Live-Demos ab, die nach `max_age_days` (Default JARVIS_DEMO_TEARDOWN_DAYS=10) NICHT
-    konvertiert sind (Hosting-Kosten deckeln): löscht den Railway-Service und archiviert die Zeile.
-    Verkaufte/Termin-Leads bleiben unangetastet. Gibt die Anzahl abgebauter Demos zurück. 0=aus."""
+    """Baut Live-Demos ab, die nach `max_age_days` (Default JARVIS_DEMO_TEARDOWN_DAYS=5) WEDER
+    konvertiert sind (verkauft/Termin) NOCH eine Kundenantwort bekommen haben (Hosting-Kosten
+    deckeln): löscht den Railway-Service und archiviert die Zeile. Verkaufte/Termin-Leads UND
+    Seiten mit erkannter Antwort (replied=1, siehe inbox_reader.py/db_websites.mark_replied)
+    bleiben unangetastet, egal wie alt — Sir arbeitet an denen noch. Gibt die Anzahl abgebauter
+    Demos zurück. 0=aus."""
     days = max_age_days or _TEARDOWN_DAYS
     if days <= 0:
         return 0
@@ -1292,18 +1342,21 @@ def teardown_stale_demos(max_age_days: int = 0) -> int:
                 continue                            # nichts live → nichts abzubauen
             if _lead_converted(w.get("lead_id")):
                 continue                            # verkauft/Termin → behalten
+            if int(w.get("replied") or 0):
+                continue                            # Kunde hat geantwortet → behalten
             # Service heißt IMMER web-<slug> — früher wurde ohne „web-" gelöscht, daher traf der
             # Löschbefehl nie und der Railway-Service blieb bestehen (Projekt lief trotzdem voll).
             slug = website_builder._slug(w.get("name", ""))
             r = agent_railway.service_delete_by_name(f"web-{slug}")
             db_websites.update(w["job_id"], archived=1, live=0, status="abgebaut")
             abgebaut += 1
-            logger.info("AutoBuilder", f"Demo abgebaut (>{days} Tage, nicht verkauft): "
+            logger.info("AutoBuilder", f"Demo abgebaut (>{days} Tage, keine Antwort/nicht verkauft): "
                                        f"{w.get('name','?')} · Railway: {r.get('error') or 'ok'}")
         except Exception as e:
             logger.warn("AutoBuilder", f"Teardown übersprungen ({w.get('name','?')}): {type(e).__name__}")
     if abgebaut:
-        logger.success("AutoBuilder", f"{abgebaut} nicht-konvertierte Demo(s) nach {days} Tagen abgebaut.")
+        logger.success("AutoBuilder",
+                       f"{abgebaut} unbeantwortete Demo(s) nach {days} Tagen abgebaut.")
     return abgebaut
 
 
