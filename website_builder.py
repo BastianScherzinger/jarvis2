@@ -1072,14 +1072,60 @@ def _run(job_id: str) -> None:
 # reicht — hält das Risiko für falsch-positive Treffer bei fremden Ordnern niedrig,
 # ohne einen echten (aber unvollständigen) Bau zu übersehen.
 _SITE_SIGNALS = ("content.json", "manage.py", "requirements.txt", "railway.json",
-                 "Procfile", "templates", "static", "config")
+                 "Procfile", "templates", "static", "config", ".git")
 
 
 def _looks_like_jarvis_site(d: Path) -> bool:
-    """True, wenn der Ordner IRGENDEIN Anzeichen einer JARVIS-Webseite hat."""
+    """True, wenn der Ordner IRGENDEIN Anzeichen einer JARVIS-Webseite hat. `.git` zählt
+    bewusst mit (02.07.2026, siebter Durchlauf): ein abgebrochener Umzug (siehe
+    _repair_from_git) kann ein Arbeitsverzeichnis leerräumen und nur .git übriglassen —
+    das ist immer noch eindeutig eine JARVIS-Seite (nur JARVIS legt hier Git-Repos an)."""
     try:
         return any((d / s).exists() for s in _SITE_SIGNALS)
     except Exception:
+        return False
+
+
+def _is_wrecked_git_only(d: Path) -> bool:
+    """True, wenn der Ordner NUR einen .git-Unterordner enthält — Arbeitsverzeichnis fehlt
+    komplett. Symptom eines abgebrochenen Umzugs: shutil.move()s interner Fallback
+    (copytree + rmtree OHNE ignore_errors) bricht beim ersten gesperrten .git-Objekt
+    (z.B. während/kurz nach einem git push) sofort ab — alle bereits gelöschten
+    Arbeitsverzeichnis-Dateien sind weg, .git (teilweise) mit echten Objekten bleibt stehen."""
+    try:
+        entries = list(d.iterdir())
+        return len(entries) == 1 and entries[0].name == ".git" and entries[0].is_dir()
+    except Exception:
+        return False
+
+
+def _repair_from_git(d: Path, _lg) -> bool:
+    """Versucht, das leere Arbeitsverzeichnis eines verwaisten Ordners (siehe
+    _is_wrecked_git_only) aus der eigenen Git-Historie wiederherzustellen — die echten
+    Inhalte (Bilder, content.json, ...) stecken bereits als committete Objekte in .git,
+    sind also nicht verloren. Best-effort: wirft nie, meldet nur per Log."""
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["git", "--git-dir", str(d / ".git"), "--work-tree", str(d),
+             "checkout", "HEAD", "--", "."],
+            capture_output=True, text=True, timeout=30,
+        )
+        ok = r.returncode == 0
+        if _lg:
+            if ok:
+                _lg.info("Webseite", f"'{d.name}' aus Git-Historie repariert "
+                                     f"(Arbeitsverzeichnis war nach abgebrochenem Umzug leer).")
+            else:
+                _lg.warn("Webseite", f"Reparatur von '{d.name}' aus Git-Historie "
+                                     f"fehlgeschlagen: {(r.stderr or '').strip()[:200]} "
+                                     f"— Ordner wird trotzdem anhand von .git umgezogen.")
+        return ok
+    except Exception as e:
+        if _lg:
+            _lg.warn("Webseite", f"Reparatur von '{d.name}' aus Git-Historie fehlgeschlagen: "
+                                 f"{type(e).__name__} — Ordner wird trotzdem anhand von .git "
+                                 f"umgezogen.")
         return False
 
 
@@ -1109,6 +1155,13 @@ def migrate_legacy_website_folders() -> dict:
     ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab. Jeder übersprungene
     web_*-Kandidat wird geloggt (mit Grund) — „nichts gefunden" bleibt so nachvollziehbar
     statt einer stummen Blackbox.
+
+    Verwaiste Ordner (nur noch .git übrig, siehe _is_wrecked_git_only — Symptom eines
+    früheren abgebrochenen Umzugs) werden zuerst best-effort aus der Git-Historie
+    repariert (_repair_from_git) und danach IMMER umgezogen (.git zählt selbst als
+    Signal) — nichts bleibt mehr dauerhaft unsichtbar auf dem Desktop liegen. Der Umzug
+    selbst kopiert erst vollständig und entfernt danach das Original (nie umgekehrt),
+    damit ein einzelnes gesperrtes Objekt nie wieder eine Teil-Löschung auslöst.
     Gibt {"moved": [{"from","to"}], "errors": [{"folder","error"}]} zurück."""
     moved: list = []
     errors: list = []
@@ -1141,6 +1194,8 @@ def migrate_legacy_website_folders() -> dict:
     for d in sorted(set(kandidaten)):
         if not d.is_dir():
             continue
+        if _is_wrecked_git_only(d):
+            _repair_from_git(d, _lg)      # best-effort — egal ob es klappt, .git zaehlt als Signal
         if not _looks_like_jarvis_site(d):
             if _lg:
                 _lg.warn("Webseite", f"'{d.name}' übersprungen — keine JARVIS-Signatur erkannt "
@@ -1157,7 +1212,35 @@ def migrate_legacy_website_folders() -> dict:
                 target = target_dir / f"{d.name}-{n}"
                 n += 1
             old_str = str(d)
-            shutil.move(old_str, str(target))
+            # Bewusst KEIN shutil.move(): dessen interner Fallback (copytree+rmtree OHNE
+            # ignore_errors) brach bei gesperrten .git-Dateien (z.B. kurz nach git push)
+            # mitten drin ab — Arbeitsverzeichnis weg, .git blieb verwaist stehen
+            # (02.07.2026, siebter Durchlauf, live auf einem zweiten PC beobachtet).
+            # Stattdessen: erst vollstaendig kopieren, DANN erst das Original entfernen.
+            try:
+                shutil.copytree(old_str, str(target))
+            except Exception:
+                shutil.rmtree(str(target), ignore_errors=True)  # keine kaputte Teilkopie liegen lassen
+                raise
+            shutil.rmtree(old_str, ignore_errors=True)
+            if Path(old_str).exists():
+                # Kopie ist vollstaendig fertig — Original ist nur noch wertloser Datenmuell,
+                # weil eine einzelne Datei gerade gesperrt war. Umbenennen (PRAEFIX, nicht
+                # Suffix!) statt Loeschen erzwingen, damit web_* diesen Rest beim naechsten
+                # Lauf NICHT erneut aufgreift (sonst Endlos-Duplizierung nach jarvis_websites/).
+                try:
+                    leftover = Path(old_str).parent / f"_migriert_rest_{d.name}"
+                    m = 2
+                    while leftover.exists():
+                        leftover = Path(old_str).parent / f"_migriert_rest_{d.name}-{m}"
+                        m += 1
+                    Path(old_str).rename(leftover)
+                    if _lg:
+                        _lg.warn("Webseite", f"'{d.name}': Kopie fertig, einzelne Datei(en) "
+                                             f"waren gesperrt — Rest umbenannt zu "
+                                             f"'{leftover.name}' (kann manuell geloescht werden).")
+                except Exception:
+                    pass
             if db_websites is not None:
                 try:
                     row = db_websites.get_by_folder(old_str)

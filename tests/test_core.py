@@ -418,6 +418,84 @@ def test_migrate_legacy_folders_findet_eine_ebene_tiefer(tmp_path, monkeypatch):
     assert res2["moved"] == [] and res2["errors"] == []
 
 
+def test_migrate_legacy_folders_repariert_git_only_ordner(tmp_path, monkeypatch):
+    # Realer Bugreport (02.07.2026, Kollegen-PC, siebter Durchlauf): shutil.move()s
+    # interner Fallback (copytree+rmtree OHNE ignore_errors) brach bei einer gesperrten
+    # .git-Datei (kurz nach git push) mitten drin ab -- Arbeitsverzeichnis komplett weg,
+    # NUR .git blieb mit echten Objekten stehen. Danach "keine verstreuten Alt-Ordner
+    # gefunden" trotz 23 sichtbaren Ordnern. Jetzt: wird aus der Git-Historie repariert.
+    import website_builder, subprocess, time
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    legacy = tmp_path / "web_verwaist"
+    legacy.mkdir()
+    (legacy / "content.json").write_text('{"site_name": "Verwaist"}', encoding="utf-8")
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.de",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.de"}
+    subprocess.run(["git", "init"], cwd=legacy, capture_output=True, env=env, check=True)
+    subprocess.run(["git", "add", "."], cwd=legacy, capture_output=True, env=env, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=legacy, capture_output=True, env=env, check=True)
+    (legacy / "content.json").unlink()          # simuliert den abgebrochenen Umzug: nur .git übrig
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    today = time.strftime("%Y-%m-%d")
+    target = tmp_path / "jarvis_websites" / today / "web_verwaist"
+    assert target.is_dir()
+    assert (target / "content.json").read_text(encoding="utf-8") == '{"site_name": "Verwaist"}'
+
+
+def test_migrate_legacy_folders_git_only_wird_trotzdem_umgezogen_bei_reparatur_fehler(tmp_path, monkeypatch):
+    # Auch wenn die Git-Reparatur scheitert (z.B. kaputtes/unvollständiges .git), zählt
+    # .git selbst als Signal -- der Ordner bleibt nie wieder für immer unsichtbar liegen.
+    import website_builder, time
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    legacy = tmp_path / "web_kaputtes_git"
+    legacy.mkdir()
+    (legacy / ".git").mkdir()          # kein echtes Repo -> "git checkout" schlägt fehl
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    assert not legacy.exists()
+    today = time.strftime("%Y-%m-%d")
+    target = tmp_path / "jarvis_websites" / today / "web_kaputtes_git"
+    assert target.is_dir() and (target / ".git").is_dir()
+
+
+def test_migrate_legacy_folders_move_ueberlebt_gesperrte_datei(tmp_path, monkeypatch):
+    # shutil.move() wird bewusst NICHT mehr benutzt: erst vollständig kopieren, dann erst
+    # das Original entfernen. Bleibt dabei eine gesperrte Datei übrig, wird der Rest
+    # umbenannt (PRÄFIX, nicht web_*) statt liegenzubleiben -- sonst würde der nächste
+    # Lauf ihn erneut als web_*-Kandidat aufgreifen und die Kopie endlos duplizieren.
+    import website_builder
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    legacy = tmp_path / "web_gesperrt"
+    legacy.mkdir()
+    (legacy / "content.json").write_text('{"site_name": "Gesperrt"}', encoding="utf-8")
+
+    orig_rmtree = website_builder.shutil.rmtree
+
+    def fake_rmtree(path, *a, **k):
+        if str(path) == str(legacy):
+            return          # simuliert: eine Datei war gesperrt, Original bleibt liegen
+        return orig_rmtree(path, *a, **k)
+
+    monkeypatch.setattr(website_builder.shutil, "rmtree", fake_rmtree)
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    import time
+    today = time.strftime("%Y-%m-%d")
+    target = tmp_path / "jarvis_websites" / today / "web_gesperrt"
+    assert target.is_dir() and (target / "content.json").exists()   # Kopie vollständig da
+
+    assert not legacy.exists()                                       # umbenannt, nicht mehr sichtbar
+    leftover = tmp_path / "_migriert_rest_web_gesperrt"
+    assert leftover.is_dir() and (leftover / "content.json").exists()
+
+    res2 = website_builder.migrate_legacy_website_folders()           # Rest wird nie wieder aufgegriffen
+    assert res2["moved"] == []
+
+
 def test_migrate_legacy_folders_updates_db_folder(tmp_path, monkeypatch):
     import website_builder
     import db_websites
