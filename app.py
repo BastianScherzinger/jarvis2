@@ -1558,6 +1558,88 @@ def api_hf_mcp_logout():
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"})
 
 
+# ── Video-Studio (Filmora MCP via viaSocket) ─────────────────────────────────
+
+@app.route("/api/video-studio/status")
+def api_vs_status():
+    try:
+        import filmora_mcp
+        return jsonify(filmora_mcp.get_status())
+    except Exception as e:
+        return jsonify({"connected": False, "url_set": False, "tool_count": 0,
+                        "tools": [], "last_error": f"{type(e).__name__}: {e}"})
+
+
+@app.route("/api/video-studio/connect", methods=["POST"])
+def api_vs_connect():
+    import filmora_mcp
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "reason": "url fehlt"}), 400
+    try:
+        return jsonify(filmora_mcp.connect_test(url))
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {e}"})
+
+
+@app.route("/api/video-studio/disconnect", methods=["POST"])
+def api_vs_disconnect():
+    import filmora_mcp
+    return jsonify(filmora_mcp.clear())
+
+
+@app.route("/api/video-studio/tools")
+def api_vs_tools():
+    import filmora_mcp
+    try:
+        return jsonify(filmora_mcp.list_tools())
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {e}", "tools": []})
+
+
+@app.route("/api/video-studio/improve-prompt", methods=["POST"])
+def api_vs_improve_prompt():
+    import video_prompt
+    body = request.get_json(silent=True) or {}
+    return jsonify(video_prompt.improve_instruction(body.get("raw", "")))
+
+
+@app.route("/api/video-studio/submit-edit", methods=["POST"])
+def api_vs_submit_edit():
+    import filmora_mcp
+    import media_queue
+    body        = request.get_json(silent=True) or {}
+    youtube_url = (body.get("youtube_url") or "").strip()
+    instruction = (body.get("instruction") or "").strip()
+    tool_name   = (body.get("tool_name") or "").strip()
+    if not youtube_url or "http" not in youtube_url:
+        return jsonify({"ok": False, "reason": "youtube_url fehlt/ungültig"}), 400
+    if not instruction:
+        return jsonify({"ok": False, "reason": "instruction fehlt"}), 400
+    if not filmora_mcp.is_configured():
+        return jsonify({"ok": False, "reason": "not_connected"}), 400
+    try:
+        res = (filmora_mcp.resolve_manual(tool_name, youtube_url, instruction) if tool_name
+               else filmora_mcp.resolve_edit_tool(youtube_url, instruction))
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {e}"})
+    if not res.get("ok"):
+        return jsonify(res)          # z.B. {"ok": False, "reason": "tool_unclear", "tools": [...]}
+    job_id = media_queue.submit("filmora_edit", {
+        "tool_name": res["tool"], "arguments": res["arguments"],
+        "prompt": instruction, "youtube_url": youtube_url,
+    })
+    return jsonify({"ok": True, "job_id": job_id, "tool": res["tool"]})
+
+
+@app.route("/api/video-studio/chat", methods=["POST"])
+def api_vs_chat():
+    import video_prompt
+    body = request.get_json(silent=True) or {}
+    return jsonify(video_prompt.chat_reply(body.get("message", "")))
+
+
 @app.route("/api/media/models")
 def api_media_models():
     try:

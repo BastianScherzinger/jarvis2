@@ -37,6 +37,7 @@
     <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
     <button class="topnav-btn"        data-page="custom"  onclick="showPage('custom')">Eigene Marke</button>
     <button class="topnav-btn"        data-page="claude"  onclick="showPage('claude')">Claude</button>
+    <button class="topnav-btn"        data-page="video-studio" onclick="showPage('video-studio')">Video-Studio</button>
     <button class="topnav-btn topnav-costs" data-page="costs" onclick="showPage('costs')">€ Kosten</button>
   </nav>
 
@@ -613,6 +614,83 @@
 
 </main>
 
+<!-- ══════════════════════════ VIDEO-STUDIO (Filmora MCP) ═══════════════════ -->
+<main class="video-studio-page page" data-page="video-studio">
+
+  <div class="vs-scroll">
+    <div class="media-head">
+      <div class="media-title">Video-Studio</div>
+      <div class="media-sub">YouTube-Video per Filmora-MCP bearbeiten — die Anweisung wird
+        lokal per KI verbessert, bevor sie an Filmora geht.</div>
+    </div>
+
+    <!-- Connect-Karte -->
+    <section class="vs-connect-card" id="vs-connect-card">
+      <div class="vs-connect-row">
+        <span class="vs-badge off" id="vs-badge">● nicht verbunden</span>
+        <span class="vs-tool-count" id="vs-tool-count"></span>
+      </div>
+      <div class="vs-connect-hint">
+        Einmalig unter <a href="https://app.mushroom.viasocket.com/login" target="_blank"
+        rel="noopener">app.mushroom.viasocket.com/login</a> anmelden ("Get Your MCP URL for
+        Free") und die persönliche MCP-URL hier einfügen, Sir.
+      </div>
+      <div class="vs-connect-form">
+        <input type="text" id="vs-url" class="af-in" placeholder="https://app.mushroom.viasocket.com/mcp/…">
+        <button class="start-btn" id="vs-connect-btn" onclick="vsConnect()">Verbinden</button>
+        <button class="export-btn" id="vs-disconnect-btn" onclick="vsDisconnect()" style="display:none">Trennen</button>
+      </div>
+      <div class="vs-tools-list" id="vs-tools-list"></div>
+    </section>
+
+    <!-- Edit-Formular -->
+    <section class="adform vs-edit-form" id="vs-edit-form">
+      <label class="af-field">
+        <span class="af-lbl">YouTube-Link</span>
+        <input type="text" id="vs-yt-url" class="af-in" placeholder="https://youtube.com/watch?v=…">
+      </label>
+      <label class="af-field">
+        <span class="af-lbl">Bearbeitungsanweisung</span>
+        <textarea id="vs-instruction" class="af-in" rows="3" placeholder="z.B. Intro kürzen, Untertitel hinzufügen…"></textarea>
+      </label>
+      <div class="cb-suggest-row">
+        <button type="button" class="cb-suggest" id="vs-improve-btn" onclick="vsImprovePrompt()">
+          <span class="cb-suggest-ic">✦</span> Prompt verbessern</button>
+        <span class="cb-suggest-hint">lokale KI (Ollama) macht die Anweisung präziser</span>
+      </div>
+      <div class="cb-suggest-out" id="vs-improve-diff" style="display:none"></div>
+      <button class="start-btn vs-submit-btn" id="vs-submit-btn" onclick="vsSubmitEdit()">Video bearbeiten</button>
+      <div class="vs-picker" id="vs-picker" style="display:none"></div>
+    </section>
+
+    <div id="vs-job-status" class="job-card" style="display:none"></div>
+
+    <section class="vs-debug" id="vs-debug">
+      <div class="vs-debug-title">Debug</div>
+      <div class="vs-debug-log" id="vs-debug-log"></div>
+    </section>
+  </div>
+
+  <!-- Chat unten -->
+  <div class="claude-chat vs-chat" id="vs-chat-log">
+    <div class="claude-empty" id="vs-chat-empty">
+      <div class="claude-empty-icon">◎</div>
+      <div class="claude-empty-title">Fragen zum Video-Studio?</div>
+      <div class="claude-empty-sub">Ich helfe bei Filmora-MCP, Prompts und YouTube-Links.</div>
+    </div>
+  </div>
+  <div class="claude-composer vs-composer" id="vs-composer">
+    <textarea class="cc-input" id="vs-chat-input" rows="1" placeholder="Nachricht…"></textarea>
+    <div class="cc-actions">
+      <span class="cc-spacer"></span>
+      <button class="cc-send" id="vs-chat-send" title="Senden" aria-label="Senden">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+      </button>
+    </div>
+  </div>
+
+</main>
+
 <!-- ══════════════════════════ MODAL ════════════════════════════════════════ -->
 <div class="modal-bg" id="modal-bg" onclick="closeModal()"></div>
 <div class="modal" id="modal">
@@ -626,6 +704,7 @@
 <script src="/static/js/ranking.js"></script>
 <script src="/static/js/websites.js"></script>
 <script src="/static/js/claude.js"></script>
+<script src="/static/js/video_studio.js"></script>
 
 <!-- Log-Drawer (ausklappbar von unten) -->
 <div class="log-drawer" id="log-drawer">

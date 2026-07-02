@@ -20,7 +20,7 @@ _cloud_started = False
 
 # Cloud-Job-Typen brauchen KEINE lokale GPU → dürfen auf starkem Server parallel laufen.
 _CLOUD_KINDS = {"higgsfield", "higgsfield_image", "openai_image",
-                "higgsfield_mcp_image", "higgsfield_mcp_video"}
+                "higgsfield_mcp_image", "higgsfield_mcp_video", "filmora_edit"}
 
 _BASE = Path(__file__).parent
 _IMAGES_DIR = _BASE / "workspace" / "media" / "images"
@@ -309,6 +309,11 @@ def _worker(q: "queue.Queue") -> None:
                     duration=int(params.get("duration") or 0),
                     model=(params.get("model") or ""))
                 result = {"web_url": f"/workspace/media/videos/{out.name}", **r}
+            elif kind == "filmora_edit":
+                import filmora_mcp
+                r = filmora_mcp.run_edit_job(
+                    job_id, params.get("tool_name", ""), params.get("arguments") or {})
+                result = {"web_url": r.get("result_url", ""), **r}
             else:
                 raise ValueError(f"Unbekannter Job-Typ: '{kind}'")
 
