@@ -40,11 +40,17 @@ db_websites.init_db()
 if (os.environ.get("JARVIS_QUIET_ACCESS_LOG", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
     import logging as _logging
 
+    # Statische Assets + Dauer-Poll-Endpunkte: bei Erfolg (200/204/304) komplett aus dem Log.
     _QUIET_PATHS = (
+        # statische Dateien & Medien (reines Rauschen)
+        "/static/", "/workspace/", "/favicon.ico",
+        # Dashboard-Poll-Endpunkte
         "/api/websites/grouped", "/api/auto-build/status", "/api/status", "/api/top",
         "/api/activity/recent", "/api/home/stats", "/api/logs", "/api/limit/status",
-        "/api/costs", "/favicon.ico",
+        "/api/costs", "/api/media/", "/api/evaluated/", "/api/graph/", "/api/inbox/replies",
+        "/api/claude/status", "/api/verifier/model",
     )
+    _OK_CODES = ('" 200 ', '" 204 ', '" 304 ')
 
     class _AccessLogFilter(_logging.Filter):
         def filter(self, record: "_logging.LogRecord") -> bool:
@@ -52,8 +58,8 @@ if (os.environ.get("JARVIS_QUIET_ACCESS_LOG", "1") or "1").strip().lower() not i
                 msg = record.getMessage()
             except Exception:
                 return True
-            # Nur erfolgreiche Poll-Requests schlucken — Fehlerstatus immer durchlassen.
-            if ('" 200 ' in msg or '" 304 ' in msg) and any(p in msg for p in _QUIET_PATHS):
+            # Nur ERFOLGREICHE Routine-Requests schlucken — jeder Fehlerstatus (4xx/5xx) bleibt.
+            if any(c in msg for c in _OK_CODES) and any(p in msg for p in _QUIET_PATHS):
                 return False
             return True
 
@@ -1113,6 +1119,36 @@ def api_inbox_check():
     try:
         import inbox_reader
         return jsonify({"ok": True, **inbox_reader.check_once()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}), 500
+
+
+@app.route("/api/pricing")
+def api_pricing():
+    """Faires Preissystem: Basis, Spanne, 3 Pakete, Feature-Aufpreise."""
+    try:
+        import pricing
+        body = {"ok": True, **pricing.summary()}
+        feats = request.args.get("features", "")
+        if feats:
+            body["quote"] = pricing.quote([f.strip() for f in feats.split(",") if f.strip()])
+        return jsonify(body)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}), 500
+
+
+@app.route("/api/reply/draft", methods=["POST"])
+def api_reply_draft():
+    """Erzeugt einen Antwort-Entwurf (z. B. auf eine Preisfrage) aus der Vorlage.
+    Body: {kategorie?, name?, ansprechpartner?, branche?, demo_url?}."""
+    try:
+        import reply_templates
+        b = request.get_json(silent=True) or {}
+        draft = reply_templates.suggest(
+            b.get("kategorie", "preisfrage"), name=b.get("name", ""),
+            ansprechpartner=b.get("ansprechpartner", ""), branche=b.get("branche", ""),
+            demo_url=b.get("demo_url", ""))
+        return jsonify({"ok": bool(draft), **draft})
     except Exception as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}), 500
 

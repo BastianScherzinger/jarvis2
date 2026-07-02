@@ -179,6 +179,7 @@ def _match_lead(sender_email: str) -> dict:
             if (r.get("email") or "").strip().lower() == se:
                 return {"name": r.get("name", ""), "branche": r.get("branche", ""),
                         "stadt": r.get("stadt", ""), "link": r.get("link", ""),
+                        "ansprechpartner": r.get("ansprechpartner", ""),
                         "preis": r.get("preis", 0), "review_id": r.get("id", "")}
     except Exception:
         pass
@@ -276,13 +277,23 @@ def check_once() -> dict:
                     when = parsedate_to_datetime(msg.get("Date", "")).strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     when = datetime.now().strftime("%Y-%m-%d %H:%M")
+                # Fertigen Antwort-Entwurf beilegen (Preisfrage/Interesse) — Sir prüft & schickt.
+                draft = {}
+                try:
+                    import reply_templates
+                    draft = reply_templates.suggest(
+                        analysis.get("kategorie", ""), name=lead.get("name", ""),
+                        ansprechpartner=lead.get("ansprechpartner", ""),
+                        branche=lead.get("branche", ""), demo_url=lead.get("link", ""))
+                except Exception:
+                    draft = {}
                 item = {
                     "uid": uid_s, "from": from_addr, "from_name": from_name,
                     "subject": _decode(msg.get("Subject", "")),
                     "date": when, "name": lead.get("name", ""),
                     "branche": lead.get("branche", ""), "link": lead.get("link", ""),
                     "preis": lead.get("preis", 0), "review_id": lead.get("review_id", ""),
-                    "snippet": body[:280],
+                    "snippet": body[:280], "suggested_reply": draft,
                     "ts": time.time(), **analysis,
                 }
                 new_items.append(item)
@@ -325,12 +336,15 @@ def _announce(it: dict) -> None:
     except Exception:
         pass
     if kat in _HOT:
+        draft_hint = "\n\n📝 Antwort-Entwurf liegt bereit (Dashboard → /api/inbox/replies)." \
+            if it.get("suggested_reply") else ""
         try:
             import discord_bot
             discord_bot.notify(
                 f"{icon} Kundenantwort — {kat.upper()}",
                 f"**{it.get('name') or it.get('from')}**\n{it.get('zusammenfassung','')}\n\n"
-                f"→ {it.get('empfehlung','')}\nDringlichkeit: {it.get('dringlichkeit','?')}",
+                f"→ {it.get('empfehlung','')}\nDringlichkeit: {it.get('dringlichkeit','?')}"
+                f"{draft_hint}",
                 color=0x2ecc71 if kat in ("interesse", "termin") else 0xf1c40f,
             )
         except Exception:

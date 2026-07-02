@@ -1213,7 +1213,10 @@ def _sync_one(job_id: str) -> None:
         pass
 
 
-_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "7") or "7")
+# Demo-Lebensdauer: nicht-konvertierte Live-Demos nach so vielen Tagen abbauen (Railway
+# freihalten, damit das Projekt nicht ans Service-/Guthaben-Limit läuft → sonst deployt nichts
+# mehr). Kürzer = Railway bleibt leerer. 0 = Teardown aus.
+_TEARDOWN_DAYS = int(os.environ.get("JARVIS_DEMO_TEARDOWN_DAYS", "4") or "4")
 
 
 def _lead_converted(lead_id) -> bool:
@@ -1254,8 +1257,10 @@ def teardown_stale_demos(max_age_days: int = 0) -> int:
                 continue                            # nichts live → nichts abzubauen
             if _lead_converted(w.get("lead_id")):
                 continue                            # verkauft/Termin → behalten
+            # Service heißt IMMER web-<slug> — früher wurde ohne „web-" gelöscht, daher traf der
+            # Löschbefehl nie und der Railway-Service blieb bestehen (Projekt lief trotzdem voll).
             slug = website_builder._slug(w.get("name", ""))
-            r = agent_railway.service_delete_by_name(slug)
+            r = agent_railway.service_delete_by_name(f"web-{slug}")
             db_websites.update(w["job_id"], archived=1, live=0, status="abgebaut")
             abgebaut += 1
             logger.info("AutoBuilder", f"Demo abgebaut (>{days} Tage, nicht verkauft): "
