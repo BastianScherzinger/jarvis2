@@ -103,6 +103,12 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
                     page.wait_for_timeout(2000)
                 except Exception:
                     try:
+                        # Alten Context zuerst schließen (sonst kann ein Chromium-Context
+                        # verwaisen), dann den Browser komplett neu aufbauen.
+                        try:
+                            ctx.close()
+                        except Exception:
+                            pass
                         try:
                             browser.close()
                         except Exception:

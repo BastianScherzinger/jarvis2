@@ -3,6 +3,7 @@ Prüft ob eine gefundene Website existiert + wie alt sie ist (WHOIS).
 Schnell und ohne externen API-Key.
 """
 import socket
+import threading
 import urllib.request
 import urllib.error
 import re
@@ -42,18 +43,30 @@ def check_website(url: str) -> dict:
     return result
 
 
-def _whois_age(url: str) -> int:
-    """Schätzt Website-Alter via WHOIS creation_date. -1 = unbekannt."""
-    try:
-        import whois as _w  # python-whois
-        domain = re.sub(r"https?://", "", url).split("/")[0].split(":")[0]
-        w = _w.whois(domain)
-        cd = w.creation_date
-        if isinstance(cd, list):
-            cd = cd[0]
-        if cd:
-            delta = datetime.date.today() - cd.date()
-            return max(0, delta.days // 365)
-    except Exception:
-        pass
-    return -1
+def _whois_age(url: str, timeout: float = 5.0) -> int:
+    """Schätzt Website-Alter via WHOIS creation_date. -1 = unbekannt.
+
+    python-whois macht eine WHOIS-Netzabfrage OHNE eigenes Timeout — ein träger WHOIS-Server
+    kann den aufrufenden Worker-Thread beliebig lange einfrieren. Darum läuft die Abfrage in
+    einem Daemon-Thread mit hartem join(timeout): antwortet der Server nicht in `timeout`
+    Sekunden, kehrt der Aufrufer mit -1 zurück (der Daemon läuft im Hintergrund aus)."""
+    result = [-1]
+
+    def _work():
+        try:
+            import whois as _w  # python-whois
+            domain = re.sub(r"https?://", "", url).split("/")[0].split(":")[0]
+            w = _w.whois(domain)
+            cd = w.creation_date
+            if isinstance(cd, list):
+                cd = cd[0]
+            if cd:
+                delta = datetime.date.today() - cd.date()
+                result[0] = max(0, delta.days // 365)
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result[0]

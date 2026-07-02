@@ -208,7 +208,13 @@ def stop() -> None:
     logger.info("Controller", "Stop-Signal gesendet — alle Worker beenden")
     _stop_event.set()
     _active = False
-    _evaluator_started = False
+    # Reset unter demselben Lock, unter dem _spawn_evaluator ihn prüft/setzt (Flag-Race).
+    # Hinweis: das EVENT-Race bleibt bewusst bestehen — ein sofortiges start() cleart
+    # _stop_event, bevor langsame Alt-Threads es gesehen haben. Aufrufer, die stop→start
+    # zyklisch fahren (lead_collector), lassen darum einen Puffer (JARVIS_LEAD_STOP_BUFFER).
+    # Vollständiger Fix (Generationen-Event pro start()) steht im Backlog.
+    with _eval_lock:
+        _evaluator_started = False
 
 
 def _on_lead(lead: dict) -> None:

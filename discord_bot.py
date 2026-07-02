@@ -690,6 +690,29 @@ if _HAS_DISCORD:
         except Exception as ex:
             logger.warn("Discord", f"Announcement fehlgeschlagen: {type(ex).__name__}")
 
+    async def _post_report_embed(title: str, description: str, fields: list, color: int):
+        """Postet einen Embed MIT Feldern (z.B. Top-Lead-Report). Truncation auf die
+        harten Discord-Limits (title 256, description 4096, field-name 256, value 1024,
+        max 25 Felder). Best-effort — wirft nie."""
+        try:
+            cid = _channel_id()
+            ch  = _bot.get_channel(cid) if _bot else None
+            if ch is None and _bot is not None:
+                try:
+                    ch = await _bot.fetch_channel(cid)
+                except Exception:
+                    return
+            if ch is None:
+                return
+            e = discord.Embed(title=(title or "")[:256],
+                              description=(description or "")[:4096], color=color)
+            for nm, val in (fields or [])[:25]:
+                e.add_field(name=(nm or "—")[:256], value=(val or "—")[:1024], inline=False)
+            e.set_footer(text="JARVIS LeadHunter")
+            await ch.send(embed=e)
+        except Exception as ex:
+            logger.warn("Discord", f"Report fehlgeschlagen: {type(ex).__name__}")
+
 
     class _Client(discord.Client):
         def __init__(self):
@@ -883,6 +906,23 @@ def notify(title: str, description: str = "", color: int = 0x00d4ff) -> bool:
         return True
     except Exception as e:
         logger.warn("Discord", f"Notify nicht zustellbar: {type(e).__name__}")
+        return False
+
+
+def post_report(title: str, description: str = "",
+                fields: "list | None" = None, color: int = 0x00d4ff) -> bool:
+    """Postet einen Embed MIT Feldern in den Discord-Kanal (z.B. der stündliche Top-Lead-Report
+    aus lead_collector). `fields` ist eine Liste von (name, value)-Tupeln. Thread-sicher aus
+    jedem Hintergrund-Thread aufrufbar; best-effort — Discord offline => False, wirft nie.
+    Gibt True zurück, wenn die Nachricht eingereiht wurde."""
+    if not enabled() or not _started or _loop is None:
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _post_report_embed(title, description, list(fields or []), color), _loop)
+        return True
+    except Exception as e:
+        logger.warn("Discord", f"Report nicht zustellbar: {type(e).__name__}")
         return False
 
 

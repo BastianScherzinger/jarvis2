@@ -89,7 +89,9 @@ def _candidates() -> list[dict]:
     Archivierte/0-€-Leads werden mitgenommen (sie sind trotzdem echte Standorte)."""
     try:
         import db_evaluated
-        leads = db_evaluated.get_all(limit=5000, sort="erwartungswert")
+        # Schlanke Projektion (nur name/stadt/branche/lead_typ/adresse/erwartungswert) statt
+        # SELECT * über 60+ Spalten bei JEDEM Globus-Poll.
+        leads = db_evaluated.get_for_globe(limit=5000)
     except Exception:
         return []
     out: list[dict] = []
@@ -165,6 +167,7 @@ def _start_fill(missing: list[dict]) -> None:
             _log("info", f"Geocoding: {hits}/{done} Lead-Adressen ergänzt "
                          f"({max(0, len(missing) - done)} noch offen).")
         finally:
-            _busy = False
+            with _lock:                          # _busy wird unter _lock gesetzt → auch hier zurücksetzen
+                _busy = False
 
     threading.Thread(target=_work, name="geocode-fill", daemon=True).start()

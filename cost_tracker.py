@@ -7,6 +7,7 @@ Thread-safe. Jeder track_*()-Aufruf ist fire-and-forget (kein Crash bei Fehler).
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -218,6 +219,70 @@ def today_summary() -> dict:
     with _lock:
         data = _load()
     return _day_entry(data, _today()).get("totals", {})
+
+
+# ── Paid-Modus: bezahlte Extra-Tokens erkennen + Builder-Boost ────────────────
+#
+# Normalfall: der Site-Builder läuft über die Claude-Abo-Anmeldung (claude -p) und lokale
+# Ollama-Modelle — es fallen KEINE Extra-Token-Kosten an. Bezahlte Extra-TOKENS fließen nur:
+# (a) heute wurden echte Anthropic-API-Tokens gebucht (tokens_in/out > 0 — NICHT api_eur,
+#     das auch OpenAI-Hero-Bilder enthält, die das Claude-Session-Limit nicht aufheben), oder
+# (b) mehrere ANTHROPIC-Keys sind konfiguriert — dann laufen die headless-Builder-Läufe über
+#     ANTHROPIC_API_KEY (claude_coder) statt über das Abo = bezahlt pro Token.
+# Ist der Paid-Modus aktiv (JARVIS_PAID_BOOST, Default AN), verdoppelt der Auto-Builder sein
+# Tageslimit: wer pro Token zahlt, hängt nicht am Abo-Session-Limit und kann doppelt bauen.
+
+def paid_tokens_detected() -> dict:
+    """Erkennt, ob aktuell bezahlte Extra-Tokens im Spiel sind.
+    Gibt {"paid": bool, "reason": str, "api_eur_today": float} zurück. Wirft nie."""
+    api_eur, tokens = 0.0, 0
+    try:
+        t = today_summary()
+        api_eur = float(t.get("api_eur", 0.0) or 0.0)
+        tokens  = int(t.get("tokens_in", 0) or 0) + int(t.get("tokens_out", 0) or 0)
+    except Exception:
+        pass
+    if tokens > 0:
+        return {"paid": True,
+                "reason": f"heute {tokens:,} API-Tokens gebucht ({api_eur:.4f} €)",
+                "api_eur_today": api_eur}
+    try:
+        import claude_keys
+        n = claude_keys.count()
+        if n > 1:
+            return {"paid": True,
+                    "reason": f"{n} ANTHROPIC-Keys — Builder läuft "
+                              "über API-Key (bezahlt pro Token)",
+                    "api_eur_today": api_eur}
+    except Exception:
+        pass
+    return {"paid": False, "reason": "nur Abo/lokal — keine Extra-Token-Kosten",
+            "api_eur_today": api_eur}
+
+
+# 60s-TTL-Cache: paid_boost_active() sitzt in Hot-Paths (auto_builder-Loop, Status-Poll des
+# Dashboards alle paar Sekunden) — ohne Cache würde JEDER Aufruf die komplette, wachsende
+# data/costs.json unter _lock lesen und parsen. (TTL-Muster wie _BEST_MODEL in scrapers/_http.)
+_PAID_CACHE: list = [None, 0.0]   # [bool, cache_ts]
+_PAID_CACHE_TTL = 60
+
+
+def paid_boost_active() -> bool:
+    """True, wenn bezahlte Tokens erkannt wurden UND der Boost eingeschaltet ist
+    (JARVIS_PAID_BOOST, Default AN; aus mit 0/false/no/off). Ergebnis 60s gecacht. Wirft nie."""
+    flag = os.environ.get("JARVIS_PAID_BOOST", "1").strip().lower() \
+        not in ("0", "false", "no", "off", "")
+    if not flag:
+        return False
+    if _PAID_CACHE[0] is not None and time.time() - _PAID_CACHE[1] < _PAID_CACHE_TTL:
+        return _PAID_CACHE[0]
+    try:
+        val = bool(paid_tokens_detected().get("paid"))
+    except Exception:
+        val = False
+    _PAID_CACHE[0] = val
+    _PAID_CACHE[1] = time.time()
+    return val
 
 
 def history(days: int = 14) -> list:

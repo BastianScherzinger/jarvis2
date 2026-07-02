@@ -649,7 +649,11 @@ def test_auto_builder_deep_step_off(monkeypatch):
 def test_auto_builder_daily_log(tmp_path, monkeypatch):
     import auto_builder
     import db_websites
+    import cost_tracker
     monkeypatch.setattr(auto_builder, "_LOG_PATH", tmp_path / "daily_builds.json")
+    # Paid-Boost deterministisch AUS — sonst hinge der Assert unten an der echten
+    # data/costs.json bzw. den konfigurierten ANTHROPIC-Keys der Maschine.
+    monkeypatch.setattr(cost_tracker, "paid_boost_active", lambda: False)
     assert auto_builder._count_today() == 0
     fa = tmp_path / "web_foo"; fa.mkdir()
     fb = tmp_path / "web_bar"; fb.mkdir()
@@ -905,9 +909,12 @@ def test_auto_builder_pick_next_lead(monkeypatch):
     ]
     monkeypatch.setattr(db_evaluated, "get_all", lambda **k: leads)
     monkeypatch.setattr(db_websites, "get_all", lambda: [])
+    monkeypatch.setattr(db_websites, "has_site_key", lambda sk: False)
     # Lead MIT Website wird übersprungen → der ohne Website wird gewählt
     assert auto_builder._pick_next_lead()["name"] == "OhneWeb GmbH"
     # schon gebaut (site_key in db_websites) → übersprungen → None
+    built = {lead_key("OhneWeb GmbH", "Köln")}
+    monkeypatch.setattr(db_websites, "has_site_key", lambda sk: sk in built)
     monkeypatch.setattr(db_websites, "get_all",
                         lambda: [{"site_key": lead_key("OhneWeb GmbH", "Köln")}])
     assert auto_builder._pick_next_lead() is None
@@ -1256,3 +1263,198 @@ def test_vorlage_hero_rechner_und_headline_links():
     assert (base / "static" / "js" / "kostenrechner.js").is_file()
     css = (base / "static" / "css" / "style.css").read_text(encoding="utf-8")
     assert ".hero h1{" in css and "text-align:left" in css   # Headline linksbündig, nicht zentriert
+
+
+# ── Stündlicher Lead-Sammler (lead_collector.py) ──────────────────────────────
+def test_lead_collector_enabled_flag(monkeypatch):
+    import lead_collector as lc
+    monkeypatch.setenv("JARVIS_LEAD_COLLECTOR", "0")
+    assert lc.enabled() is False
+    monkeypatch.setenv("JARVIS_LEAD_COLLECTOR", "off")
+    assert lc.enabled() is False
+    monkeypatch.setenv("JARVIS_LEAD_COLLECTOR", "1")
+    assert lc.enabled() is True
+    monkeypatch.delenv("JARVIS_LEAD_COLLECTOR", raising=False)
+    assert lc.enabled() is True                       # Default AN
+
+
+def test_lead_collector_latch(tmp_path, monkeypatch):
+    import lead_collector as lc
+    monkeypatch.setattr(lc, "_LATCH", tmp_path / "lead_state.json")
+    monkeypatch.setenv("JARVIS_LEAD_INTERVAL", "3600")
+    assert lc._due() is True                          # nie gelaufen → sofort fällig
+    lc._mark_ran()
+    assert lc._due() is False                         # gerade gelaufen → nicht fällig
+    # Intervall-Grenze: last_run künstlich in die Vergangenheit schieben
+    import json as _j, time as _t
+    (tmp_path / "lead_state.json").write_text(
+        _j.dumps({"last_run": _t.time() - 4000}), encoding="utf-8")
+    assert lc._due() is True                          # 4000s > 3600s → wieder fällig
+
+
+def test_lead_collector_report_format():
+    import lead_collector as lc
+    top = [
+        {"name": "Alpha Dach GmbH", "score": 91, "stadt": "Ulm", "bundesland": "BW",
+         "branche": "Dachdecker", "lead_typ": "Hot", "sicherheit": 80,
+         "erwartungswert_euro": 550, "telefon": "0731 1", "email_adresse": "a@b.de",
+         "ansprechpartner": "Herr Alpha", "pitch_hook": "Keine Website, viele Bewertungen."},
+        {"name": "Beta", "score": 70},                # minimal — leere Felder weglassen
+    ]
+    title, desc, fields = lc._build_report(5, top)
+    assert "5" in title and len(fields) == 2
+    assert fields[0][0].startswith("#1 · Alpha Dach GmbH")
+    assert "📞 0731 1" in fields[0][1] and "💶 550 €" in fields[0][1]
+    assert all(len(v) <= 1024 for _, v in fields)     # Discord-Feld-Limit
+    # Lead ohne Details → keine leeren Zeilen, aber gültiger Wert
+    assert fields[1][1] == "—" or "📍" not in fields[1][1]
+    # 0 neue Leads → klarer Text, keine Felder
+    t0, d0, f0 = lc._build_report(0, [])
+    assert "0" in t0 and "Keine neuen" in d0 and f0 == []
+
+
+def _lc_stub_env(monkeypatch, running: bool):
+    """Stubbt controller/db/discord für _run_once-Tests (kein Netzwerk, kein Warten)."""
+    import lead_collector as lc
+    import types, threading
+    calls = {"start": 0, "stop": 0, "report": [], "count_arg": None}
+    ev = threading.Event()
+    ev.set()                                          # .wait() kehrt sofort zurück
+    ctrl = types.SimpleNamespace(
+        is_running=lambda: running,
+        start=lambda: calls.__setitem__("start", calls["start"] + 1),
+        stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
+        _stop_event=ev)
+    dbe = types.SimpleNamespace(
+        max_id=lambda: 42,
+        count_since=lambda mid: (calls.__setitem__("count_arg", mid), 7)[1],
+        get_top=lambda n: [{"name": "X", "score": 50}])
+    disc = types.SimpleNamespace(
+        post_report=lambda *a, **k: calls["report"].append(a) or True)
+    import sys
+    monkeypatch.setitem(sys.modules, "scrapers.controller", ctrl)
+    # WICHTIG: `import scrapers.controller as controller` löst über das PACKAGE-ATTRIBUT auf,
+    # wenn das echte Modul schon importiert wurde (voller Suite-Lauf) — sonst startet der
+    # Test den ECHTEN Scraper und wartet echte 600s. Darum beide Wege stubben.
+    import scrapers
+    monkeypatch.setattr(scrapers, "controller", ctrl, raising=False)
+    monkeypatch.setitem(sys.modules, "db_evaluated", dbe)
+    monkeypatch.setitem(sys.modules, "discord_bot", disc)
+    return lc, calls
+
+
+def test_lead_collector_run_once_self_managed(monkeypatch):
+    # Sammler war AUS → Scheduler startet, sammelt, stoppt und meldet.
+    lc, calls = _lc_stub_env(monkeypatch, running=False)
+    lc._run_once()
+    assert calls["start"] == 1 and calls["stop"] == 1
+    assert calls["count_arg"] == 42                   # Snapshot aus max_id()
+    assert len(calls["report"]) == 1
+    assert "7" in calls["report"][0][0]               # new_count im Titel
+
+
+def test_lead_collector_run_once_respects_manual(monkeypatch):
+    # Sammler lief MANUELL → Scheduler darf weder starten noch stoppen, meldet aber.
+    lc, calls = _lc_stub_env(monkeypatch, running=True)
+    lc._run_once()
+    assert calls["start"] == 0 and calls["stop"] == 0
+    assert len(calls["report"]) == 1
+
+
+# ── db_evaluated: schlanke Zähl-/Globus-Helfer ────────────────────────────────
+def test_db_evaluated_max_id_und_count_since(tmp_path, monkeypatch):
+    import db_evaluated
+    monkeypatch.setattr(db_evaluated, "DB_PATH", tmp_path / "ev.db")
+    db_evaluated.init_db()
+    assert db_evaluated.max_id() == 0                 # leere Tabelle
+    db_evaluated.insert_evaluated({"name": "A", "stadt": "Ulm", "lead_key": "k-a"})
+    db_evaluated.insert_evaluated({"name": "B", "stadt": "Ulm", "lead_key": "k-b"})
+    snap = db_evaluated.max_id()
+    assert snap >= 2 and db_evaluated.count_since(snap) == 0
+    db_evaluated.insert_evaluated({"name": "C", "stadt": "Ulm", "lead_key": "k-c"})
+    assert db_evaluated.count_since(snap) == 1        # genau der neue Lead
+
+
+def test_db_evaluated_get_for_globe(tmp_path, monkeypatch):
+    import db_evaluated
+    monkeypatch.setattr(db_evaluated, "DB_PATH", tmp_path / "ev.db")
+    db_evaluated.init_db()
+    db_evaluated.insert_evaluated({"name": "MitStadt", "stadt": "Ulm", "lead_key": "k1",
+                                   "erwartungswert_euro": 500, "lead_typ": "Hot"})
+    db_evaluated.insert_evaluated({"name": "OhneStadt", "stadt": "", "lead_key": "k2"})
+    rows = db_evaluated.get_for_globe()
+    assert len(rows) == 1 and rows[0]["name"] == "MitStadt"
+    assert set(rows[0].keys()) == {"name", "stadt", "branche", "lead_typ",
+                                   "adresse", "erwartungswert_euro"}
+
+
+def test_db_websites_has_site_key(tmp_path, monkeypatch):
+    import db_websites
+    from pathlib import Path
+    monkeypatch.setattr(db_websites, "DB_PATH", Path(tmp_path) / "websites.db")
+    assert db_websites.has_site_key("") is False
+    assert db_websites.has_site_key("nix-da") is False    # ohne Tabelle → False, kein Crash
+    db_websites.init_db()
+    jid = "job-test-1"
+    db_websites.create(jid, "Test GmbH", "Ulm", "Dachdecker")   # setzt site_key automatisch
+    row = db_websites.get_by_job(jid)
+    assert row and row.get("site_key")
+    assert db_websites.has_site_key(row["site_key"]) is True
+
+
+# ── Paid-Boost: bezahlte Extra-Tokens erkennen → doppeltes Bau-Limit ──────────
+def test_paid_tokens_detected_und_boost(tmp_path, monkeypatch):
+    import cost_tracker as ct
+    import claude_keys
+    monkeypatch.setattr(ct, "_DB_PATH", tmp_path / "costs.json")
+    monkeypatch.setattr(claude_keys, "count", lambda: 1)
+    monkeypatch.setattr(ct, "_PAID_CACHE", [None, 0.0])   # TTL-Cache isolieren
+    monkeypatch.setenv("JARVIS_PAID_BOOST", "1")
+    # Keine Kosten + 1 Key → kein Paid-Modus
+    d = ct.paid_tokens_detected()
+    assert d["paid"] is False and ct.paid_boost_active() is False
+    # OpenAI-Bild bucht zwar api_eur, aber KEINE Tokens → kein Boost (das Claude-
+    # Session-Limit bleibt der Engpass, Hero-Bilder heben es nicht auf).
+    ct.track_openai_image("medium", task="image_gen")
+    assert ct.paid_tokens_detected()["paid"] is False
+    # Echte API-TOKENS gebucht → Paid-Modus erkannt
+    ct.track_api("claude-sonnet-5", 1000, 500, task="test")
+    d = ct.paid_tokens_detected()
+    assert d["paid"] is True and d["api_eur_today"] > 0
+    monkeypatch.setattr(ct, "_PAID_CACHE", [None, 0.0])   # Cache invalidieren → neu erkennen
+    assert ct.paid_boost_active() is True
+    # Schalter aus → kein Boost trotz Kosten
+    monkeypatch.setenv("JARVIS_PAID_BOOST", "0")
+    assert ct.paid_boost_active() is False
+
+
+def test_paid_boost_mehrere_keys(tmp_path, monkeypatch):
+    import cost_tracker as ct
+    import claude_keys
+    monkeypatch.setattr(ct, "_DB_PATH", tmp_path / "costs.json")
+    monkeypatch.setenv("JARVIS_PAID_BOOST", "1")
+    monkeypatch.setattr(claude_keys, "count", lambda: 3)   # 3 Keys → API-Key-Modus
+    d = ct.paid_tokens_detected()
+    assert d["paid"] is True and "Keys" in d["reason"]
+
+
+def test_auto_builder_daily_limit_boost(monkeypatch):
+    import auto_builder as ab
+    import cost_tracker as ct
+    monkeypatch.setattr(ab, "_boost_logged", [True])   # Log-Latch neutralisieren
+    monkeypatch.setattr(ct, "paid_boost_active", lambda: False)
+    base = ab._DAILY_LIMIT
+    assert ab._daily_limit() == base                   # ohne Paid-Modus: Basis-Limit
+    monkeypatch.setattr(ct, "paid_boost_active", lambda: True)
+    assert ab._daily_limit() == base * 2               # Paid-Boost: doppelt
+    st = ab.status()
+    assert st["daily_limit"] == base * 2 and st["paid_boost"] is True
+
+
+# ── ask_ollama: Fehler loggen statt still verschlucken ────────────────────────
+def test_ask_ollama_unerwarteter_fehler_gibt_leer(monkeypatch):
+    from scrapers import _http
+    def _boom(*a, **k):
+        raise ValueError("kaputtes JSON")
+    monkeypatch.setattr(_http.urllib.request, "urlopen", _boom)
+    assert _http.ask_ollama("test", model="x") == ""   # kein Crash, leerer Fallback

@@ -29,6 +29,28 @@ _BASE     = Path(__file__).parent
 _LOG_PATH = _BASE / "data" / "daily_builds.json"
 
 _DAILY_LIMIT   = int(os.environ.get("JARVIS_DAILY_SITES", "5") or "5")
+
+# Paid-Boost: erkennt cost_tracker bezahlte Extra-Tokens (API-Kosten heute > 0 ODER mehrere
+# ANTHROPIC-Keys → headless-Läufe über API-Key), verdoppelt sich das Tageslimit — wer pro
+# Token zahlt, hängt nicht am Abo-Session-Limit. Abschaltbar mit JARVIS_PAID_BOOST=0.
+_boost_logged = [False]
+
+
+def _daily_limit() -> int:
+    """Effektives Tageslimit je Session: _DAILY_LIMIT, ×2 im Paid-Boost-Modus."""
+    try:
+        import cost_tracker as _ct
+        if _ct.paid_boost_active():
+            if not _boost_logged[0]:
+                _boost_logged[0] = True
+                info = _ct.paid_tokens_detected()
+                logger.info("AutoBuilder",
+                            f"💳 Paid-Boost aktiv ({info.get('reason', '?')}) — "
+                            f"Tageslimit verdoppelt: {_DAILY_LIMIT} → {_DAILY_LIMIT * 2}")
+            return _DAILY_LIMIT * 2
+    except Exception:
+        pass
+    return _DAILY_LIMIT
 _IMPROVE_UNTIL = int(os.environ.get("JARVIS_IMPROVE_UNTIL_HOUR", "10") or "10")  # bis 10:00 verbessern
 # N× täglich bauen (Default 3 Sessions × _DAILY_LIMIT = 15 Seiten/Tag). Jede Session hat ihr
 # eigenes Tageslimit; nach Ablauf des Session-Fensters startet die nächste Runde mit frischen 5.
@@ -105,6 +127,8 @@ def status() -> dict:
     with _lock:
         s = dict(_state)
     s["today_count"] = _count_today()
+    s["daily_limit"] = _daily_limit()          # effektiv (Paid-Boost: ×2)
+    s["paid_boost"]  = s["daily_limit"] > _DAILY_LIMIT
     return s
 
 
@@ -138,7 +162,7 @@ def start(_resume: bool = False) -> dict:
         _nstages = 3
     logger.info("AutoBuilder",
                 ("fortgesetzt" if _resume else "gestartet")
-                + f" — {_SESSIONS_PER_DAY}×{_DAILY_LIMIT} = {_SESSIONS_PER_DAY * _DAILY_LIMIT} "
+                + f" — {_SESSIONS_PER_DAY}×{_daily_limit()} = {_SESSIONS_PER_DAY * _daily_limit()} "
                 + f"Seiten/Tag (Sessions {_session_hours()}), Makeover {_nstages} Stufen/Seite, "
                 + f"lokale Parallelität {local_concurrency()}")
     return {"ok": True}
@@ -320,11 +344,11 @@ def scaling_info() -> dict:
     conc = _LOCAL_CONCURRENCY or rec_conc
     return {
         "tier": tier, "ram_gb": round(ram, 1),
-        "active": {"daily_sites": _DAILY_LIMIT, "sessions_per_day": _SESSIONS_PER_DAY,
+        "active": {"daily_sites": _daily_limit(), "sessions_per_day": _SESSIONS_PER_DAY,
                    "session_hours": _session_hours(), "local_concurrency": conc},
         "recommended": {"daily_sites": rec_sites, "sessions_per_day": rec_sessions,
                         "local_concurrency": rec_conc},
-        "max_per_day_active": _DAILY_LIMIT * _SESSIONS_PER_DAY,
+        "max_per_day_active": _daily_limit() * _SESSIONS_PER_DAY,
     }
 
 
@@ -350,7 +374,7 @@ def daily_log(days: int = 14) -> dict:
         date_k = k.split("_", 1)[0]
         grouped[date_k].extend(entries)
     tage = sorted(grouped.keys(), reverse=True)[:max(1, days)]
-    return {"today": _today(), "daily_limit": _DAILY_LIMIT,
+    return {"today": _today(), "daily_limit": _daily_limit(),
             "sessions_per_day": _SESSIONS_PER_DAY, "session_hours": _session_hours(),
             "pm_start_hour": _PM_START,
             "days": [{"date": t, "sites": grouped[t]} for t in tage]}
@@ -847,7 +871,7 @@ def _build_and_email(lead: dict) -> None:
         duplicate_guard.mark_archived(lead, reason)
         return
 
-    _set(mode="build", current=name, phase=f"Baue Webseite ({_count_today()+1}/{_DAILY_LIMIT})…")
+    _set(mode="build", current=name, phase=f"Baue Webseite ({_count_today()+1}/{_daily_limit()})…")
     logger.info("AutoBuilder", f"Baue Webseite für {name}")
     # deploy=False: erst lokal komplett bauen, der Makeover deployt am Ende EINMAL (verifiziert)
     # → nur ein Railway-Build, keine 404-Phasen durch mehrfaches Deployen.
@@ -1305,7 +1329,7 @@ def _loop() -> None:
                 else:
                     sess_label = cur_session.split("_")[-1].upper()
                     logger.info("AutoBuilder",
-                                f"Neue Bau-Session ({sess_label}) — {_DAILY_LIMIT} Seiten")
+                                f"Neue Bau-Session ({sess_label}) — {_daily_limit()} Seiten")
         if neuer_tag:                                # einmal je Tag: alte Demos abbauen (best-effort)
             try:
                 teardown_stale_demos()
@@ -1320,8 +1344,8 @@ def _loop() -> None:
             _idle_sleep(3)
             continue
 
-        # ── Phase 1: bis Tageslimit neue Seiten bauen ────────────────────────
-        if _count_today() < _DAILY_LIMIT:
+        # ── Phase 1: bis Tageslimit neue Seiten bauen (Paid-Boost: ×2) ───────
+        if _count_today() < _daily_limit():
             lead = _pick_next_lead()
             if lead:
                 try:
@@ -1350,6 +1374,6 @@ def _loop() -> None:
         _farewell_if_done()
         done_note = "✓ alle Seiten auf 7/7 — fertig." if _all_sites_complete() else "Warte auf 0 Uhr…"
         _set(mode="idle",
-             phase=f"Pause — heute {_count_today()}/{_DAILY_LIMIT} gebaut. {done_note}",
+             phase=f"Pause — heute {_count_today()}/{_daily_limit()} gebaut. {done_note}",
              current="")
         _idle_sleep(120)

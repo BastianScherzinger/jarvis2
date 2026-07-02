@@ -110,9 +110,12 @@ def _run_one_combo(region, branche, on_lead, stop_event, ask, finder_key, max_pe
             )
 
             raw  = ask(extract_prompt) if ask else ""
-            data = _extract_json(raw)
             if not raw:
-                logger.warn("AI-Worker", "Ollama nicht erreichbar — Fallback")
+                # Ollama leer/nicht erreichbar → NICHT den Suchergebnis-Titel als Firmennamen
+                # raten (das erzeugte bisher Pseudo-Leads). Treffer überspringen.
+                logger.warn("AI-Worker", "Ollama leer/nicht erreichbar — Treffer übersprungen")
+                continue
+            data = _extract_json(raw)
 
             name = str(data.get("name") or title or "")[:120]
             if not name or len(name.strip()) < 3:

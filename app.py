@@ -150,6 +150,17 @@ def _start_discord():
 _startup_t.Thread(target=_start_discord, daemon=True).start()
 
 
+# Stündlicher Lead-Sammler (10 Min sammeln → Discord-Top-3-Report) — nur wenn aktiviert.
+def _start_lead_collector():
+    try:
+        import lead_collector
+        if lead_collector.enabled():
+            lead_collector.start()
+    except Exception:
+        pass
+_startup_t.Thread(target=_start_lead_collector, daemon=True).start()
+
+
 # ── Startup-Aufräumen + Auto-Builder Resume ──────────────────────────────────
 def _startup_cleanup():
     """Beim App-Start: hängende 'running'-Seiten korrigieren und Night-Builder fortsetzen."""
@@ -258,6 +269,13 @@ def favicon():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
+    # Manuellen Start an den stündlichen Lead-Sammler melden: fällt er in dessen laufendes
+    # 10-Min-Fenster, stoppt der Scheduler den vom Nutzer gewollten Dauerlauf NICHT weg.
+    try:
+        import lead_collector
+        lead_collector.note_manual_start()
+    except Exception:
+        pass
     if not controller.is_running():
         controller.start()
         return jsonify({"ok": True})

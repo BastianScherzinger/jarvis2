@@ -176,6 +176,25 @@ def get_top(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def max_id() -> int:
+    """Höchste vergebene id (0 bei leerer Tabelle) — Snapshot vor einem Sammel-Lauf,
+    um danach mit count_since() die neu bewerteten Leads zu zählen."""
+    with _lock, _conn() as c:
+        r = c.execute("SELECT COALESCE(MAX(id), 0) FROM evaluated_leads").fetchone()
+    return int(r[0] or 0)
+
+
+def count_since(min_id: int) -> int:
+    """Schlanke Zählung neu bewerteter Leads seit einem id-Snapshot (ein COUNT(*)-Query,
+    statt der teuren get_stats-Runde). Kante: insert_evaluated nutzt INSERT OR REPLACE —
+    eine RE-Bewertung derselben Firma bekommt eine neue id und zählt hier mit (selten,
+    db_raw dedupliziert; die Zahl ist dann minimal zu hoch)."""
+    with _lock, _conn() as c:
+        r = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE id > ?",
+                      (int(min_id),)).fetchone()
+    return int(r[0] or 0)
+
+
 _SORT_CLAUSES = {
     "score":         "score DESC",
     "sicherheit":    "sicherheit DESC, score DESC",
@@ -447,6 +466,20 @@ def get_for_graph(limit: int = 2000, offset: int = 0, min_id: int = 0) -> list[d
                 "ORDER BY score DESC LIMIT ?",
                 (limit,),
             ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_for_globe(limit: int = 5000) -> list[dict]:
+    """Schlanke Projektion für den adressgenauen Globus (geo_cache): nur die tatsächlich
+    gebrauchten Spalten statt SELECT * über 60+ Felder inkl. JSON-Dekodierung. Nach
+    Erwartungswert absteigend, nur Leads mit Stadt."""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT name, stadt, branche, lead_typ, adresse, erwartungswert_euro "
+            "FROM evaluated_leads WHERE TRIM(COALESCE(stadt,'')) <> '' "
+            "ORDER BY erwartungswert_euro DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 

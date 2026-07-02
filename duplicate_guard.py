@@ -38,8 +38,8 @@ def _check_db(lead: dict) -> tuple[bool, str]:
         sk = _lk((lead.get("name") or "").strip(), lead.get("stadt", ""))
         if not sk:
             return False, ""
-        built = {w.get("site_key") for w in db_websites.get_all() if w.get("site_key")}
-        if sk in built:
+        # Gezielter Existenz-Check statt Full-Table-Scan (get_all) je Lead.
+        if db_websites.has_site_key(sk):
             return True, f"site_key '{sk}' bereits in db_websites"
     except Exception:
         pass

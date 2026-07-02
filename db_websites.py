@@ -283,6 +283,20 @@ def get_by_site_key(sk: str) -> "dict | None":
     return _row_to_dict(row) if row else None
 
 
+def has_site_key(sk: str) -> bool:
+    """Schlanker Existenz-Check (SELECT 1) für den Duplikat-Guard — vermeidet den
+    Full-Table-Scan via get_all() bei JEDEM Lead. Best-effort: fehlt die Tabelle
+    (frische Installation, init_db noch nicht gelaufen) → False statt Crash."""
+    if not sk:
+        return False
+    try:
+        with _lock, _conn() as c:
+            row = c.execute("SELECT 1 FROM websites WHERE site_key=? LIMIT 1", (sk,)).fetchone()
+        return row is not None
+    except sqlite3.OperationalError:
+        return False
+
+
 def delete(wid: int) -> bool:
     """Entfernt eine Webseiten-Zeile. Gibt True, wenn etwas gelöscht wurde."""
     with _lock, _conn() as c:

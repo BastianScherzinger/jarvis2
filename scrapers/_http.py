@@ -6,11 +6,14 @@ warmup_ollama, UA.
 import json
 import os
 import re
+import socket
 import threading
 import time
 import urllib.request
 import urllib.parse
 import urllib.error
+
+import logger
 
 def _int_env(name: str, default: int) -> int:
     """Robuste int-Env (nicht-numerischer Wert darf den Start NICHT crashen)."""
@@ -18,6 +21,11 @@ def _int_env(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)) or default)
     except (ValueError, TypeError):
         return default
+
+
+# Ergebnis der EINEN nvidia-smi-Abfrage beim Import: hat das System eine GPU?
+# Wird von _num_gpu wiederverwendet → keine zweite nvidia-smi-Abfrage nötig.
+_GPU_HINT: list = [None]   # None = unbekannt, True/False = erkannt
 
 
 def _detect_gpu_parallel() -> int:
@@ -35,11 +43,13 @@ def _detect_gpu_parallel() -> int:
         r = subprocess.run(["nvidia-smi", "--query-gpu=memory.total",
                             "--format=csv,noheader,nounits"],
                            capture_output=True, text=True, timeout=4)
-        if r.returncode == 0 and r.stdout.strip():
+        has_gpu = r.returncode == 0 and bool(r.stdout.strip())
+        _GPU_HINT[0] = has_gpu                 # für _num_gpu mitverwenden (1× nvidia-smi)
+        if has_gpu:
             vram_mb = float(r.stdout.strip().splitlines()[0])
             return 4 if vram_mb >= 6000 else 2
     except Exception:
-        pass
+        _GPU_HINT[0] = False
     return 2
 
 
@@ -59,6 +69,10 @@ def _num_gpu() -> int:
             return int(env_val)
         except (ValueError, TypeError):
             pass
+    # GPU-Erkennung aus _detect_gpu_parallel wiederverwenden (dieselbe nvidia-smi-Info) —
+    # so braucht der Modul-Import nur EINE nvidia-smi-Abfrage statt zwei.
+    if _GPU_HINT[0] is not None:
+        return -1 if _GPU_HINT[0] else 0
     try:
         import subprocess
         r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3)
@@ -66,7 +80,16 @@ def _num_gpu() -> int:
     except Exception:
         return 0
 
-_NUM_GPU = _num_gpu()
+# Lazy + gecacht: kein zweiter nvidia-smi-Aufruf beim Modul-Import; der Wert wird beim
+# ersten Ollama-Call aus dem _GPU_HINT (bzw. Env) abgeleitet und gecacht.
+_NUM_GPU_CACHE: list = [None]
+
+
+def _num_gpu_cached() -> int:
+    if _NUM_GPU_CACHE[0] is None:
+        _NUM_GPU_CACHE[0] = _num_gpu()
+    return _NUM_GPU_CACHE[0]
+
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -194,8 +217,8 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
         "temperature": 0.1,
         "num_predict": 768,
         # num_gpu: -1 = GPU auto (alle Layer), 0 = CPU-only.
-        # Wird einmalig beim Modulstart erkannt (_NUM_GPU) und hier gesetzt.
-        "num_gpu": _NUM_GPU,
+        # Lazy beim ersten Call erkannt + gecacht (kein nvidia-smi beim Import).
+        "num_gpu": _num_gpu_cached(),
     }
     payload = json.dumps({
         "model": model,
@@ -210,18 +233,41 @@ def ask_ollama(prompt: str, system: str = "", model: str = "",
     req = urllib.request.Request(
         _OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"}
     )
-    with _OLLAMA_SEM:
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return json.loads(r.read())["message"]["content"]
-        except urllib.error.URLError:
-            return ""   # Ollama nicht erreichbar — kein Fehler-Spam
-        except Exception:
-            return ""   # Timeout o.ä. — Aufrufer nutzt Fallback
+    # Bis zu 2 Versuche: bei einem TIMEOUT (Modell schwitzt evtl. am Limit) einmal kurz
+    # nachfassen, bevor auf die Heuristik zurückgefallen wird. Bei „nicht erreichbar"
+    # (Connection refused, Ollama aus) KEIN Retry und kein Spam. Unerwartete Fehler
+    # (JSON-/KeyError) werden EINMAL geloggt statt still verschluckt.
+    # Der Backoff läuft AUSSERHALB des Semaphors — der Slot wird zwischen den Versuchen
+    # freigegeben, damit andere Threads nicht hinter einem schlafenden Retry warten.
+    for _attempt in range(2):
+        retry = False
+        with _OLLAMA_SEM:
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return json.loads(r.read())["message"]["content"]
+            except urllib.error.URLError as e:
+                if _attempt == 0 and isinstance(getattr(e, "reason", None),
+                                                (TimeoutError, socket.timeout)):
+                    retry = True                   # Connect-Timeout → einmal retryen
+                else:
+                    return ""                      # nicht erreichbar/refused → Fallback
+            except (TimeoutError, socket.timeout):
+                if _attempt == 0:
+                    retry = True                   # Read-Timeout → einmal retryen
+                else:
+                    return ""
+            except Exception as e:
+                logger.warn("Ollama", f"ask_ollama unerwartet: {type(e).__name__}")
+                return ""
+        if not retry:
+            return ""
+        time.sleep(0.8)                            # Backoff ohne belegten Semaphor-Slot
+    return ""
 
 
 _BEST_MODEL: list = [None, 0.0]   # [model_name, cache_ts]
 _BEST_MODEL_TTL = 600             # Cache 10 Min gültig (Modelle können zur Laufzeit installiert werden)
+_BEST_MODEL_LOCK = threading.Lock()   # schützt den Cache gegen parallele Evaluator-Threads
 
 
 def best_chat_model() -> str:
@@ -234,8 +280,9 @@ def best_chat_model() -> str:
       3. größtes installiertes Nicht-Coder-Modell, das in den Speicher passt.
     Code-Modelle (qwen2.5-coder) werden gemieden (halluzinieren). Ergebnis 10 Min gecacht.
     """
-    if _BEST_MODEL[0] and time.time() - _BEST_MODEL[1] < _BEST_MODEL_TTL:
-        return _BEST_MODEL[0]
+    with _BEST_MODEL_LOCK:
+        if _BEST_MODEL[0] and time.time() - _BEST_MODEL[1] < _BEST_MODEL_TTL:
+            return _BEST_MODEL[0]
 
     models  = ollama_models()
     by_name = {m["name"]: m.get("size_gb", 0) for m in models}
@@ -270,8 +317,9 @@ def best_chat_model() -> str:
         else:
             chosen = env or rec or os.environ.get("JARVIS_LOCAL_MODEL", "qwen2.5:7b")
 
-    _BEST_MODEL[0] = chosen
-    _BEST_MODEL[1] = time.time()
+    with _BEST_MODEL_LOCK:
+        _BEST_MODEL[0] = chosen
+        _BEST_MODEL[1] = time.time()
     return chosen
 
 
