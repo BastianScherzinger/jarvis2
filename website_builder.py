@@ -1280,6 +1280,23 @@ def migrate_legacy_website_folders() -> dict:
     if moved and _lg:
         _lg.success("Webseite",
                     f"{len(moved)} Alt-Ordner vom Desktop nach jarvis_websites/ umgezogen.")
+
+    # Aufräum-Sweep: _migriert_rest_*-Ordner aus früheren Läufen (vor dem _clear_readonly-Fix,
+    # 02.07.2026, achter Durchlauf) sind garantiert redundant — sie entstehen nur NACHDEM die
+    # Kopie schon vollständig nach jarvis_websites/ fertig war. Jetzt, wo rmtree read-only
+    # Git-Objekte vorher entsperrt, lassen sie sich einfach nachträglich entfernen, statt für
+    # immer als Datenmüll auf dem Desktop liegenzubleiben.
+    for rest in sorted(_SHOP_BASE.glob("_migriert_rest_*")):
+        if not rest.is_dir():
+            continue
+        try:
+            _clear_readonly(str(rest))
+            shutil.rmtree(str(rest), ignore_errors=True)
+            if not rest.exists() and _lg:
+                _lg.info("Webseite", f"Alter Rest-Ordner '{rest.name}' nachträglich entfernt "
+                                     f"(Inhalt war schon vollständig in jarvis_websites/).")
+        except Exception:
+            pass
     return {"moved": moved, "errors": errors}
 
 

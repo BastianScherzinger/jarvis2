@@ -463,9 +463,12 @@ def test_migrate_legacy_folders_git_only_wird_trotzdem_umgezogen_bei_reparatur_f
 
 def test_migrate_legacy_folders_move_ueberlebt_gesperrte_datei(tmp_path, monkeypatch):
     # shutil.move() wird bewusst NICHT mehr benutzt: erst vollständig kopieren, dann erst
-    # das Original entfernen. Bleibt dabei eine gesperrte Datei übrig, wird der Rest
-    # umbenannt (PRÄFIX, nicht web_*) statt liegenzubleiben -- sonst würde der nächste
-    # Lauf ihn erneut als web_*-Kandidat aufgreifen und die Kopie endlos duplizieren.
+    # das Original entfernen. Bleibt dabei eine gesperrte Datei übrig (rmtree wirkt trotz
+    # _clear_readonly nie -- z.B. eine ECHTE Datei-Sperre durch einen anderen Prozess,
+    # nicht read-only-Attribute), wird der Rest umbenannt (PRÄFIX, nicht web_*) statt
+    # liegenzubleiben -- sonst würde der nächste Lauf ihn erneut als web_*-Kandidat
+    # aufgreifen und die Kopie endlos duplizieren. Löst sich die Sperre später, räumt der
+    # Aufräum-Sweep am Ende der Funktion den Rest von selbst weg.
     import website_builder
     monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
     legacy = tmp_path / "web_gesperrt"
@@ -473,13 +476,7 @@ def test_migrate_legacy_folders_move_ueberlebt_gesperrte_datei(tmp_path, monkeyp
     (legacy / "content.json").write_text('{"site_name": "Gesperrt"}', encoding="utf-8")
 
     orig_rmtree = website_builder.shutil.rmtree
-
-    def fake_rmtree(path, *a, **k):
-        if str(path) == str(legacy):
-            return          # simuliert: eine Datei war gesperrt, Original bleibt liegen
-        return orig_rmtree(path, *a, **k)
-
-    monkeypatch.setattr(website_builder.shutil, "rmtree", fake_rmtree)
+    monkeypatch.setattr(website_builder.shutil, "rmtree", lambda *a, **k: None)  # Sperre haelt komplett
 
     res = website_builder.migrate_legacy_website_folders()
     assert len(res["moved"]) == 1 and res["errors"] == []
@@ -492,8 +489,13 @@ def test_migrate_legacy_folders_move_ueberlebt_gesperrte_datei(tmp_path, monkeyp
     leftover = tmp_path / "_migriert_rest_web_gesperrt"
     assert leftover.is_dir() and (leftover / "content.json").exists()
 
-    res2 = website_builder.migrate_legacy_website_folders()           # Rest wird nie wieder aufgegriffen
+    res2 = website_builder.migrate_legacy_website_folders()           # web_* wird nie wieder aufgegriffen
     assert res2["moved"] == []
+    assert leftover.is_dir()                                          # Sperre haelt noch an -> bleibt liegen
+
+    monkeypatch.setattr(website_builder.shutil, "rmtree", orig_rmtree)  # Sperre geloest
+    website_builder.migrate_legacy_website_folders()
+    assert not leftover.exists()                                       # Sweep raeumt ihn jetzt auf
 
 
 def test_clear_readonly_erlaubt_loeschen_von_git_objekten(tmp_path):
@@ -513,6 +515,19 @@ def test_clear_readonly_erlaubt_loeschen_von_git_objekten(tmp_path):
     website_builder._clear_readonly(str(d))
     shutil.rmtree(str(d))          # wirft PermissionError, wenn read-only nicht entfernt wurde
     assert not d.exists()
+
+
+def test_migrate_legacy_folders_raeumt_alte_migriert_rest_ordner_auf(tmp_path, monkeypatch):
+    # _migriert_rest_*-Ordner aus frueheren Laeufen (vor dem _clear_readonly-Fix) sind
+    # garantiert redundant -- werden jetzt bei jedem Lauf nachtraeglich mit aufgeraeumt.
+    import website_builder
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    rest = tmp_path / "_migriert_rest_web_alte-firma"
+    rest.mkdir()
+    (rest / "content.json").write_text("{}", encoding="utf-8")
+
+    website_builder.migrate_legacy_website_folders()
+    assert not rest.exists()
 
 
 def test_migrate_legacy_folders_updates_db_folder(tmp_path, monkeypatch):
