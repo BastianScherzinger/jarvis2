@@ -645,14 +645,8 @@ if _HAS_DISCORD:
         e.set_footer(text="JARVIS LeadHunter · Freigabe per 👍 → Versand 12 Uhr an den Kunden")
         return e
 
-    @tasks.loop(time=dtime(hour=_send_hour(), minute=0))
-    async def _noon_loop():
-        # Tages-Latch: Report nur EINMAL pro Tag (verhindert Doppel-Post bei Neustart um 12 Uhr).
-        if _noon_ran_today():
-            logger.info("Discord", "12-Uhr-Report heute bereits gepostet — übersprungen.")
-            return
-        _mark_noon_ran()
-        res = await asyncio.to_thread(send_approved_now)
+    async def _post_noon_report(res: dict) -> None:
+        """Postet den Tagesversand-Report in den Discord-Kanal (best-effort, wirft nie)."""
         try:
             ch = _bot.get_channel(_channel_id())
             if ch is None and _bot is not None:
@@ -662,6 +656,66 @@ if _HAS_DISCORD:
                 await ch.send(embed=_noon_report_embed(res))
         except Exception as ex:
             logger.warn("Discord", f"12-Uhr-Report fehlgeschlagen: {type(ex).__name__}")
+
+    @tasks.loop(time=dtime(hour=_send_hour(), minute=0))
+    async def _noon_loop():
+        # Tages-Latch: Report nur EINMAL pro Tag (verhindert Doppel-Post bei Neustart um 12 Uhr).
+        if _noon_ran_today():
+            logger.info("Discord", "12-Uhr-Report heute bereits gepostet — übersprungen.")
+            return
+        # WICHTIG: der ganze Body ist gekapselt. Eine unbehandelte Exception würde sonst
+        # die tasks.loop DAUERHAFT stoppen (Grund, warum der Versand früher „nach 2 Tagen"
+        # aufhörte). Latch erst NACH dem Versand — ein Crash darf den Tag nicht verbrennen.
+        try:
+            res = await asyncio.to_thread(send_approved_now)
+            _mark_noon_ran()
+            await _post_noon_report(res)
+        except Exception as ex:
+            import traceback
+            logger.error("Discord", f"12-Uhr-Versand-Fehler: {type(ex).__name__}: {str(ex)[:160]}")
+            logger.debug("Discord", "Traceback: "
+                         + traceback.format_exc().strip().replace(chr(10), " | ")[-400:])
+
+    @_noon_loop.before_loop
+    async def _before_noon_loop():
+        # Bis der Bot verbunden ist warten — sonst läuft die Loop evtl. ohne Kanal-Cache.
+        try:
+            await _bot.wait_until_ready()
+        except Exception:
+            pass
+
+    @_noon_loop.error
+    async def _noon_loop_error(exc):
+        # Letzte Absicherung: bricht die Loop doch mit einem Fehler ab → loggen UND neu starten,
+        # damit der Tagesversand nicht für immer stehenbleibt.
+        logger.error("Discord", f"12-Uhr-Loop abgebrochen ({type(exc).__name__}) — starte neu.")
+        try:
+            _noon_loop.restart()
+        except Exception:
+            pass
+
+    def _noon_watchdog_loop():
+        """Unabhängiger Sicherheits-Auslöser für den Tagesversand: prüft jede Minute, ob die
+        Versandstunde erreicht und heute noch nicht versendet wurde — und stößt den Versand
+        dann an, SELBST wenn der discord.py-Task-Loop gestorben oder der Bot getrennt ist.
+        Der Versand (Mailer) hängt nicht an Discord; der Report wird best-effort nachgereicht."""
+        import time as _t
+        _t.sleep(90)                                  # App-/Bot-Start abwarten
+        while True:
+            try:
+                if enabled() and datetime.now().hour >= _send_hour() and not _noon_ran_today():
+                    logger.info("Discord", f"{_send_hour()}-Uhr-Versand (Sicherheits-Watchdog) — "
+                                           "hole nach (Task-Loop hat nicht ausgelöst).")
+                    res = send_approved_now()
+                    _mark_noon_ran()
+                    try:
+                        if _loop is not None and (res.get("sent") or res.get("total")):
+                            asyncio.run_coroutine_threadsafe(_post_noon_report(res), _loop)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warn("Discord", f"Noon-Watchdog-Fehler: {type(e).__name__}")
+            _t.sleep(60)
 
 
 # ── Öffentliche API (vom Auto-Builder / app.py genutzt) ────────────────────────
@@ -732,5 +786,11 @@ def start() -> dict:
                 globals()["_started"] = False
 
     threading.Thread(target=_run, name="DiscordBot", daemon=True).start()
-    logger.info("Discord", "Freigabe-Bot startet…")
+    # Unabhängiger Sicherheits-Watchdog für den Tagesversand (überlebt ein Sterben des
+    # discord.py-Task-Loops bzw. eine Bot-Trennung).
+    try:
+        threading.Thread(target=_noon_watchdog_loop, name="NoonWatchdog", daemon=True).start()
+    except Exception as e:
+        logger.warn("Discord", f"Noon-Watchdog nicht gestartet: {type(e).__name__}")
+    logger.info("Discord", "Freigabe-Bot startet… (12-Uhr-Versand mit Watchdog abgesichert)")
     return {"ok": True}
