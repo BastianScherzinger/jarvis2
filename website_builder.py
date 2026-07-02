@@ -1099,6 +1099,27 @@ def _is_wrecked_git_only(d: Path) -> bool:
         return False
 
 
+def _clear_readonly(path: str) -> None:
+    """Git legt Objektdateien unter .git/objects bewusst READ-ONLY an (Integritätsschutz).
+    Unter Windows kann shutil.rmtree() read-only Dateien grundsätzlich NICHT löschen —
+    ignore_errors=True schluckt den Fehler still, der Ordner bleibt (fast) vollständig
+    stehen. Das war die eigentliche Ursache für „Kopie fertig, Datei(en) waren gesperrt"
+    bei praktisch JEDEM Ordner mit Git-Historie (02.07.2026, achter Durchlauf — live auf
+    einem zweiten PC bestätigt: alle 23 umgezogenen Ordner hinterließen einen
+    _migriert_rest_*-Rest). Fix: vor dem rmtree alle Attribute auf beschreibbar setzen."""
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+    except Exception:
+        pass
+    for root, dirs, files in os.walk(path):
+        for name in dirs + files:
+            try:
+                os.chmod(os.path.join(root, name), stat.S_IWRITE)
+            except Exception:
+                pass
+
+
 def _repair_from_git(d: Path, _lg) -> bool:
     """Versucht, das leere Arbeitsverzeichnis eines verwaisten Ordners (siehe
     _is_wrecked_git_only) aus der eigenen Git-Historie wiederherzustellen — die echten
@@ -1222,6 +1243,7 @@ def migrate_legacy_website_folders() -> dict:
             except Exception:
                 shutil.rmtree(str(target), ignore_errors=True)  # keine kaputte Teilkopie liegen lassen
                 raise
+            _clear_readonly(old_str)          # git-Objekte sind read-only -- rmtree braucht das
             shutil.rmtree(old_str, ignore_errors=True)
             if Path(old_str).exists():
                 # Kopie ist vollstaendig fertig — Original ist nur noch wertloser Datenmuell,

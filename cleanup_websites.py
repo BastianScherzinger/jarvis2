@@ -74,6 +74,11 @@ def _delete_local(row: dict) -> list:
         try:
             p = Path(folder).resolve()
             if p.is_dir() and p.name.lower().startswith("web"):
+                try:
+                    import website_builder
+                    website_builder._clear_readonly(str(p))  # git-Objekte sind read-only unter Windows
+                except Exception:
+                    pass
                 shutil.rmtree(p, ignore_errors=True)
                 report.append("Ordner ok")
         except Exception as e:

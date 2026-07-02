@@ -496,6 +496,25 @@ def test_migrate_legacy_folders_move_ueberlebt_gesperrte_datei(tmp_path, monkeyp
     assert res2["moved"] == []
 
 
+def test_clear_readonly_erlaubt_loeschen_von_git_objekten(tmp_path):
+    # Git legt .git/objects/* bewusst read-only an -- shutil.rmtree(ignore_errors=True)
+    # kann sie unter Windows sonst NICHT loeschen, der Ordner bleibt (fast) stehen
+    # (02.07.2026, achter Durchlauf, live auf einem zweiten PC beobachtet: alle 23
+    # umgezogenen Ordner hinterliessen einen _migriert_rest_*-Rest -- kein Einzelfall,
+    # sondern jeder Ordner mit Git-Historie).
+    import website_builder, os, stat, shutil
+    d = tmp_path / "web_readonly_test"
+    obj_dir = d / ".git" / "objects" / "ab"
+    obj_dir.mkdir(parents=True)
+    obj_file = obj_dir / "cdef0123456789"
+    obj_file.write_bytes(b"x")
+    os.chmod(obj_file, stat.S_IREAD)
+
+    website_builder._clear_readonly(str(d))
+    shutil.rmtree(str(d))          # wirft PermissionError, wenn read-only nicht entfernt wurde
+    assert not d.exists()
+
+
 def test_migrate_legacy_folders_updates_db_folder(tmp_path, monkeypatch):
     import website_builder
     import db_websites

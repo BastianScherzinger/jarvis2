@@ -152,3 +152,12 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # Hart beenden statt normal zurueckzukehren: an dieser Stelle ist ALLE Arbeit bereits
+    # erledigt und ausgegeben (git, Paket-Installs, Ordner-Umzug, Deploy-Check) -- nichts
+    # schreibt danach noch etwas. Manche der aufgerufenen Subprozesse (pip/git/ollama)
+    # koennen unter Windows kurzlebige Handles hinterlassen, die den normalen
+    # Interpreter-Shutdown verzoegern ("haengt nach der letzten Zeile"). os._exit()
+    # umgeht das komplett -- sicher, weil es nichts Ungeschriebenes mehr gibt.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
