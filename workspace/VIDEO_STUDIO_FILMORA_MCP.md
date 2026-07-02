@@ -118,3 +118,51 @@ Argument-Schema-Mapping, Ergebnis-URL-Extraktion, Status-Check in `_finalize`,
 Session-Caching, Prompt-Verbesserung + Chat (mit/ohne Ollama). **Gesamte Suite:
 146/146 grün.** Flask-App importiert sauber, alle 7 neuen Routen registriert
 (manuell verifiziert).
+
+---
+
+# Nachtrag (2026-07-02, später Durchlauf): .env-Vollständigkeit + Webseiten-Ordner-Umzug
+
+## .env-Vollständigkeitsprüfung
+Vollständiger Abgleich `.env` (aktive Werte) gegen `.env.example` (auch auskommentierte
+Dokumentation zählt): **einzige echte Lücke war `JARVIS_WVM_SHOP`** (Referenz-Domain für
+die Angebots-Mail, `offer_mail.py:81`) — ergänzt im WVM-Block. Alles andere bereits
+korrekt dokumentiert. `JARVIS_TOOL_MODEL`/`JARVIS_BROWSER_HEADLESS` stehen zwar mit
+Default-Wert in `.env.example`, fehlen aber in der echten `.env` — unkritisch, beide
+haben passende Code-Defaults (kein Handlungsbedarf).
+
+## Webseiten-Ordner-Konsolidierung (`website_builder.migrate_legacy_website_folders()`)
+
+**Hintergrund:** `find_built_sites()` kannte bereits zwei Ablage-Formen: die alte flache
+`Desktop/web_*`-Struktur (vor Einführung der Tagesordner) und die aktuelle
+`Desktop/jarvis_websites/<Datum>/web_*`-Struktur. Neue Seiten landen **schon immer**
+ausschließlich in Letzterer (`_unique_dir`/`_day_dir`, einziger Bau-Pfad im ganzen
+Projekt — auch `custom_build.py` läuft über `website_builder.build()`). Auf einem
+zweiten PC mit älterem Stand können aber noch Alt-Ordner lose auf dem Desktop liegen.
+
+**Neue Funktion** (`website_builder.py`, direkt vor `find_built_sites`):
+`migrate_legacy_website_folders()` — scannt `Desktop/web_*` (nur die oberste Ebene,
+NICHT die bereits einsortierten `jarvis_websites/<Datum>/web_*`), verschiebt nur
+Ordner, die zusätzlich zum Namen auch `content.json` ODER `manage.py` enthalten
+(dieselbe Prüfung wie `find_built_sites` — verhindert, dass fremde Desktop-Ordner
+angefasst werden), in `jarvis_websites/<Datum-aus-Ordner-mtime>/`. Kollisionen werden
+wie bei `_unique_dir` durchnummeriert. Passende `db_websites`-Zeilen (`folder`-Spalte)
+werden auf den neuen Pfad aktualisiert, damit das Dashboard weiter funktioniert.
+Wirft nie, ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab, idempotent
+(zweiter Lauf findet nichts mehr).
+
+**Zwei Auslöser** (Redundanz-Muster wie beim Demo-Teardown „täglich + bei jedem Start"):
+1. **Primär: `update.py`** — neuer Schritt nach der Abhängigkeitsprüfung, druckt eine
+   Zusammenfassung (umgezogene Ordner, Fehler), bricht das Update nie ab.
+2. **Sicherheitsnetz: `app._startup_cleanup()`** — läuft still beim App-Start, falls
+   Sir die App ohne vorheriges `update.py` startet.
+
+**Bewusst NICHT live ausgeführt** in dieser Session (nur gegen `tmp_path` getestet) —
+die Funktion verschiebt echte Dateien auf dem Desktop; sie soll laut Auftrag erst beim
+nächsten `update.py`/Start auf dem betroffenen (zweiten) PC greifen, nicht sofort hier.
+
+### Tests
+3 neue Tests: echter Umzug + Idempotenz, Sicherheitsnetz gegen fremde/unvollständige
+Ordner (`Urlaubsfotos`, `web_*` ohne Inhalt bleiben unberührt), DB-Pfad-Aktualisierung.
+**Gesamt-Suite: 149/149 grün** (148 + 1 vorbestehend flakiger Test, der isoliert immer
+grün ist — bestätigt schon vor diesem Durchlauf vorhanden, siehe Git-Historie).

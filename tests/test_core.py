@@ -335,6 +335,63 @@ def test_find_built_sites_ist_liste(tmp_path, monkeypatch):
     assert sites[0]["slug"] == "web_demo-gmbh"
 
 
+# ── Alt-Ordner-Umzug (Desktop/web_* → jarvis_websites/<Datum>/) ───────────────
+def test_migrate_legacy_folders_moves_real_website(tmp_path, monkeypatch):
+    import website_builder, time
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    legacy = tmp_path / "web_alte-firma"
+    legacy.mkdir()
+    (legacy / "content.json").write_text('{"site_name": "Alte Firma"}', encoding="utf-8")
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert len(res["moved"]) == 1 and res["errors"] == []
+    assert not legacy.exists()                            # aus der flachen Ablage weg
+    today = time.strftime("%Y-%m-%d")
+    target = tmp_path / "jarvis_websites" / today / "web_alte-firma"
+    assert target.is_dir() and (target / "content.json").exists()
+
+    # Idempotent: zweiter Lauf findet nichts mehr
+    res2 = website_builder.migrate_legacy_website_folders()
+    assert res2["moved"] == [] and res2["errors"] == []
+
+
+def test_migrate_legacy_folders_ignores_unrelated_dirs(tmp_path, monkeypatch):
+    # Ordner die NICHT wie web_* heißen ODER keine JARVIS-Seite sind (kein content.json/
+    # manage.py) dürfen NIE angefasst werden — Sicherheitsnetz gegen versehentliches
+    # Verschieben fremder Desktop-Ordner.
+    import website_builder
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    unrelated = tmp_path / "Urlaubsfotos"
+    unrelated.mkdir()
+    (unrelated / "irgendwas.txt").write_text("x", encoding="utf-8")
+    fake_web = tmp_path / "web_ohne_inhalt"          # heißt web_* aber KEINE JARVIS-Seite
+    fake_web.mkdir()
+
+    res = website_builder.migrate_legacy_website_folders()
+    assert res["moved"] == []
+    assert unrelated.exists() and fake_web.exists()   # beide unberührt
+
+
+def test_migrate_legacy_folders_updates_db_folder(tmp_path, monkeypatch):
+    import website_builder
+    import db_websites
+    from pathlib import Path
+    monkeypatch.setattr(website_builder, "_SHOP_BASE", tmp_path)
+    monkeypatch.setattr(db_websites, "DB_PATH", Path(tmp_path) / "websites.db")
+    db_websites.init_db()
+    legacy = tmp_path / "web_firma-x"
+    legacy.mkdir()
+    (legacy / "manage.py").write_text("", encoding="utf-8")
+    db_websites.create("job-legacy-1", "Firma X", "Ulm", "Dachdecker")
+    db_websites.update("job-legacy-1", folder=str(legacy))
+
+    website_builder.migrate_legacy_website_folders()
+    row = db_websites.get_by_job("job-legacy-1")
+    assert row["folder"] != str(legacy)
+    assert Path(row["folder"]).name == "web_firma-x"
+    assert Path(row["folder"]).is_dir()               # DB zeigt auf den neuen, existierenden Ort
+
+
 # ── Webseiten-Verbesserung + Angebots-Mail (reine Helfer) ─────────────────────
 def test_improve_premium_template_valides_django():
     # Premium-Template muss als Django-Template kompilieren + alle Sektionen rendern.

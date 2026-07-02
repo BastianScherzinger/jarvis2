@@ -166,6 +166,20 @@ def _startup_cleanup():
     """Beim App-Start: hängende 'running'-Seiten korrigieren und Night-Builder fortsetzen."""
     import time as _t
     _t.sleep(2)   # kurz warten bis DB-Sync fertig ist
+
+    # Sicherheitsnetz zum Update-Aufräumen (update.py macht das primär): verstreute
+    # Alt-Ordner (Desktop/web_*) nach jarvis_websites/<Datum>/ umziehen, falls die App
+    # ohne vorheriges `python update.py` gestartet wurde. Idempotent, läuft VOR der
+    # Stuck-Site-Korrektur unten, damit deren Ordner-Pfade schon aktuell sind.
+    try:
+        import website_builder as _wb
+        _res = _wb.migrate_legacy_website_folders()
+        if _res.get("moved"):
+            _logger.success("Startup", f"{len(_res['moved'])} Alt-Webseiten-Ordner "
+                                       "vom Desktop nach jarvis_websites/ umgezogen.")
+    except Exception as e:
+        _logger.warn("Startup", f"Ordner-Aufräumen übersprungen: {type(e).__name__}")
+
     try:
         import db_websites as _dw
         stuck = [s for s in _dw.get_all() if s.get("status") == "running"]

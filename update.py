@@ -83,11 +83,36 @@ def main() -> None:
     import install
     install.run()
 
+    # ── Alte Webseiten-Ordner vom Desktop aufraeumen ───────────────
+    # Fasst verstreute Alt-Ordner (Desktop/web_*, vor der Tagesordner-Struktur) nach
+    # Desktop/jarvis_websites/<Datum>/ zusammen -- vor allem relevant beim ersten Update
+    # auf einem zweiten PC. Neue Seiten landen ohnehin schon immer nur dort.
+    print()
+    print(f"  {CY}[>]{R}  Pruefe auf verstreute Webseiten-Ordner auf dem Desktop...")
+    try:
+        import config            # laedt .env in os.environ
+        import website_builder
+        res = website_builder.migrate_legacy_website_folders()
+        moved  = res.get("moved") or []
+        errors = res.get("errors") or []
+        if moved:
+            print(f"  {GR}[OK]{R}  {len(moved)} Alt-Ordner nach jarvis_websites/ umgezogen:")
+            for m in moved[:10]:
+                print(f"  {GY}     {Path(m['from']).name} -> jarvis_websites/{Path(m['to']).parent.name}/{R}")
+            if len(moved) > 10:
+                print(f"  {GY}     ... und {len(moved) - 10} weitere{R}")
+        else:
+            print(f"  {GR}[OK]{R}  Keine verstreuten Alt-Ordner gefunden (schon aufgeraeumt).")
+        if errors:
+            print(f"  {YL}[!]{R}  {len(errors)} Ordner konnten nicht umgezogen werden (siehe Log).")
+    except Exception as e:
+        print(f"  {YL}[!]{R}  Ordner-Aufraeumen uebersprungen: {str(e)[:80]}")
+
     # ── Webseiten-Deploy-Bereitschaft (GitHub + Railway + git) ────
     print()
     print(f"  {CY}[>]{R}  Pruefe Webseiten-Deploy (GitHub + Railway)...")
     try:
-        import config            # laedt .env in os.environ
+        import config            # laedt .env in os.environ (idempotent, evtl. schon geladen)
         import website_builder
         for line in website_builder.deploy_status_text().splitlines():
             if line.startswith("[OK]") or line.startswith("Deploy bereit"):

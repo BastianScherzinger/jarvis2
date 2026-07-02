@@ -1063,6 +1063,75 @@ def _run(job_id: str) -> None:
             pass
 
 
+# ── Alte, verstreute Desktop-Ordner in die Tagesablage umziehen ───────────────
+
+def migrate_legacy_website_folders() -> dict:
+    """Räumt alte, direkt auf dem Desktop liegende Webseiten-Ordner (Desktop/web_*, aus
+    der Zeit vor der Tagesordner-Struktur) nach Desktop/jarvis_websites/<Datum>/ um.
+    Neue Seiten landen SEIT JEHER ausschließlich dort (_unique_dir/_day_dir oben) —
+    diese Funktion holt nur historisch verstreute Alt-Ordner nach, z.B. beim Update auf
+    einem zweiten PC, der noch die alte flache Ablage hat.
+
+    Sicher: nur Ordner, die exakt `web_*` heißen UND wie eine echte JARVIS-Webseite
+    aussehen (content.json ODER manage.py vorhanden — dieselbe Prüfung wie
+    find_built_sites unten), werden verschoben; alles andere auf dem Desktop bleibt
+    unberührt. Das Datum des Tagesordners wird aus der Änderungszeit des jeweiligen
+    Ordners abgeleitet (fühlt sich für den Nutzer an wie „schon immer richtig einsortiert").
+    Aktualisiert passende db_websites-Zeilen auf den neuen Pfad, damit das Dashboard
+    (Ordner-Links, Neu-Bau-Dedup) weiter korrekt funktioniert.
+
+    Idempotent (ein zweiter Lauf findet nichts mehr zu tun) und wirft nie — best-effort,
+    ein einzelner fehlgeschlagener Ordner bricht den Rest nicht ab.
+    Gibt {"moved": [{"from","to"}], "errors": [{"folder","error"}]} zurück."""
+    moved: list = []
+    errors: list = []
+    if not _SHOP_BASE.exists():
+        return {"moved": moved, "errors": errors}
+    try:
+        import logger as _lg
+    except Exception:
+        _lg = None
+    try:
+        import db_websites
+    except Exception:
+        db_websites = None
+
+    for d in sorted(_SHOP_BASE.glob("web_*")):
+        if not d.is_dir():
+            continue
+        if not ((d / "content.json").exists() or (d / "manage.py").exists()):
+            continue                       # sieht nicht wie eine JARVIS-Seite aus → nicht anfassen
+        try:
+            day = time.strftime("%Y-%m-%d", time.localtime(d.stat().st_mtime))
+            target_dir = _SHOP_BASE / "jarvis_websites" / day
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / d.name
+            n = 2
+            while target.exists():
+                target = target_dir / f"{d.name}-{n}"
+                n += 1
+            old_str = str(d)
+            shutil.move(old_str, str(target))
+            if db_websites is not None:
+                try:
+                    row = db_websites.get_by_folder(old_str)
+                    if row and row.get("job_id"):
+                        db_websites.update(row["job_id"], folder=str(target))
+                except Exception:
+                    pass
+            moved.append({"from": old_str, "to": str(target)})
+            if _lg:
+                _lg.info("Webseite", f"Alt-Ordner umgezogen: {d.name} → jarvis_websites/{day}/")
+        except Exception as e:
+            errors.append({"folder": str(d), "error": f"{type(e).__name__}: {e}"})
+            if _lg:
+                _lg.warn("Webseite", f"Umzug fehlgeschlagen ({d.name}): {type(e).__name__}")
+    if moved and _lg:
+        _lg.success("Webseite",
+                    f"{len(moved)} Alt-Ordner vom Desktop nach jarvis_websites/ umgezogen.")
+    return {"moved": moved, "errors": errors}
+
+
 # ── Bereits gebaute Seiten finden + nachträglich deployen ─────────────────────
 
 def find_built_sites() -> list[dict]:
