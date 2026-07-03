@@ -38,6 +38,7 @@
     <button class="topnav-btn"        data-page="custom"  onclick="showPage('custom')">Eigene Marke</button>
     <button class="topnav-btn"        data-page="claude"  onclick="showPage('claude')">Claude</button>
     <button class="topnav-btn"        data-page="video-studio" onclick="showPage('video-studio')">Video-Studio</button>
+    <button class="topnav-btn"        data-page="leadpackages" onclick="showPage('leadpackages')">📦 Datenpakete</button>
     <button class="topnav-btn topnav-costs" data-page="costs" onclick="showPage('costs')">€ Kosten</button>
   </nav>
 
@@ -711,6 +712,103 @@
 
 </main>
 
+<!-- ══════════════════════════════ DATENPAKETE-TAB (LeadForge) ══════════════════ -->
+<main class="media-page page lp-page" data-page="leadpackages">
+  <div class="media-head">
+    <div class="media-title">Datenpakete</div>
+    <div class="media-sub">LeadForge — DACH-weite Firmendaten-Bundles, verkaufsfertig als CSV/Excel.</div>
+  </div>
+
+  <!-- Vorrats-Übersicht -->
+  <div class="lp-stats" id="lp-stats">
+    <div class="cst-card"><div class="cst-icon">Σ</div><div class="cst-right">
+      <div class="cst-val" id="lp-stat-total">0</div><div class="cst-lbl">Datensätze gesamt</div>
+    </div></div>
+    <div class="cst-card"><div class="cst-icon">DE</div><div class="cst-right">
+      <div class="cst-val" id="lp-stat-de">0</div><div class="cst-lbl">Deutschland</div>
+    </div></div>
+    <div class="cst-card"><div class="cst-icon">AT</div><div class="cst-right">
+      <div class="cst-val" id="lp-stat-at">0</div><div class="cst-lbl">Österreich</div>
+    </div></div>
+    <div class="cst-card"><div class="cst-icon">★</div><div class="cst-right">
+      <div class="cst-val" id="lp-stat-top">—</div><div class="cst-lbl">Stärkste Branche</div>
+    </div></div>
+  </div>
+
+  <div class="lp-grid">
+    <!-- Bestell-Formular -->
+    <section class="lp-card">
+      <div class="lp-card-title">Paket zusammenstellen</div>
+
+      <div class="lp-field-row">
+        <label class="lp-field">
+          <span>Land</span>
+          <select id="lp-land" class="lp-select">
+            <option value="DE">Deutschland</option>
+            <option value="AT">Österreich</option>
+            <option value="CH">Schweiz</option>
+          </select>
+        </label>
+        <label class="lp-field">
+          <span>Region / Stadt</span>
+          <select id="lp-region" class="lp-select"><option value="">Alle Regionen</option></select>
+        </label>
+      </div>
+
+      <label class="lp-field lp-field-full">
+        <span>Branche</span>
+        <select id="lp-branche" class="lp-select"><option value="">Branche wählen…</option></select>
+      </label>
+
+      <div class="lp-field lp-field-full">
+        <span>Paketgröße</span>
+        <div class="lp-bundle-row" id="lp-bundle-row">
+          <button class="lp-bundle-btn" data-size="50">50<small>~49 €</small></button>
+          <button class="lp-bundle-btn" data-size="200">200<small>~149 €</small></button>
+          <button class="lp-bundle-btn" data-size="1000">1000<small>~499 €</small></button>
+        </div>
+      </div>
+
+      <button class="gc-btn ws-neu-btn" id="lp-preview-btn" style="width:100%;margin-top:4px">
+        Vorschau laden
+      </button>
+
+      <!-- Vorschau-Ergebnis -->
+      <div class="lp-preview" id="lp-preview" style="display:none">
+        <div class="lp-preview-desc" id="lp-preview-desc"></div>
+        <div class="lp-preview-sample" id="lp-preview-sample"></div>
+
+        <div class="lp-field-row" style="margin-top:12px">
+          <label class="lp-field">
+            <span>Käufer</span>
+            <input id="lp-kaeufer" class="lp-select" type="text" placeholder="Name / Firma">
+          </label>
+          <label class="lp-field">
+            <span>Format</span>
+            <select id="lp-format" class="lp-select">
+              <option value="csv">CSV</option>
+              <option value="xlsx">Excel (.xlsx)</option>
+            </select>
+          </label>
+        </div>
+
+        <button class="gc-btn ws-neu-btn" id="lp-order-btn" style="width:100%">
+          Paket erstellen
+        </button>
+        <div class="lp-result" id="lp-result" style="display:none"></div>
+      </div>
+    </section>
+
+    <!-- Bestellhistorie -->
+    <section class="lp-card">
+      <div class="lp-card-title">Bestellhistorie</div>
+      <div class="lp-orders" id="lp-orders">
+        <div class="ws-empty"><div class="empty-sub">Noch keine Bestellungen.</div></div>
+      </div>
+    </section>
+  </div>
+</main>
+
 <!-- ══════════════════════════ MODAL ════════════════════════════════════════ -->
 <div class="modal-bg" id="modal-bg" onclick="closeModal()"></div>
 <div class="modal" id="modal">
@@ -725,6 +823,7 @@
 <script src="/static/js/websites.js"></script>
 <script src="/static/js/claude.js"></script>
 <script src="/static/js/video_studio.js"></script>
+<script src="/static/js/leadpackages.js"></script>
 
 <!-- Log-Drawer (ausklappbar von unten) -->
 <div class="log-drawer" id="log-drawer">

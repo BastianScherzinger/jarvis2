@@ -54,6 +54,7 @@ desktop.ini
 
 # ── Logs & Temp ───────────────────────────────────────────────────
 *.log
+log.txt
 *.tmp
 *.temp
 *.bak

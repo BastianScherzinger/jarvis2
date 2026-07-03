@@ -23,12 +23,14 @@ import media_queue
 import cloud_sync
 import logger as _logger
 from scrapers import controller, _http
+from leadpackages import routes as leadpackages_routes
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
 db_raw.init_db()
 db_evaluated.init_db()
 db_websites.init_db()
+leadpackages_routes.register(app)
 
 
 # ── HTTP-Zugriffslog entrümpeln ───────────────────────────────────────────────

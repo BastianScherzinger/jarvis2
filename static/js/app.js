@@ -871,7 +871,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'costs'];
+const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'leadpackages', 'costs'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -893,6 +893,7 @@ function showPage(name){
   if(name === 'custom' && typeof cbInit === 'function') cbInit();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
   if(name === 'video-studio' && typeof initVideoStudio === 'function') initVideoStudio();
+  if(name === 'leadpackages' && typeof initLeadpackages === 'function') initLeadpackages();
   // Stop costs polling when leaving that tab
   if(name !== 'costs') _stopCostsPoll();
   if(name === 'home')  loadHome();
