@@ -768,6 +768,7 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
   align-self:flex-start;
 }
 .media-mode-switch .mode-btn{
+  display:inline-flex; align-items:center; gap:8px;
   font-family:var(--fh); font-size:13px; font-weight:800; letter-spacing:.04em;
   color:var(--tx2); background:transparent; border:0; cursor:pointer;
   padding:8px 20px; border-radius:9px; transition:background .15s, color .15s;
@@ -961,6 +962,9 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
 }
 .gc-search:focus { border-color: #00d4ff; }
 .gc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: transparent;
   border: 1px solid var(--bdr);
   border-radius: 4px;
@@ -974,6 +978,7 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
   transition: border-color .15s, color .15s, box-shadow .15s, background .15s;
   white-space: nowrap;
 }
+.gc-btn svg{flex-shrink:0}
 .gc-btn:hover { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,.06); }
 .gc-btn.active { border-color: #00d4ff; color: #00d4ff; box-shadow: 0 0 10px rgba(0,212,255,.3); background: rgba(0,212,255,.08); }
 .gc-btn-danger { border-color: rgba(255,59,78,.4); color: var(--r); }
@@ -2729,6 +2734,7 @@ textarea:focus-visible{ outline:2px solid rgba(80,200,255,.7); outline-offset:2p
 }
 .costs-actlog-filters{ display:flex; gap:6px; flex-wrap:wrap; flex:1; }
 .caf-btn{
+  display:inline-flex; align-items:center; gap:5px;
   padding:4px 10px; border:1px solid var(--bdr); border-radius:6px;
   background:none; color:var(--tx3); font-size:11px; cursor:pointer; transition:all .15s;
 }

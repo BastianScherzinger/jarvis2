@@ -113,7 +113,7 @@
   <div class="topbar-right">
     <button class="auto-btn" id="auto-btn" onclick="toggleAutoBuild()"
             title="Auto-Website-Builder: baut automatisch Seiten für die besten Leads ohne Website">
-      <span id="auto-ic">⚡</span>&nbsp;<span id="auto-lbl">Auto-Builder</span>
+      <span id="auto-ic"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>&nbsp;<span id="auto-lbl">Auto-Builder</span>
     </button>
     <div class="live-ind" id="live-ind">
       <span class="live-dot-wrap"><span class="live-dot"></span></span>
@@ -241,8 +241,14 @@
 
   <!-- Modus-Umschalter: Bild ⇄ Video -->
   <div class="media-mode-switch">
-    <button class="mode-btn active" data-mode="image" onclick="setMediaMode('image')">🖼 Bild</button>
-    <button class="mode-btn"        data-mode="video" onclick="setMediaMode('video')">🎬 Video</button>
+    <button class="mode-btn active" data-mode="image" onclick="setMediaMode('image')">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      Bild
+    </button>
+    <button class="mode-btn" data-mode="video" onclick="setMediaMode('video')">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      Video
+    </button>
   </div>
 
   <!-- ───────────────── MODUS: BILD ───────────────── -->
@@ -260,7 +266,7 @@
       </select>
       <select id="img-model" class="flt"></select>
       <span id="img-hf-note" class="flt-note" style="display:none">Higgsfield Soul · 1080p</span>
-      <button class="start-btn" id="img-free-btn" onclick="generateImage()">⚡ Bild generieren</button>
+      <button class="start-btn" id="img-free-btn" onclick="generateImage()"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Bild generieren</button>
     </div>
   </div>
   <div id="img-job-status" class="job-card" style="display:none"></div>
@@ -328,7 +334,7 @@
       <span>Platz für Text/Logo freihalten (empfohlen — KI rendert keinen lesbaren Text)</span>
     </label>
 
-    <button class="start-btn af-gen" id="img-gen-btn" onclick="generateImageSet()">⚡ 5 Werbe-Assets generieren</button>
+    <button class="start-btn af-gen" id="img-gen-btn" onclick="generateImageSet()"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> 5 Werbe-Assets generieren</button>
     <div class="af-hint" id="af-hint"></div>
   </div>
 
@@ -359,7 +365,7 @@
       </select>
       <select id="vid-model" class="flt"></select>
       <select id="vid-hf-model" class="flt" style="display:none"></select>
-      <button class="start-btn" id="vid-gen-btn" onclick="generateVideo()">⚡ Generieren</button>
+      <button class="start-btn" id="vid-gen-btn" onclick="generateVideo()"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Generieren</button>
     </div>
     <!-- Werbevideo aus einem Betrieb (Lead) — fertiger Werbe-Clip -->
     <div class="composer-row composer-row-sub">
@@ -368,7 +374,7 @@
       </select>
       <input id="vid-betrieb" class="af-in" type="text" placeholder="Betrieb">
       <input id="vid-branche" class="af-in" type="text" placeholder="Branche">
-      <button class="start-btn ghost" id="vid-ad-btn" onclick="generateAdVideo()">🎬 Werbevideo</button>
+      <button class="start-btn ghost" id="vid-ad-btn" onclick="generateAdVideo()"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> Werbevideo</button>
     </div>
   </div>
   <div id="vid-job-status" class="job-card" style="display:none"></div>
@@ -387,7 +393,7 @@
     <button class="gc-btn"        data-group="lead_typ"   onclick="setGrouping('lead_typ')">Typ</button>
     <button class="gc-btn"        data-group="potenzial"  onclick="setGrouping('potenzial')">Potenzial</button>
     <span class="gc-sep">|</span>
-    <button class="gc-btn" id="hot-only-btn" onclick="toggleHotOnly()">🔴 Nur Hot</button>
+    <button class="gc-btn" id="hot-only-btn" onclick="toggleHotOnly()"><span class="gl-dot hot" style="margin:0 6px 0 0"></span>Nur Hot</button>
     <input  class="gc-search" id="graph-search" type="text" placeholder="Suche…" oninput="setGraphSearch(this.value)">
     <span class="gc-sep">|</span>
     <span class="gc-count" id="graph-node-count">0 Leads</span>
@@ -471,9 +477,9 @@
     <select class="flt" id="rank-br" onchange="rankReload()"><option value="">Alle Branchen</option></select>
     <span class="rank-live" id="rank-live">● LIVE · 3s</span>
     <button class="gc-btn" style="margin-left:auto" onclick="rankReeval()">↻ Alle neu bewerten</button>
-    <button class="gc-btn" id="sync-btn" onclick="rankCloudSync()" title="Leads in Supabase hochladen">☁ Sync</button>
+    <button class="gc-btn" id="sync-btn" onclick="rankCloudSync()" title="Leads in Supabase hochladen"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg> Sync</button>
     <span class="sync-status" id="sync-status"></span>
-    <button class="gc-btn gc-btn-danger" onclick="rankClearDb()">🗑 DB leeren</button>
+    <button class="gc-btn gc-btn-danger" onclick="rankClearDb()"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> DB leeren</button>
   </div>
 
   <!-- Tabellen-Kopf -->
@@ -495,7 +501,7 @@
   <div class="ws-toolbar">
     <span class="ws-count" id="ws-count">0 Seiten</span>
     <span class="rank-live" id="ws-live">● LIVE</span>
-    <button class="gc-btn ws-neu-btn" style="margin-left:auto" onclick="archiveAllAndStart()" title="Alle aktuellen Seiten archivieren und 5 neue bauen">⚡ Neu starten</button>
+    <button class="gc-btn ws-neu-btn" style="margin-left:auto" onclick="archiveAllAndStart()" title="Alle aktuellen Seiten archivieren und 5 neue bauen"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Neu starten</button>
     <button class="gc-btn" id="ws-reload-btn" onclick="wsManualReload()" title="Liste neu laden">↺ Aktualisieren</button>
   </div>
   <div class="ws-list" id="ws-list">
@@ -510,7 +516,7 @@
   <div class="ws-archive-section" id="ws-archive-section" style="display:none">
     <div class="ws-archive-head" onclick="wsToggleArchive()">
       <span class="ws-day-arrow" id="ws-archive-arrow">▸</span>
-      <span class="ws-archive-title">🗂️ Alte Webseiten</span>
+      <span class="ws-archive-title"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Alte Webseiten</span>
       <span class="ws-archive-count" id="ws-archive-count">0</span>
     </div>
     <div class="ws-archive-body" id="ws-archive-body" style="display:none"></div>
@@ -1155,7 +1161,7 @@
         </div>
       </div>
       <div class="cst-card">
-        <div class="cst-icon cst-pwr">⚡</div>
+        <div class="cst-icon cst-pwr">W</div>
         <div class="cst-right">
           <div class="cst-val" id="cst-power">0,00 €</div>
           <div class="cst-lbl">Stromkosten (~45 W)</div>
@@ -1215,12 +1221,12 @@
         <span class="costs-actlog-title">Live-Aktivitätslog</span>
         <div class="costs-actlog-filters" id="costs-actlog-filters">
           <button class="caf-btn active" data-cat="" onclick="setCostFilter(this,'')">Alle</button>
-          <button class="caf-btn" data-cat="build"  onclick="setCostFilter(this,'build')">🌐 Bau</button>
-          <button class="caf-btn" data-cat="eval"   onclick="setCostFilter(this,'eval')">🔍 Analyse</button>
-          <button class="caf-btn" data-cat="image"  onclick="setCostFilter(this,'image')">🖼 Bilder</button>
-          <button class="caf-btn" data-cat="video"  onclick="setCostFilter(this,'video')">🎬 Videos</button>
-          <button class="caf-btn" data-cat="scrape" onclick="setCostFilter(this,'scrape')">📡 Scraper</button>
-          <button class="caf-btn" data-cat="deploy" onclick="setCostFilter(this,'deploy')">🚀 Deploy</button>
+          <button class="caf-btn" data-cat="build"  onclick="setCostFilter(this,'build')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Bau</button>
+          <button class="caf-btn" data-cat="eval"   onclick="setCostFilter(this,'eval')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Analyse</button>
+          <button class="caf-btn" data-cat="image"  onclick="setCostFilter(this,'image')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Bilder</button>
+          <button class="caf-btn" data-cat="video"  onclick="setCostFilter(this,'video')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> Videos</button>
+          <button class="caf-btn" data-cat="scrape" onclick="setCostFilter(this,'scrape')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg> Scraper</button>
+          <button class="caf-btn" data-cat="deploy" onclick="setCostFilter(this,'deploy')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg> Deploy</button>
         </div>
         <div class="costs-actlog-live">
           <span class="live-dot"></span> Live
