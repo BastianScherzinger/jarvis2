@@ -24,12 +24,14 @@ import cloud_sync
 import logger as _logger
 from scrapers import controller, _http
 from leadpackages import routes as leadpackages_routes
+from leadpackages import db_packages as leadpackages_db
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.urandom(24)
 db_raw.init_db()
 db_evaluated.init_db()
 db_websites.init_db()
+leadpackages_db.init_db()
 leadpackages_routes.register(app)
 
 
@@ -502,7 +504,19 @@ def api_websites_grouped():
             if _om and folder:
                 c = _om._read_content(folder)
                 s["site_version"] = c.get("site_version", "")
-                s["stages_done"] = _stage_total - _om.open_stages(folder)
+                done_count = _stage_total - _om.open_stages(folder)
+                # Alte, bereits live geschaltete Seiten fasst der Night-Builder absichtlich nie
+                # wieder an (Sirs Vorgabe: nur heutige Seiten werden weiterverbessert). Ohne diese
+                # Korrektur würde der Stufen-Stepper so eine Seite für immer als "hängengeblieben"
+                # zeigen, obwohl sie fertig und live ist.
+                if (done_count < _stage_total and s.get("live") and s.get("status") == "done"):
+                    try:
+                        import auto_builder as _ab
+                        if not _ab.is_improve_eligible(folder):
+                            done_count = _stage_total
+                    except Exception:
+                        pass
+                s["stages_done"] = done_count
             else:
                 s["site_version"] = ""
                 s["stages_done"] = 0

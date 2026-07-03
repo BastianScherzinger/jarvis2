@@ -456,6 +456,13 @@ def _is_today_folder(folder: str) -> bool:
         return folder in _today_folders()
 
 
+def is_improve_eligible(folder: str) -> bool:
+    """Öffentlicher Wrapper um `_is_today_folder` — für die Dashboard-Anzeige. Eine Seite,
+    die der Night-Builder (Sirs Vorgabe: nur heutige Seiten) nie wieder anfasst, soll dort
+    nicht als 'hängengeblieben' erscheinen, wenn sie längst live ist."""
+    return _is_today_folder(folder)
+
+
 def _needs_rescue(w: dict) -> bool:
     """True, wenn eine Seite NICHT sauber fertig+live ist und „weiterarbeiten" braucht:
     unterbrochener/fehlerhafter Bau (status != done) ODER kein erreichbarer Live-Link.
