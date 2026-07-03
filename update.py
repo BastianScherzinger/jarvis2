@@ -129,19 +129,38 @@ def main() -> None:
         print(f"  {YL}[!]{R}  Ordner-Aufraeumen uebersprungen: {str(e)[:80]}")
 
     # ── Webseiten-Deploy-Bereitschaft (GitHub + Railway + git) ────
+    # HARTER Gesamt-Timeout fuer diesen Check: agent_github.diagnose() (20s) + bis zu zwei
+    # agent_railway._gql()-Aufrufe (je 45s) koennen bei gestoerter/langsamer Verbindung
+    # zusammen fast 2 Minuten blockieren -- genau der letzte Schritt vor "Update
+    # abgeschlossen", also fuehlt sich das Update dann an, als wuerde es "am Ende ewig
+    # laden". Der Check ist rein informativ, daher lieber nach kurzer Frist ueberspringen
+    # als den Kunden minutenlang vor einer stehenden Konsole warten zu lassen.
     print()
     print(f"  {CY}[>]{R}  Pruefe Webseiten-Deploy (GitHub + Railway)...")
     try:
         import config            # laedt .env in os.environ (idempotent, evtl. schon geladen)
         import website_builder
-        for line in website_builder.deploy_status_text().splitlines():
-            if line.startswith("[OK]") or line.startswith("Deploy bereit"):
-                col = GR
-            elif line.startswith("[!]") or line.startswith("Deploy NICHT"):
-                col = YL
-            else:
-                col = GY
-            print(f"     {col}{line}{R}")
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        # KEIN "with"/shutdown(wait=True) hier: das wuerde beim Verlassen des Blocks auf den
+        # haengenden Thread warten und den Timeout unten wirkungslos machen. Der Thread darf
+        # im Hintergrund verwaisen -- das folgende os._exit(0) am Skriptende toetet ihn ohnehin.
+        _ex = ThreadPoolExecutor(max_workers=1)
+        future = _ex.submit(website_builder.deploy_status_text)
+        try:
+            text = future.result(timeout=15)
+        except _FutTimeout:
+            print(f"     {YL}Deploy-Check uebersprungen: GitHub/Railway antworten zu "
+                  f"langsam (>15s) -- kein Problem fuer JARVIS selbst.{R}")
+            text = None
+        if text is not None:
+            for line in text.splitlines():
+                if line.startswith("[OK]") or line.startswith("Deploy bereit"):
+                    col = GR
+                elif line.startswith("[!]") or line.startswith("Deploy NICHT"):
+                    col = YL
+                else:
+                    col = GY
+                print(f"     {col}{line}{R}")
     except Exception as e:
         print(f"     {YL}Deploy-Check uebersprungen: {str(e)[:80]}{R}")
 
