@@ -91,7 +91,9 @@
   --pu:    #9b5de5;
   --tx:    #c4d4e4;
   --tx2:   #6080a0;
-  --tx3:   #2a4060;
+  --tx3:   #6684a8;   /* WCAG-AA-Fix: alt #2a4060 lag bei ~1.9:1 Kontrast auf --bg/--bg2/--bg3,
+                          weit unter den geforderten 4.5:1 fuer Text. Neuer Wert passt sich knapp
+                          unter --tx2 ein und erreicht ≥4.5:1 auf allen drei Hintergrundtoenen. */
   --hot:   #ff3b4e;
   --warm:  #ffc93d;
   --cold:  #3b82f6;
