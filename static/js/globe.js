@@ -117,22 +117,24 @@ function _roundRect(ctx,x,y,w,h,r){
 }
 
 const _TYP_COL = { hot:'#ff5a4e', warm:'#ffd24d', cold:'#4dc3ff' };
-// 2K-Fallback (three.js) + ultrarealistische 8K-NASA-Texturen (turban/webgl-earth via jsDelivr).
+// 2K-Fallback (three.js, versionsgepinnt @r128) + hochauflösende Texturen von three-globe
+// (npm-Paket, versionsgepinnt @2.31.0 — jsDelivr garantiert Uptime fuer /npm/-Pakete, anders
+// als /gh/-Links auf einzelne, unversionierte GitHub-Repos wie das fruehere turban/webgl-earth,
+// dessen @master-Branch zwischenzeitlich verschwunden ist und nur noch 404 lieferte).
 const _TEX     = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
-const _TEX_HI  = 'https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/';
-// Texturen je Slot als Fallback-Kette: erst 8K (scharf beim Zoom), sonst 2K. Schwache Hardware
-// (_LOWPWR) lädt nur die 2K-Variante (Bandbreite/Speicher schonen).
+const _TEX_HI  = 'https://cdn.jsdelivr.net/npm/three-globe@2.31.0/example/img/';
+// Texturen je Slot als Fallback-Kette: erst hochauflösend (scharf beim Zoom), sonst 2K. Schwache
+// Hardware (_LOWPWR) lädt nur die 2K-Variante (Bandbreite/Speicher schonen).
 const _EARTH_TEX = {
   day:      _LOWPWR ? [_TEX+'earth_atmos_2048.jpg']
-                    : [_TEX_HI+'2_no_clouds_8k.jpg', _TEX+'earth_atmos_2048.jpg'],
+                    : [_TEX_HI+'earth-blue-marble.jpg', _TEX+'earth_atmos_2048.jpg'],
   specular: _LOWPWR ? [_TEX+'earth_specular_2048.jpg']
-                    : [_TEX_HI+'water_8k.png', _TEX+'earth_specular_2048.jpg'],
+                    : [_TEX_HI+'earth-water.png', _TEX+'earth_specular_2048.jpg'],
   bump:     _LOWPWR ? [_TEX+'earth_normal_2048.jpg']
-                    : [_TEX_HI+'elev_bump_4k.jpg', _TEX+'earth_normal_2048.jpg'],
+                    : [_TEX_HI+'earth-topology.png', _TEX+'earth_normal_2048.jpg'],
   night:    _LOWPWR ? [_TEX+'earth_lights_2048.png']
-                    : [_TEX_HI+'5_night_8k.jpg', _TEX+'earth_lights_2048.png'],
-  clouds:   _LOWPWR ? [_TEX+'earth_clouds_1024.png']
-                    : [_TEX_HI+'fair_clouds_4k.png', _TEX+'earth_clouds_1024.png'],
+                    : [_TEX_HI+'earth-night.jpg', _TEX+'earth_lights_2048.png'],
+  clouds:   [_TEX+'earth_clouds_1024.png'],
 };
 // Lädt die erste ladbare URL aus der Kette (8K→2K). onLoad bekommt die Textur; scheitert eine
 // URL (404/CORS), wird automatisch die nächste versucht — der Globus rendert nie ohne Erde.
@@ -366,7 +368,7 @@ function initGlobe(){
   group.quaternion.setFromUnitVectors(_llv(_DE[0], _DE[1], 1).normalize(), new THREE.Vector3(0,0,1));
 
   _gb = {scene, cam, renderer, pivot, group, earth, clouds, night, stars, R,
-         markers:[], beams:[], labels:[], rings:[], leadMarkers:[], wrap, cv,
+         markers:[], beams:[], labels:[], rings:[], leadMarkers:[], arcs:[], arcPulses:[], wrap, cv,
          userY:0, userX:0.14, dragging:false, lastX:0, lastY:0,
          introT:0, t:0, introY:0, targetZ:3.4, zoom:6.6, raf:0, _leadPoll:0,
          ray:new THREE.Raycaster(), mouse:new THREE.Vector2(-9,-9)};
@@ -498,6 +500,40 @@ async function _loadGlobeLocations(){
     }
   });
 
+  // ── Netzwerk-Bögen: leuchtende Verbindungen von der stärksten zu den nächststärksten
+  // Lead-Städten — macht das "Lead-Netzwerk" direkt auf dem Globus sichtbar, mit
+  // wanderndem Lichtpuls je Bogen (Sternform: 1 Hub → mehrere Ziele, kostet nur N-1 Bögen).
+  const hubCap = _LOWPWR ? 0 : 7;
+  if(hubCap > 0 && byN.length > 1){
+    const hub = byN[0].l;
+    const [hLat,hLng] = _coordsFor(hub.stadt, hub.bundesland);
+    const hDir = _llv(hLat, hLng, 1).normalize();
+    byN.slice(1, hubCap).forEach((o,ai)=>{
+      const [lat,lng] = _coordsFor(o.l.stadt, o.l.bundesland);
+      const dir = _llv(lat, lng, 1).normalize();
+      if(dir.distanceTo(hDir) < 0.0008) return; // exakt identische Koordinate wie Hub → kein Bogen
+      const dom = (o.l.hot>=o.l.warm && o.l.hot>=o.l.cold) ? 'hot' : (o.l.warm>=o.l.cold ? 'warm' : 'cold');
+      const col = _TYP_COL[dom];
+      const mid = hDir.clone().add(dir).normalize().multiplyScalar(_gb.R*(1.2 + 0.08*ai));
+      const p0 = hDir.clone().multiplyScalar(_gb.R*1.01);
+      const p1 = dir.clone().multiplyScalar(_gb.R*1.01);
+      const curve = new THREE.QuadraticBezierCurve3(p0, mid, p1);
+
+      const tubeMat = new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:0.22,
+        blending:THREE.AdditiveBlending, depthWrite:false});
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.0026, 6, false), tubeMat);
+      tube.userData = {phase:(ai*0.8)%6.283};
+      _gb.group.add(tube); _gb.arcs.push(tube);
+
+      const pulseMat = new THREE.SpriteMaterial({map:_glowTex(col), transparent:true,
+        blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, opacity:0.95});
+      const pulse = new THREE.Sprite(pulseMat);
+      pulse.scale.set(0.032,0.032,1);
+      pulse.userData = {curve, phase:(ai*0.31)%1, speed:0.11+ai*0.012};
+      _gb.group.add(pulse); _gb.arcPulses.push(pulse);
+    });
+  }
+
   const cnt = document.getElementById('globe-count');
   if(cnt){
     cnt.dataset.base = `${total} Standorte · ${leads} Leads`;
@@ -521,6 +557,8 @@ function _disposeMarkerLayer(){
   g.beams.forEach(kill);  g.beams=[];
   g.rings.forEach(kill);  g.rings=[];
   g.labels.forEach(kill); g.labels=[];
+  (g.arcs||[]).forEach(kill); g.arcs=[];
+  (g.arcPulses||[]).forEach(kill); g.arcPulses=[];
 }
 
 function _wireGlobe(cv){
@@ -617,6 +655,17 @@ function _globeLoop(){
   // Beams pulsieren in Helligkeit.
   for(const b of g.beams){
     b.material.opacity = (0.3 + 0.25*amp*Math.abs(Math.sin(g.t*1.6 + b.userData.phase)));
+  }
+  // Netzwerk-Bögen: sanftes Atmen der Glow-Linie.
+  for(const a of g.arcs){
+    a.material.opacity = 0.14 + 0.14*amp*Math.abs(Math.sin(g.t*0.7 + (a.userData.phase||0)));
+  }
+  // Lichtpulse wandern entlang ihres Bogens, verblassen an Start/Ziel (Sinus-Fade).
+  for(const p of g.arcPulses){
+    const u=p.userData;
+    const tt = (g.t*u.speed + u.phase) % 1;
+    p.position.copy(u.curve.getPoint(tt));
+    p.material.opacity = 0.9*amp*Math.sin(tt*Math.PI);
   }
   // Labels immer zur Kamera + nur sichtbar wenn auf der Vorderseite (nicht hinter dem Globus).
   if(g.labels.length){
