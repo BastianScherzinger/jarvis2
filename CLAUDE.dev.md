@@ -34,11 +34,18 @@ python startup_check.py # Standalone-Diagnose: prüft Deps/Keys/Playwright (NICH
 uv run ruff check .            # Linting
 uv run ruff format .           # Formatierung
 uv run mypy .                  # Type-Checking
-uv run pytest                  # Tests (tests/test_core.py)
+uv run pytest                  # Alle Tests (tests/)
+uv run pytest tests/test_leadpackages.py -v                              # Eine Testdatei
+uv run pytest tests/test_core.py::test_leadkey_stabil_und_case_insensitiv # Ein einzelner Test
 
 # Syntax-Check einer einzelnen Datei (Projekt-Konvention)
 python -m py_compile pfad/zur/datei.py
 ```
+
+`tests/`: `test_core.py` (reine Kernfunktionen: lead_key, `agents/quality`-Filter),
+`test_pipeline.py` (Website-Builder: 5-Seiten-Logik + Hero-Vorlagen, NICHT der
+Evaluator), `test_leadpackages.py` (LeadForge-Modul), `test_filmora_mcp.py`
+(Video-Studio MCP-Bridge).
 
 - Python **>= 3.11**. Windows-zentriert (PowerShell, UTF-8-Reconfigure in `start.py`).
 - Externe Voraussetzung: **Ollama** auf `127.0.0.1:11434`. Optional: Playwright-Chromium
@@ -99,6 +106,12 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   in `leadkey.py`, importiert von `db_evaluated` + `cloud_sync`. Supabase hat
   `UNIQUE(lead_key)`, Upsert nutzt `?on_conflict=lead_key`. `raw_id` ist lokal, wird
   NICHT in die Cloud gesynct.
+
+- **Marktplatz-Filter vor DB1:** `agents/quality.is_real_business(lead)` sortiert
+  Verzeichnis-/Vergleichsportal-Treffer (MyHammer, Check24, Handwerkskammer, wlw, ...)
+  aus, bevor ein Scraper (`scrapers/maps.py`, `golocal.py`, `elfacht.py`,
+  `dasoertliche.py`, `gelbe_seiten.py`, `agents/ai_worker.py`) den Lead überhaupt in
+  `db_raw` schreibt.
 
 - **Ollama-Zugang zentralisiert** in `scrapers/_http.py`: `ask_ollama`, `best_chat_model`,
   `warmup_ollama`, `ollama_models`. Eine `Semaphore(2)` begrenzt parallele Calls
@@ -196,6 +209,13 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   `erwartungswert_euro` ist jetzt ein **fester Paketpreis** (kein berechneter Erwartungswert mehr).
   `lead_typ="Archiviert"` wenn `preis=0` (gute Website vorhanden oder Kette).
   Ollama wählt einen Tier und begründet ihn; Heuristik greift wenn Ollama ausfällt.
+  Getrennt davon: **`pricing.py`** ist das kundenseitige Angebotspreissystem (Starter/Standard/
+  Premium, `tiers()` + `quote(features)`, alles via `JARVIS_PRICE_*` in `.env` überschreibbar)
+  für `/api/pricing` und **`reply_templates.py`**, das daraus fertige Antwort-Entwürfe für
+  Schritt 7 baut (`inbox_reader` erkennt „preisfrage" → `/api/reply/draft`). `offer_mail.py`
+  nutzt `pricing.py` NICHT — die Erstansprache nennt bewusst keinen Festpreis mehr (der
+  `preis`-Parameter wird dort nur aus Kompatibilität akzeptiert, nicht verwendet). Beide
+  Preis-Konzepte (interner Lead-Tier vs. Kunden-Angebotspreis) nicht verwechseln.
 
 - **Duplikat-Guard** (`duplicate_guard.py`): Vier Quellen in Reihenfolge (DB → Ordner →
   GitHub API → Railway API). `is_already_built(lead, check_apis=False)` für schnelle
@@ -225,6 +245,22 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
   `content.json["features_added"]`. Jedes Feature: `{key, label, spec}` — `spec` ist die
   präzise Bau-Anweisung.
 
+- **LeadForge-Datenpakete-Modul** (`leadpackages/`, Tab „📦 Datenpakete"): isoliertes
+  Zweit-Geschäft **neben** der Website-Verkaufs-Pipeline, berührt `scrapers/`, `agents/`,
+  `db_raw.py`/`db_evaluated.py` nicht. Eigene DB `data/lead_packages.db` (`db_packages.py`:
+  `stock_leads`/`packages`/`orders`). DE kommt per `migrate_from_evaluated()` **read-only**
+  aus `evaluated_leads`; AT über `sources_herold.py` (Scrapling-Wrapper `scrapling_engine.py`,
+  aktuell nur Stadt Wien verlässlich — andere Städte liefern 404 auf dem geratenen
+  URL-Schema); CH bewusst nicht angebunden (robots.txt verbietet local.ch/search.ch).
+  Mindestqualität: ≥2 von 3 Kontaktwegen (`db_packages.MIN_KONTAKTWEGE`), sonst wird gar
+  nicht gespeichert. Bewertung: `quality_score.py` (arithmetisch) + `potential_score.py`
+  (Ollama + Heuristik-Fallback, hart auf 6s begrenzt via `_ollama_bounded.py`). Feste
+  Bundle-Größen 50/200/1000 (`pricing_packages.py`, Startwerte); `package_builder.py` wählt
+  bestes Material zuerst; Export CSV/Excel mit Käufer-Wasserzeichen (`watermark.py`). Verkauf
+  ist manuell, kein Payment-Provider. `scheduler.py` (Hybrid-Vorrat) ist gebaut aber **nicht**
+  automatisch in `app.py` gestartet — On-Demand-Nachscrapen (`scheduler.ensure_stock()`) läuft
+  aber bereits bei jeder Bestellung. Details/Einschränkungen: `leadpackages/README.md`.
+
 ### Flask-API (`app.py`, Port 5000)
 
 - Steuerung: `/api/start`, `/api/stop`, `/api/status`, `/api/clear`
@@ -237,8 +273,41 @@ ALLE_REGIONEN × BRANCHEN  →  gemischt, in 6 disjunkte Chunks geteilt
 - Auto-Builder: `/api/auto-build/start|stop|status|daily`
 - Discord-Freigabe: `/api/discord/status|send-now`, `/api/reviews`
 - Home/Kosten: `/api/home/stats`, `/api/costs/today`, `/api/costs/history`, `/api/activity/recent`
+- Datenpakete (LeadForge): `/api/leadpackages/*` (`leadpackages/routes.py`)
+- Preis/Antwort: `/api/pricing`, `/api/reply/draft`
 
 ---
+
+## Skills für die Arbeit am Dashboard selbst (`.claude/skills/`)
+
+Nicht verwechseln mit `skills/<name>/SKILL.md` (Abschnitt Mehrstufiges Skill-Makeover) —
+das ist für den headless Claude, der IN einem gebauten Kunden-Website-Ordner läuft.
+`.claude/skills/` ist projektlokal für Claude Code **in diesem Repo** und wird automatisch
+geladen: `jarvis-dashboard-fx` (Three.js/Shader/Hologramm-Look für brain.js/globe.js/HUD),
+`jarvis-flask-refactor` (app.py aufteilen, Blueprint-Muster aus `leadpackages/routes.py`),
+`jarvis-perf-audit` (FPS/Lazy-Loading/Layout-Thrash am Dashboard-Frontend). Zusätzlich
+`accessibility` (WCAG-2.2-Audit, extern von github.com/addyosmani/web-quality-skills,
+MIT-Lizenz, vor Installation inhaltlich geprüft — keine der anderen dortigen Skills
+übernommen).
+
+## Arbeitsweise: Tokens sparen ohne Qualitätsverlust
+
+Kein Skill dafür (ein "bei jeder Aufgabe"-Skill würde selbst bei jedem Prompt mitgeladen
+und wäre damit kontraproduktiv) — stattdessen als feste, kompakte Regel hier:
+
+- Jede Datei **höchstens einmal lesen**. Nach Edit/Write nicht zur Kontrolle erneut lesen —
+  ein Fehler dort wirft ohnehin einen Tool-Error.
+- Unabhängige Tool-Calls (Reads, Greps, Globs) **parallel** in einer Nachricht bündeln statt
+  nacheinander.
+- **Gezielt suchen** (Grep mit engem Pattern/Pfad) statt breite `list_directory`/Volltext-Reads
+  großer Dateien, wenn nur ein Ausschnitt gebraucht wird.
+- **Edit statt Write** für kleine Änderungen an bestehenden Dateien — Write überträgt die
+  komplette Datei.
+- Kurze Statusmeldungen an Sir, keine Wiederholung dessen was gerade im Diff/Tool-Ergebnis
+  schon sichtbar ist.
+- Für repetitive/große Textmengen (Logs zusammenfassen, viele Dateien grob sichten) lieber an
+  `local_ai_worker` (Ollama, kostenlos, läuft in der App selbst) delegieren statt es über
+  Claude-API-Tokens zu lösen — bereits etabliertes Muster in diesem Projekt.
 
 ## Konventionen & Stolperfallen
 
