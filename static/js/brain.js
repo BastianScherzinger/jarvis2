@@ -210,6 +210,7 @@
     const tmpVec = new THREE.Vector3();
     (function animK() {
       requestAnimationFrame(animK);
+      if (canvas.offsetParent === null) return; // Panel ausgeblendet (anderer Reiter) — Frame ueberspringen
       t += 0.006;
 
       if (autoRotate) {
