@@ -778,6 +778,17 @@ async function _autoPoll(){
   if(_autoOn) _autoTimer = setTimeout(_autoPoll, 6000);   // gedrosselt von 3 s → 6 s
 }
 
+// ── Sidebar Collapse ────────────────────────────────────────────────────────
+function toggleSidebar(){
+  const on = document.body.classList.toggle('sb-collapsed');
+  try{ localStorage.setItem('jarvis_sb_collapsed', on ? '1' : '0'); }catch{}
+}
+function _initSidebar(){
+  try{
+    if(localStorage.getItem('jarvis_sb_collapsed') === '1') document.body.classList.add('sb-collapsed');
+  }catch{}
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async()=>{
   try{
@@ -791,6 +802,7 @@ async function _autoPoll(){
   _applyCustomBg();
   setInterval(loadTop, 30000);
   _initPageFromHash();
+  _initSidebar();
   _autoPoll();
   _limitPoll();
 })();

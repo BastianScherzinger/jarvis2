@@ -18,30 +18,89 @@
   <span id="claude-limit-text">Claude-Session-Limit erreicht — Webseiten-Verbesserung pausiert.</span>
 </div>
 
-<!-- ══════════════════════════════ TOPBAR ══════════════════════════════════ -->
-<header class="topbar">
-  <div class="brand">
+<!-- ══════════════════════════════ SIDEBAR ═════════════════════════════════ -->
+<nav class="sidebar" id="sidebar">
+  <div class="sb-head">
     <canvas class="arc-canvas" id="arc-canvas" width="32" height="32"></canvas>
-    <div>
+    <div class="sb-brand" id="sb-brand">
       <div class="brand-name">JARVIS</div>
       <div class="brand-sub">LeadHunter</div>
     </div>
   </div>
 
-  <nav class="topnav">
-    <button class="topnav-btn"        data-page="home"    onclick="showPage('home')">⌂ Home</button>
-    <button class="topnav-btn active" data-page="leads"   onclick="showPage('leads')">Leads</button>
-    <button class="topnav-btn"        data-page="media"   onclick="showPage('media')">Medien</button>
-    <button class="topnav-btn"        data-page="graph"   onclick="showPage('graph')">Graph</button>
-    <button class="topnav-btn"        data-page="ranking" onclick="showPage('ranking')">Rangliste</button>
-    <button class="topnav-btn"        data-page="websites" onclick="showPage('websites')">Webseiten</button>
-    <button class="topnav-btn"        data-page="custom"  onclick="showPage('custom')">Eigene Marke</button>
-    <button class="topnav-btn"        data-page="claude"  onclick="showPage('claude')">Claude</button>
-    <button class="topnav-btn"        data-page="video-studio" onclick="showPage('video-studio')">Video-Studio</button>
-    <button class="topnav-btn"        data-page="leadpackages" onclick="showPage('leadpackages')">📦 Datenpakete</button>
-    <button class="topnav-btn topnav-costs" data-page="costs" onclick="showPage('costs')">€ Kosten</button>
-  </nav>
+  <div class="sb-scroll">
+    <div class="sb-group">
+      <div class="sb-group-lbl">Übersicht</div>
+      <button class="topnav-btn" data-page="home" onclick="showPage('home')" title="Home">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Home</span>
+      </button>
+    </div>
 
+    <div class="sb-group">
+      <div class="sb-group-lbl">Akquise</div>
+      <button class="topnav-btn active" data-page="leads" onclick="showPage('leads')" title="Leads">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Leads</span>
+      </button>
+      <button class="topnav-btn" data-page="ranking" onclick="showPage('ranking')" title="Rangliste">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>Rangliste</span>
+      </button>
+      <button class="topnav-btn" data-page="graph" onclick="showPage('graph')" title="Graph">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span>Graph</span>
+      </button>
+    </div>
+
+    <div class="sb-group">
+      <div class="sb-group-lbl">Produktion</div>
+      <button class="topnav-btn" data-page="websites" onclick="showPage('websites')" title="Webseiten">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <span>Webseiten</span>
+      </button>
+      <button class="topnav-btn" data-page="custom" onclick="showPage('custom')" title="Eigene Marke">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+        <span>Eigene Marke</span>
+      </button>
+      <button class="topnav-btn" data-page="media" onclick="showPage('media')" title="Medien">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        <span>Medien</span>
+      </button>
+      <button class="topnav-btn" data-page="video-studio" onclick="showPage('video-studio')" title="Video-Studio">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span>Video-Studio</span>
+      </button>
+    </div>
+
+    <div class="sb-group">
+      <div class="sb-group-lbl">Daten</div>
+      <button class="topnav-btn" data-page="leadpackages" onclick="showPage('leadpackages')" title="Datenpakete">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <span>Datenpakete</span>
+      </button>
+    </div>
+
+    <div class="sb-group">
+      <div class="sb-group-lbl">System</div>
+      <button class="topnav-btn" data-page="claude" onclick="showPage('claude')" title="Claude">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Claude</span>
+      </button>
+      <button class="topnav-btn topnav-costs" data-page="costs" onclick="showPage('costs')" title="Kosten">
+        <span class="sb-euro" aria-hidden="true">€</span>
+        <span>Kosten</span>
+      </button>
+    </div>
+  </div>
+
+  <button class="sb-collapse-btn" id="sb-collapse-btn" onclick="toggleSidebar()" title="Sidebar ein-/ausklappen" aria-label="Sidebar ein-/ausklappen">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+</nav>
+
+<!-- ══════════════════════════════ TOPBAR ══════════════════════════════════ -->
+<header class="topbar">
   <div class="topbar-center">
     <span class="local-badge" title="Vollständig lokal — kein Cloud-Dienst">⬡ 100% LOKAL</span>
 
@@ -862,7 +921,7 @@
       </div>
       <div class="hstat-card hstat-sent">
         <div class="hstat-val" id="hstat-sent">–</div>
-        <div class="hstat-lbl">📨 Mails versandt</div>
+        <div class="hstat-lbl">Mails versandt</div>
       </div>
       <div class="hstat-card hstat-build">
         <div class="hstat-val" id="hstat-build">–</div>
@@ -888,21 +947,27 @@
     <!-- ══ TESTPHASE-BANNER ══ -->
     <div class="testphase">
       <div class="tp-left">
-        <span class="tp-badge">🧪 Finale Testphase</span>
+        <span class="tp-badge"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Finale Testphase</span>
         <div class="tp-title">System komplett gebaut — mehrere Tage im Dauertest</div>
         <div class="tp-sub">Über mehrere Tage autonom durchgelaufen: Seiten gebaut, live deployt, per Discord freigegeben und Angebote versandt. <b>Erste echte Kundenantwort ist eingegangen</b> — die Pipeline trägt bis ans Ziel.</div>
         <div class="tp-progress"><div class="tp-progress-fill" id="tp-progress-fill" style="width:0%"></div></div>
         <div class="tp-progress-lbl" id="tp-progress-lbl">Reifegrad wird berechnet …</div>
       </div>
       <div class="tp-right">
-        <button class="tp-btn" onclick="loadHome()">↻ Fortschritt aktualisieren</button>
-        <a class="tp-btn ghost" href="#" onclick="showPage('websites');return false;">🌐 Seiten ansehen</a>
+        <button class="tp-btn" onclick="loadHome()">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Fortschritt aktualisieren
+        </button>
+        <a class="tp-btn ghost" href="#" onclick="showPage('websites');return false;">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Seiten ansehen
+        </a>
       </div>
     </div>
 
     <!-- ══ TESTPHASE-ERGEBNIS (mehrere Tage Dauertest) ══ -->
     <div class="tp-result">
-      <span class="tpr-ic">✅</span>
+      <span class="tpr-ic"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
       <div class="tpr-tx">
         <b>Testphase-Ergebnis:</b> System lief über mehrere Tage autonom durch — Leads bewertet, Webseiten gebaut, live deployt, per Discord freigegeben und Angebotsmails versandt.
         <span class="tpr-hl">Erste echte Kundenantwort ist eingegangen</span> — Schritt&nbsp;7 (Abschluss) damit zum ersten Mal real erreicht. Die Kette hält vom Lead bis zur Antwort.
@@ -912,16 +977,16 @@
     <!-- ══ WAS JETZT ALLES GEBAUT IST (Fähigkeiten) ══ -->
     <div class="feat-head">Was jetzt alles gebaut ist</div>
     <div class="feat-grid">
-      <div class="feat-card"><div class="feat-ic">🏭</div><div class="feat-tx"><b>Auto-Builder</b><span>3 Bau-Sessions/Tag × 5 = bis zu 15 Seiten — voll automatisch</span></div></div>
-      <div class="feat-card"><div class="feat-ic">🛠️</div><div class="feat-tx"><b>Selbstheilung (Heal-Mode)</b><span>Live-Watcher prüft jede Seite alle ~2 Min und deployt tote Links selbst neu</span></div></div>
-      <div class="feat-card"><div class="feat-ic">🎨</div><div class="feat-tx"><b>Eigene Marke</b><span>Eigene Seiten bauen — zählen im selben Tagesrhythmus mit</span></div></div>
-      <div class="feat-card"><div class="feat-ic">✉️</div><div class="feat-tx"><b>Seriöse Angebotsmail</b><span>Betont selbst gebautes Design, Bilder, Animationen & laufende Betreuung</span></div></div>
-      <div class="feat-card"><div class="feat-ic">🔎</div><div class="feat-tx"><b>Kontakt-Finder</b><span>Findet die Kunden-E-Mail aktiv (Impressum/Kontakt) schon beim Bau</span></div></div>
-      <div class="feat-card"><div class="feat-ic">🗳️</div><div class="feat-tx"><b>Discord-Freigabe</b><span>1× 👍 gibt frei, 1× 👎 verwirft — 12-Uhr-Versand mit Einzel-Report</span></div></div>
-      <div class="feat-card"><div class="feat-ic">📈</div><div class="feat-tx"><b>Hochskalieren-bereit</b><span>Hardware-Empfehlung + Knöpfe für Sessions, Seiten & lokale KI</span></div></div>
-      <div class="feat-card"><div class="feat-ic">🖼️</div><div class="feat-tx"><b>Medien-Studio</b><span>Hero-Bilder & Werbevideos via Higgsfield-Abo, lokal-first</span></div></div>
-      <div class="feat-card"><div class="feat-ic">☁️</div><div class="feat-tx"><b>Cloud-Sync</b><span>Leads & Seiten über Supabase über mehrere PCs hinweg</span></div></div>
-      <div class="feat-card"><div class="feat-ic">⚖️</div><div class="feat-tx"><b>Rechtssicher</b><span>Impressum, Ein-Klick-Abmeldung & Opt-out in jeder Mail</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div><div class="feat-tx"><b>Auto-Builder</b><span>3 Bau-Sessions/Tag × 5 = bis zu 15 Seiten — voll automatisch</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><div class="feat-tx"><b>Selbstheilung (Heal-Mode)</b><span>Live-Watcher prüft jede Seite alle ~2 Min und deployt tote Links selbst neu</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg></div><div class="feat-tx"><b>Eigene Marke</b><span>Eigene Seiten bauen — zählen im selben Tagesrhythmus mit</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z" opacity="0"/><path d="M22 6c0 1.1-8.9 8-10 8S2 7.1 2 6"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg></div><div class="feat-tx"><b>Seriöse Angebotsmail</b><span>Betont selbst gebautes Design, Bilder, Animationen & laufende Betreuung</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="feat-tx"><b>Kontakt-Finder</b><span>Findet die Kunden-E-Mail aktiv (Impressum/Kontakt) schon beim Bau</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></div><div class="feat-tx"><b>Discord-Freigabe</b><span>1× Daumen hoch gibt frei, 1× runter verwirft — 12-Uhr-Versand mit Einzel-Report</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div><div class="feat-tx"><b>Hochskalieren-bereit</b><span>Hardware-Empfehlung + Knöpfe für Sessions, Seiten & lokale KI</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><div class="feat-tx"><b>Medien-Studio</b><span>Hero-Bilder & Werbevideos via Higgsfield-Abo, lokal-first</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></div><div class="feat-tx"><b>Cloud-Sync</b><span>Leads & Seiten über Supabase über mehrere PCs hinweg</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="feat-tx"><b>Rechtssicher</b><span>Impressum, Ein-Klick-Abmeldung & Opt-out in jeder Mail</span></div></div>
     </div>
 
     <!-- ══ PIPELINE (dynamisch) ══ -->
@@ -952,12 +1017,12 @@
     <!-- ══ FORTSCHRITT (live berechnet) ══ -->
     <div class="ov-meters">
       <div class="ov-meter">
-        <div class="ov-meter-top"><span>⚙ Technik</span><span class="ov-meter-pct" id="ov-tech-pct">–</span></div>
+        <div class="ov-meter-top"><span>Technik</span><span class="ov-meter-pct" id="ov-tech-pct">–</span></div>
         <div class="ov-meter-bar"><div class="ov-meter-fill tech" id="ov-tech-fill" style="width:0%"></div></div>
         <div class="ov-meter-note" id="ov-tech-note">Schritt 1–5 fertig · Webseiten gebaut · Discord-Freigabe aktiv</div>
       </div>
       <div class="ov-meter">
-        <div class="ov-meter-top"><span>💰 Umsatzbereitschaft</span><span class="ov-meter-pct warn" id="ov-money-pct">–</span></div>
+        <div class="ov-meter-top"><span>Umsatzbereitschaft</span><span class="ov-meter-pct warn" id="ov-money-pct">–</span></div>
         <div class="ov-meter-bar"><div class="ov-meter-fill money" id="ov-money-fill" style="width:0%"></div></div>
         <div class="ov-meter-note" id="ov-money-note">Fehlt: SMTP einrichten + erstes Angebot versenden</div>
       </div>
