@@ -51,6 +51,14 @@ _MODEL_LITE = (os.environ.get("JARVIS_MAKEOVER_MODEL_LITE", "haiku").strip() or 
 _LIMIT_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_RETRIES", "0") or "0")
 _LIMIT_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_LIMIT_WAIT", "3600") or "3600")
 
+# Interner CLI-Fehler (claude_coder meldet cli_error=True, z.B. 'error_during_execution' — der
+# headless-Prozess bricht mitten im Lauf ab, meist ein kurzer API-Aussetzer, KEIN Session-Limit).
+# Kurze, schnelle Retries statt der stundenlangen Limit-Pause: 2× nach je 20s, dann aufgeben und
+# zur nächsten Stufe weiterziehen (die Stufe bleibt offen und wird beim nächsten Makeover-Lauf
+# der Seite erneut versucht — s. _pick_improve_target/_makeover_stuck in auto_builder.py).
+_CLI_ERROR_RETRIES = int(os.environ.get("JARVIS_MAKEOVER_CLI_RETRIES", "2") or "2")
+_CLI_ERROR_WAIT    = int(os.environ.get("JARVIS_MAKEOVER_CLI_WAIT", "20") or "20")
+
 
 # ── Die 3 Makeover-Stufen ───────────────────────────────────────────────────────
 # TOKEN-DISZIPLIN (seit 26.06.2026): Jede Stufe ist EIN eigener headless-Claude-Lauf, der den
@@ -1054,10 +1062,16 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
         prompt = _build_stage_prompt(folder, meta, stage, i + 1, total)
 
         # Stufe ausführen — bei Claude-Session-Limit bis zu _LIMIT_RETRIES× je _LIMIT_WAIT
-        # (Default 7× 1 h) warten und dieselbe Stufe erneut versuchen.
+        # (Default 7× 1 h) warten und dieselbe Stufe erneut versuchen. Ein interner CLI-Fehler
+        # (cli_error, z.B. 'error_during_execution' — der headless-Prozess bricht mitten im Lauf
+        # ab, meist ein kurzer API-Aussetzer) bekommt zusätzlich ein paar SCHNELLE Retries: ohne
+        # das wäre die Stufe nach einem einzigen Aussetzer für den Rest der Nacht verloren (die
+        # Stufe bliebe unmarkiert offen → Night-Builder landet in _makeover_stuck) statt dass ein
+        # zweiter Versuch direkt durchläuft.
         res: dict = {}
         changed = False
         attempt = 0
+        cli_attempt = 0
         while True:
             if stop and stop():
                 break
@@ -1071,7 +1085,19 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
                     say(_p, f"Makeover {_i}/{_t} · {_l} · {s}"),
             )
             changed = _fingerprint(folder) != fp0
-            if not _is_limit(res, changed):
+            if _is_limit(res, changed):
+                pass                                       # → Limit-Handling weiter unten
+            elif (res.get("cli_error") and res.get("retryable") and not changed
+                  and cli_attempt < _CLI_ERROR_RETRIES):
+                cli_attempt += 1
+                logger.warn("Makeover", f"{name} · '{stage['label']}' interner Claude-Fehler — "
+                                        f"Versuch {cli_attempt}/{_CLI_ERROR_RETRIES} in "
+                                        f"{_CLI_ERROR_WAIT}s: {str(res.get('reason',''))[:120]}")
+                say(pct, f"Claude-Fehler — erneuter Versuch ({cli_attempt}/{_CLI_ERROR_RETRIES})…")
+                if not _sleep_interruptible(_CLI_ERROR_WAIT, stop, None):
+                    break
+                continue
+            else:
                 break
             # Limit erkannt. Scope (Session/Weekly) + Roh-Meldung (für Reset-Zeit) bestimmen.
             _ltext = (res.get("summary") or "") + " " + (res.get("reason") or "")

@@ -10,6 +10,7 @@ import datetime
 from urllib.parse import urljoin, urlparse
 
 from scrapers._http import get as http_get, ddg_search
+import email_verify
 import logger
 
 _EMAIL_RE = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
@@ -52,6 +53,38 @@ def _domain(url: str) -> str:
 def _real_emails(html: str) -> list[str]:
     emails = _EMAIL_RE.findall(html or "")
     return [e for e in emails if not any(b in e.lower() for b in _BAD_DOMAINS)]
+
+
+def _mail_domain(email: str) -> str:
+    """Domain-Teil einer E-Mail (klein, www-bereinigt). "" wenn keine Adresse."""
+    e = (email or "").strip().lower()
+    if "@" not in e:
+        return ""
+    d = e.rsplit("@", 1)[1].strip().strip(".")
+    return d[4:] if d.startswith("www.") else d
+
+
+def _telefon_plausibel(tel: str) -> bool:
+    """Plausibilitätsprüfung einer Telefonnummer — zählt die TATSÄCHLICHEN Ziffern statt nur
+    (wie bisher) eine Zeichenklasse zu matchen. Verhindert, dass Deko/Platzhalter wie
+    '------', '00000' oder ' / ' als 'telefon_verifiziert' zählen und den Sicherheits-Score
+    (20 Punkte) fälschlich anheben. Kalibriert auf deutsche Rufnummern:
+    Länder-/Amtsvorwahl abgezogen bleiben grob 6–13 Teilnehmer-Ziffern."""
+    t = (tel or "").strip()
+    if not t:
+        return False
+    digits = re.sub(r"\D", "", t)
+    # +49 / 0049 / führende Amts-0 entfernen → reine Teilnehmer-Ziffernzahl
+    if digits.startswith("0049"):
+        digits = digits[4:]
+    elif digits.startswith("49") and len(digits) >= 11:
+        digits = digits[2:]
+    digits = digits.lstrip("0")
+    if not (6 <= len(digits) <= 13):
+        return False
+    if len(set(digits)) <= 1:                 # 000000 / 111111 ist keine echte Nummer
+        return False
+    return True
 
 
 # Inhaber/Geschäftsführer aus Impressum (für persönliche Mail-Anrede).
@@ -161,6 +194,7 @@ def analyze(lead: dict) -> dict:
         "has_website": 0,
         "website_url": "",
         "email_vorhanden": 0, "email_adresse": "",
+        "email_geprueft": 0,     # 1 = mind. eine Adresse per DNS/MX als zustellbar bestätigt
         "email_alle": [],        # alle gefundenen echten E-Mails
         "ansprechpartner": "",   # Inhaber/GF aus Impressum (für persönliche Anrede)
         "telefon_verifiziert": 0,
@@ -176,7 +210,7 @@ def analyze(lead: dict) -> dict:
 
     # ── Schritt 4 vorab: Telefon-Format-Check ───────────────────────────────
     tel = (lead.get("telefon") or "").strip()
-    if tel and len(tel) >= 6 and re.search(r'[\d\s\-\+\(\)]{6,}', tel):
+    if _telefon_plausibel(tel):
         result["telefon_verifiziert"] = 1
 
     # ── Schritt 1: Website aktiv finden (EINE Suche, geteilt mit SocialRes) ──
@@ -240,9 +274,33 @@ def analyze(lead: dict) -> dict:
                     result["ansprechpartner"] = ap
 
             if alle:
-                result["email_vorhanden"] = 1
-                result["email_adresse"]   = alle[0][:100]
-                result["email_alle"]      = [e[:100] for e in alle[:8]]
+                # (a) DNS/MX-Zustellbarkeit: Adressen mit definitiv toter Domain rauswerfen —
+                #     eine Mail dorthin bounct garantiert zurück. Unklare (DNS-Ausfall) bleiben
+                #     drin (best-effort), zählen aber nicht als "geprüft".
+                zustellbar: list[str] = []
+                geprueft = False
+                for e in alle:
+                    mx = email_verify.is_deliverable(e)
+                    if mx is False:
+                        steps.append(f"E-Mail verworfen (Domain ohne Mailserver): {e}")
+                        continue
+                    zustellbar.append(e)
+                    if mx is True:
+                        geprueft = True
+
+                # (b) Passgenauigkeit: E-Mails deren Domain zur gefundenen Website-Domain passt
+                #     nach vorne — eine Seite listet oft auch Fremd-Adressen (Web-Designer, Portal),
+                #     die eigene Betriebs-Adresse trägt die Website-Domain. Verhindert, dass die
+                #     Akquise-Mail an den Dienstleister statt an den Betrieb geht.
+                web_dom = _domain(url)
+                if web_dom:
+                    zustellbar.sort(key=lambda e: 0 if _mail_domain(e) == web_dom else 1)
+
+                if zustellbar:
+                    result["email_vorhanden"] = 1
+                    result["email_geprueft"]  = 1 if geprueft else 0
+                    result["email_adresse"]   = zustellbar[0][:100]
+                    result["email_alle"]      = [e[:100] for e in zustellbar[:8]]
 
             low = html.lower()
 

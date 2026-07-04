@@ -167,6 +167,93 @@ def test_sicherheit_erreichbar_vs_kette():
     assert kette == 0   # Kette-Malus zieht auf 0 (geclampt)
 
 
+def test_sicherheit_email_unverifiziert_weniger_punkte():
+    # Eine per DNS/MX bestätigte Adresse gibt die vollen 35 Punkte, eine nur syntaktisch
+    # gefundene (Domain nicht verifizierbar) nur 22 → verhindert, dass eine potenziell
+    # unzustellbare Adresse denselben Sicherheits-Bonus wie eine geprüfte bekommt.
+    from agents.evaluator.score_writer import _sicherheit
+    geprueft, _ = _sicherheit(
+        {"adresse": ""}, {"email_vorhanden": 1, "email_geprueft": 1},
+        {}, rev=0, ist_privat=0, firmengroesse="unbekannt")
+    unverifiziert, _ = _sicherheit(
+        {"adresse": ""}, {"email_vorhanden": 1, "email_geprueft": 0},
+        {}, rev=0, ist_privat=0, firmengroesse="unbekannt")
+    assert geprueft == 35 and unverifiziert == 22
+    assert unverifiziert < geprueft
+
+
+# ── E-Mail-Zustellbarkeit (DNS/MX; gemockt — KEIN echter Netzwerk-/DNS-Call) ───
+def test_email_verify_domain_of():
+    import email_verify as ev
+    assert ev.domain_of("Info@Firma-XY.de") == "firma-xy.de"
+    assert ev.domain_of("kontakt@www.beispiel.de") == "beispiel.de"   # www entfernt
+    assert ev.domain_of("kein-at-zeichen") == ""
+    assert ev.domain_of("a@b@c.de") == ""                             # zwei @ → ungültig
+    assert ev.domain_of("x@localhost") == ""                          # keine TLD → keine Mail-Domain
+
+
+def test_email_verify_drei_zustaende(monkeypatch):
+    import email_verify as ev
+    ev._cache.clear()
+    monkeypatch.setattr(ev, "_lookup", lambda d, t: True)
+    assert ev.has_mx("lebt-ok.de") is True
+    assert ev.is_deliverable("info@lebt-ok.de") is True
+    monkeypatch.setattr(ev, "_lookup", lambda d, t: False)
+    assert ev.has_mx("tot-weg.de") is False
+    assert ev.is_deliverable("info@tot-weg.de") is False
+    monkeypatch.setattr(ev, "_lookup", lambda d, t: None)
+    assert ev.has_mx("unklar-dns.de") is None            # DNS-Ausfall → unklar (nicht blockierend)
+    # ungültige Domain wird VOR dem Lookup abgefangen → definitiv nicht zustellbar
+    assert ev.is_deliverable("nur-muell") is False
+
+
+def test_email_verify_cache_nur_eindeutige_ergebnisse(monkeypatch):
+    import email_verify as ev
+    ev._cache.clear()
+    monkeypatch.setattr(ev, "_lookup", lambda d, t: None)
+    assert ev.has_mx("unklar-cache.de") is None
+    assert "unklar-cache.de" not in ev._cache            # 'unklar' wird NIE gecacht
+    monkeypatch.setattr(ev, "_lookup", lambda d, t: True)
+    assert ev.has_mx("klar-cache.de") is True
+    assert ev._cache.get("klar-cache.de") is True        # eindeutiges Ergebnis wird gecacht
+
+
+def test_mailer_blockt_tote_domain_vor_smtp(monkeypatch):
+    # Kern-Fix gegen die Bounce-Mails: eine definitiv tote Empfänger-Domain wird VOR dem
+    # SMTP-Versand abgelehnt (kein Bounce), eine unklare (DNS-Ausfall) blockiert NICHT.
+    import mailer, email_verify
+    monkeypatch.setattr(mailer, "is_enabled", lambda: True)
+    monkeypatch.setattr(mailer, "is_configured", lambda: True)
+    monkeypatch.delenv("JARVIS_EMAIL_REDIRECT", raising=False)
+    monkeypatch.setattr(email_verify, "is_deliverable", lambda to, timeout=3.0: False)
+    r = mailer.send_email("info@tote-domain-xyz.de", "Betreff", "Text")
+    assert r["ok"] is False and r["status"] == "unzustellbar"
+    # None (unklar) passiert das MX-Gate und läuft bis zur nächsten Stufe (hier: Rate-Limit)
+    monkeypatch.setattr(email_verify, "is_deliverable", lambda to, timeout=3.0: None)
+    monkeypatch.setattr(mailer, "_rate_ok", lambda: False)
+    r2 = mailer.send_email("info@unklar.de", "Betreff", "Text")
+    assert r2["status"] == "fehler" and "Stundenlimit" in r2["fehler"]
+
+
+# ── Telefon-Plausibilität + E-Mail-Domain-Vorzug (web_analyst, ohne Netz) ──────
+def test_telefon_plausibel():
+    from agents.evaluator.web_analyst import _telefon_plausibel
+    assert _telefon_plausibel("089 123456")              # echte Münchner Nummer
+    assert _telefon_plausibel("+49 30 1234567")          # mit Länder-Code
+    assert _telefon_plausibel("0049 171 2345678")        # 0049-Präfix
+    assert not _telefon_plausibel("------")              # Deko, keine Ziffern
+    assert not _telefon_plausibel("111111")              # nur eine Ziffer wiederholt
+    assert not _telefon_plausibel("12 34")               # zu kurz
+    assert not _telefon_plausibel("")
+
+
+def test_web_analyst_mail_domain():
+    from agents.evaluator.web_analyst import _mail_domain
+    assert _mail_domain("info@Firma-XY.de") == "firma-xy.de"
+    assert _mail_domain("x@www.beispiel.de") == "beispiel.de"
+    assert _mail_domain("kaputt") == ""
+
+
 # ── Firmennamen-Säuberung (quick_clean, deterministisch, ohne Netz/KI) ────────
 def test_nameclean_rolladen_spam_kuerzer_und_ohne_wiederholung():
     from agents.name_clean import quick_clean
@@ -853,6 +940,67 @@ def test_claude_coder_basics():
     assert isinstance(claude_coder.is_available(), bool)
     p = claude_coder.build_prompt("Baue eine Öffnungszeiten-Box.", "Friseur")
     assert "Öffnungszeiten" in p and "content.json" in p
+
+
+class _FakeStdIn:
+    def write(self, _s): pass
+    def close(self): pass
+
+
+class _FakePopen:
+    """Minimaler subprocess.Popen-Ersatz, der vorgegebene stream-json-Events liefert."""
+    def __init__(self, stdout_lines, stderr_lines=()):
+        self.pid = 4242
+        self.stdin = _FakeStdIn()
+        self.stdout = list(stdout_lines)
+        self.stderr = list(stderr_lines)
+    def poll(self):        # 0 = fertig → der Watchdog-Thread beendet sich sofort
+        return 0
+    def wait(self, timeout=None):
+        return 0
+
+
+def test_run_prompt_error_subtype_surfaces_real_reason(tmp_path, monkeypatch):
+    """Regression: Ein Result mit subtype 'error_during_execution' darf NICHT als Erfolg
+    durchgehen und der ECHTE Grund (result-Detail / stderr) muss im reason auftauchen —
+    nicht bloß der generische Code (analog zum discord_bot.py-'fehler'-Bug)."""
+    import json as _json
+    import subprocess as _sp
+    import claude_coder
+
+    monkeypatch.setattr(claude_coder, "_claude_cmd", lambda: "claude")
+    result_ev = {
+        "type": "result",
+        "subtype": "error_during_execution",
+        "is_error": True,
+        "result": "API Error: Internal server error (500)",
+        "usage": {"input_tokens": 10, "output_tokens": 2},
+    }
+    lines = [_json.dumps(result_ev)]
+    monkeypatch.setattr(_sp, "Popen", lambda *a, **k: _FakePopen(lines))
+
+    res = claude_coder.run_prompt(str(tmp_path), "mach was", name="TestSeite")
+    assert res["ok"] is False
+    assert "error_during_execution" in res["reason"]
+    assert "Internal server error" in res["reason"]         # echter Grund, nicht verschluckt
+
+
+def test_run_prompt_success_result_ok(tmp_path, monkeypatch):
+    """Gegenprobe: Ein sauberes Result (subtype success) läuft NICHT in den Fehlerpfad."""
+    import json as _json
+    import subprocess as _sp
+    import claude_coder
+
+    monkeypatch.setattr(claude_coder, "_claude_cmd", lambda: "claude")
+    # Render-Gate neutralisieren, damit der Test nicht am leeren tmp-Ordner scheitert.
+    monkeypatch.setattr(claude_coder, "_render_ok", lambda folder: (True, ""))
+    lines = [_json.dumps({"type": "result", "subtype": "success",
+                          "is_error": False, "result": "Fertig eingebaut."})]
+    monkeypatch.setattr(_sp, "Popen", lambda *a, **k: _FakePopen(lines))
+
+    res = claude_coder.run_prompt(str(tmp_path), "mach was", name="TestSeite")
+    assert res["ok"] is True
+    assert res.get("reason") in (None, "")           # kein Fehlergrund bei Erfolg
 
 
 def test_auto_builder_deep_step_off(monkeypatch):

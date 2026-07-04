@@ -17,3 +17,6 @@ scrapling>=0.4.9
 rapidfuzz>=3.14.0
 openpyxl>=3.1.0
 # Optional (nur fuer die MCP-Bruecke der lokalen KIs): pip install mcp ollama
+# Optional (echte MX-Record-Pruefung in email_verify.py): pip install dnspython
+#   -> ohne dnspython faellt die Zustellbarkeits-Pruefung sauber auf socket.getaddrinfo
+#      (A-Record) zurueck; dnspython erkennt zusaetzlich Domains mit A- aber ohne MX-Record.

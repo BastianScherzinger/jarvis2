@@ -28,7 +28,9 @@ _GASTRO = ["restaurant", "café", "cafe", "bäckerei", "baeckerei", "catering",
 
 # ── Sicherheits-Gewichte (Confidence 0-100) — kalibrierbar ────────────────────
 SICHERHEIT_GEWICHTE = {
-    "email":             35,   # E-Mail gefunden → direkt anschreibbar (wichtigster Faktor)
+    "email":             35,   # E-Mail per DNS/MX als zustellbar bestätigt → wichtigster Faktor
+    "email_unverifiziert": 22, # E-Mail nur syntaktisch gefunden, Domain nicht verifizierbar
+                               # (DNS-Ausfall): weniger Sicherheit, könnte bouncen → NICHT volle 35
     "telefon":           20,   # Telefon verifiziert → erreichbar
     "online_auffindbar": 10,   # Website oder Social vorhanden → real existent
     "adresse":            8,   # Postadresse bekannt
@@ -45,7 +47,11 @@ def _sicherheit(lead: dict, web: dict, social_media: dict, rev: int,
     """Belastbarkeit des Leads (0-100) + nachvollziehbare Aufschlüsselung."""
     g  = SICHERHEIT_GEWICHTE
     bd: dict[str, int] = {}
-    if web.get("email_vorhanden"):       bd["E-Mail erreichbar"]   = g["email"]
+    if web.get("email_vorhanden"):
+        # Volle Punkte nur für eine per DNS/MX bestätigt zustellbare Adresse. Eine nur
+        # syntaktisch gefundene (Domain nicht verifiziert) zählt reduziert — sie könnte
+        # unzustellbar sein und ist als Kontaktkanal weniger belastbar.
+        bd["E-Mail erreichbar"] = g["email"] if web.get("email_geprueft") else g["email_unverifiziert"]
     if web.get("telefon_verifiziert"):   bd["Telefon verifiziert"] = g["telefon"]
     if web.get("has_website") or social_media:
         bd["Online auffindbar"] = g["online_auffindbar"]

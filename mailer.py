@@ -107,6 +107,18 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
                 "fehler": "JARVIS_EMAIL_ENABLED=false — Trockenlauf, nichts gesendet"}
     if not is_configured():
         return {"ok": False, "status": "fehler", "fehler": "SMTP-Konfiguration unvollständig (.env)"}
+    # DNS/MX-SICHERHEITSNETZ (letzte Instanz vor SMTP): existiert die Empfänger-Domain und kann
+    # sie überhaupt Mail annehmen? Eine tote Domain erzeugt sonst einen Bounce zurück ins eigene
+    # Postfach — genau das gar nicht erst versuchen. NUR bei DEFINITIVEM Negativ abbrechen; ist
+    # die Domain-Lage unklar (DNS-Ausfall → None), wird best-effort trotzdem gesendet.
+    try:
+        import email_verify
+        if email_verify.is_deliverable(to) is False:
+            logger.warn("Mailer", f"Versand abgebrochen — Domain nicht zustellbar: {to}")
+            return {"ok": False, "status": "unzustellbar",
+                    "fehler": "Empfänger-Domain hat keinen Mailserver (MX/A fehlt) — würde bouncen"}
+    except Exception:
+        pass                                   # Prüfung ist best-effort, darf Versand nie blockieren
     if not _rate_ok():
         return {"ok": False, "status": "fehler", "fehler": "Stundenlimit erreicht (JARVIS_EMAIL_RATE)"}
 

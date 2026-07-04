@@ -310,6 +310,8 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
     data: "dict | None" = None
     summary = ""
     last_text = ""
+    err_sub = ""          # Fehler-Subtype des Result-Events (z.B. 'error_during_execution')
+    err_result = ""       # Detailtext AUS dem Result-Event (oft leer bei internen Fehlern)
     try:
         for line in proc.stdout:                  # blockiert je Event; Watchdog killt bei Stille
             if st["killed"]:                      # Watchdog hat abgebrochen → Leseschleife sofort verlassen
@@ -344,8 +346,12 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
                 data = ev
                 summary = (ev.get("result") or "")[:600]
                 if ev.get("is_error") or ev.get("subtype") not in (None, "success"):
-                    _lg("warn", f"{fname} · Claude meldet: "
-                                f"{ev.get('subtype', '')} {str(ev.get('result',''))[:120]}")
+                    # NUR merken — der ECHTE Grund steht bei internen Fehlern (subtype
+                    # 'error_during_execution') meist NICHT im (leeren) result-Feld, sondern im
+                    # stderr des CLI-Prozesses. Das ist aber erst nach proc.wait() vollständig
+                    # gedraint → die verständliche Meldung + Entscheidung folgt unten im Endblock.
+                    err_sub = str(ev.get("subtype") or "error")
+                    err_result = str(ev.get("result") or "").strip()
     except Exception as e:
         _lg("warn", f"{fname} · Stream-Lesefehler: {type(e).__name__}: {str(e)[:120]}")
     try:
@@ -386,6 +392,39 @@ def run_prompt(folder: str, prompt: str, branche: str = "", timeout: int = 0,
         tail = ("".join(err_buf))[-300:].strip()
         if tail:
             _lg("warn", f"{fname} · kein Result-Event — stderr: {tail[-200:]}")
+
+    # Claude-Code hat einen FEHLER-Result geliefert (z.B. 'error_during_execution' = interner
+    # Abbruch / API-Fehler mitten im Lauf, oder 'error_max_turns'). Früher wurde nur der generische
+    # Subtype geloggt und der echte Grund verschluckt — danach entschied allein der Render-Check,
+    # sodass eine Stufe trotz Claude-Fehler als „fertig" durchging bzw. der Grund für Sir unsichtbar
+    # blieb. Jetzt: den ECHTEN Grund (stderr-Detail) sichtbar loggen UND ehrlich zurückgeben.
+    if err_sub:
+        tail = ("".join(err_buf)).strip()[-300:]
+        err_detail = err_result or tail or last_text[:200]
+        reason = f"Claude-Fehler ({err_sub}): {err_detail[:200] or 'ohne Detail'}"
+        # Hat Claude vor dem Fehler schon echte Edits gemacht, die sauber rendern → Teil-Ergebnis
+        # behalten (gleiche Philosophie wie beim Watchdog: verbrauchte Tokens nicht wegwerfen).
+        if st["edits"] > 0:
+            ok_r, _fehler_r = _render_ok(folder)
+            if ok_r:
+                _lg("warn", f"⚠ {fname} · {err_sub} nach {dur}s — aber {st['edits']} Edits rendern "
+                            f"sauber → Teil-Ergebnis behalten. Grund: {err_detail[:160] or '(kein Detail)'}")
+                return {"ok": True, "render_ok": True, "partial": True, "reason": reason,
+                        "summary": summary or last_text[:200] or "Teil-Ergebnis behalten (Claude-Fehler)."}
+        # Sonst: keinen Erfolg vortäuschen — zurückrollen und den echten Grund zurückgeben, damit
+        # der Aufrufer ihn korrekt einordnet (transient → dranbleiben) statt die Seite grundlos
+        # als „fertig" zu markieren.
+        if tools and snap:
+            tools.restore(snap)
+        _lg("error", f"✕ {fname} · {reason[:180]} — nach {dur}s zurückgerollt "
+                     f"({st['tools']} Tools, {st['edits']} Edits).")
+        # cli_error=True markiert einen INTERNEN Abbruch des headless-Laufs (API-Hänger im CLI-
+        # Prozess, kein Logik-/Render-Fehler in unserem Code) — der Aufrufer (overnight_makeover)
+        # darf sowas kurz erneut versuchen statt die Seite nach einem einzigen Aussetzer für den
+        # Rest der Nacht als „stuck" abzuschreiben. 'error_max_turns' NICHT als retry-würdig
+        # markieren: ein identischer Retry würde mit gleichem Prompt/Budget wieder ins Limit laufen.
+        return {"ok": False, "render_ok": False, "reason": reason, "summary": summary,
+                "cli_error": True, "retryable": err_sub != "error_max_turns"}
 
     ok, fehler = _render_ok(folder)
     if not ok and tools and snap:
