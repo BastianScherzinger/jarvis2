@@ -8,6 +8,8 @@ let _feedCount      = 0;
 let _allLeads       = [];   // Session-Cache für Sphere + Filter
 let _sessionFinder  = {};   // {finder: count} nur Session
 let _evalRankTimer  = null; // Debounce für Ranking-Reload nach evaluated-Event
+let _sessionStartTs = 0;    // Start-Zeitpunkt des laufenden Sammel-Laufs (für Funde/h)
+let _startMetaTimer = null;
 
 // ── Finder-Registry ───────────────────────────────────────────────────────────
 const F = {
@@ -47,69 +49,6 @@ function fi(key){ return F[key] || {cls:'maps',av:'?',lbl:key||'?',icon:'?',sub:
   draw();
 })();
 
-// ── Three.js Lead-Sphäre ──────────────────────────────────────────────────────
-let _sphere = null;
-(function initSphere(){
-  const cv = document.getElementById('sphere-canvas');
-  if(!cv || typeof THREE === 'undefined') return;
-
-  const wrap = cv.parentElement;
-  const W = wrap.clientWidth  || 196;
-  const H = wrap.clientHeight || 196;
-
-  const scene    = new THREE.Scene();
-  const camera   = new THREE.PerspectiveCamera(55, W/H, 0.1, 100);
-  camera.position.z = 5.5;
-
-  const renderer = new THREE.WebGLRenderer({canvas:cv, alpha:true, antialias:true});
-  renderer.setSize(W, H);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  // Sphere wireframe
-  const wfGeo = new THREE.SphereGeometry(3, 18, 14);
-  const wfMat = new THREE.MeshBasicMaterial({color:0x1a2d40,wireframe:true,transparent:true,opacity:.12});
-  scene.add(new THREE.Mesh(wfGeo, wfMat));
-
-  // Points
-  const posArr = [], colArr = [];
-  const geo = new THREE.BufferGeometry();
-  const mat = new THREE.PointsMaterial({size:.1, vertexColors:true, transparent:true, opacity:.95});
-  const pts = new THREE.Points(geo, mat);
-  scene.add(pts);
-
-  let n = 0;
-  const PHI = Math.PI * (1 + Math.sqrt(5));
-
-  function addPoint(type){
-    const i   = n++;
-    // Fibonacci sphere distribution
-    const phi   = Math.acos(1 - 2*(i+0.5)/2000);
-    const theta = PHI * i;
-    const R     = 2.8 + (Math.random()-.5)*.2;
-    posArr.push(R*Math.sin(phi)*Math.cos(theta), R*Math.cos(phi), R*Math.sin(phi)*Math.sin(theta));
-    const C = type==='Hot'  ? [1,.23,.31]
-             : type==='Warm' ? [1,.79,.24]
-             :                 [.23,.51,.96];
-    colArr.push(...C);
-    geo.setAttribute('position', new THREE.Float32BufferAttribute([...posArr],3));
-    geo.setAttribute('color',    new THREE.Float32BufferAttribute([...colArr],3));
-    geo.attributes.position.needsUpdate = true;
-    geo.attributes.color.needsUpdate    = true;
-    document.getElementById('sphere-count').textContent = n;
-  }
-
-  let rx=0, ry=0;
-  function animate(){
-    requestAnimationFrame(animate);
-    pts.rotation.y += .004;
-    pts.rotation.x += .001;
-    renderer.render(scene, camera);
-  }
-  animate();
-
-  _sphere = { addPoint };
-})();
-
 // ── Start / Stop ──────────────────────────────────────────────────────────────
 function toggleScraper(){ _running ? stopScraper() : startScraper(); }
 
@@ -136,6 +75,46 @@ function _setUI(on){
   const ind = document.getElementById('live-ind');
   ind.classList.toggle('on', on);
   document.getElementById('live-lbl').textContent = on ? 'LIVE' : 'OFFLINE';
+
+  if(on){
+    if(!_sessionStartTs) _sessionStartTs = Date.now();
+    if(!_startMetaTimer) _startMetaTimer = setInterval(_updateStartMeta, 5000);
+    _updateStartMeta();
+  } else {
+    _sessionStartTs = 0;
+    if(_startMetaTimer){ clearInterval(_startMetaTimer); _startMetaTimer = null; }
+  }
+  _updateStartMetaVisibility();
+  _autoPoll();   // /api/start + /api/stop steuern den Auto-Builder mit — Anzeige sofort nachziehen
+}
+
+// start-meta bleibt sichtbar, solange IRGENDEIN Teil der Pipeline läuft (Scraper ODER
+// Auto-Builder) — beide werden vom selben Knopf gesteuert, können aber kurz auseinanderlaufen
+// (z.B. der Builder braucht noch einen Moment für seinen letzten Schritt beim Stoppen).
+function _updateStartMetaVisibility(){
+  const meta = document.getElementById('start-meta');
+  if(meta) meta.classList.toggle('show', _running || _autoOn);
+}
+
+// Funde/h + aktive Worker im Start-Button-Cluster (ergänzt _limitPoll, kein Extra-Fetch).
+function _updateStartMeta(){
+  const rateEl = document.getElementById('start-rate');
+  if(!rateEl) return;
+  const minutes = _sessionStartTs ? (Date.now() - _sessionStartTs) / 60000 : 0;
+  if(minutes < 2){
+    // Anlaufphase: eine Hochrechnung aus <2 Min. Laufzeit wäre stark verrauscht
+    // (wenige Funde × 30 hochgerechnet auf 1h) — erst absolute Zahl zeigen.
+    rateEl.textContent = `${_feedCount} Funde`;
+  } else {
+    rateEl.textContent = `${Math.round(_feedCount / (minutes / 60))} Funde/h`;
+  }
+}
+
+function _updateWorkerMeta(workers){
+  const el = document.getElementById('start-workers');
+  if(!el || !Array.isArray(workers)) return;
+  const alive = workers.filter(w => w.alive).length;
+  el.textContent = `${alive}/${workers.length || 6} Worker`;
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -240,9 +219,6 @@ function _onLead(lead){
   const feed = document.getElementById('chat-feed');
   feed.insertBefore(_buildMsg(lead), feed.firstChild);
   if(feed.children.length > 300) feed.lastChild?.remove();
-
-  // Sphere Punkt
-  _sphere?.addPoint(lead.lead_typ);
 
   // Hot Sidebar
   if(lead.lead_typ==='Hot') _addHotCard(lead);
@@ -737,6 +713,7 @@ function clearFeed(){
     <div class="empty-sub">Scraper läuft weiter im Hintergrund</div>
   </div>`;
   _allLeads=[];_feedCount=0;_sessionFinder={};
+  if(_running) _sessionStartTs = Date.now();   // Rate (Funde/h) ab jetzt neu zählen
   document.getElementById('feed-cnt').textContent='0';
   document.getElementById('hot-list').innerHTML='<div class="hot-empty">Noch keine Hot Leads</div>';
   document.getElementById('s-tel').textContent='0';
@@ -745,35 +722,23 @@ function clearFeed(){
 function exportCSV(){ window.location.href='/api/export/csv'; }
 
 // ── Auto-Website-Builder ────────────────────────────────────────────────────
+// Start/Stop laufen seit dem EINEN Start-Button über /api/start + /api/stop (siehe
+// toggleScraper()/_setUI()) — dieser Poller liefert nur noch die Live-Anzeige im
+// start-meta-Cluster ("n/5 Seiten"). Die ausführliche Ansicht bleibt auf der Home-Seite
+// (hm-builder-panel), unabhängig von diesem Poller.
 let _autoOn = false, _autoTimer = null;
-async function toggleAutoBuild(){
-  if(!_autoOn){
-    const ok = confirm('Auto-Website-Builder starten?\n\n'
-      + 'Baut pro Tag 10 Seiten für die besten Leads OHNE Website (bauen → deployen → '
-      + 'verbessern → E-Mail an Bastian). Danach verbessert er bestehende Seiten weiter '
-      + 'bis 10 Uhr. Setzt jeden Tag um 0 Uhr zurück. Läuft, bis du stoppst.');
-    if(!ok) return;
-    try{ await fetch('/api/auto-build/start', {method:'POST'}); }catch{}
-  }else{
-    try{ await fetch('/api/auto-build/stop', {method:'POST'}); }catch{}
-  }
-  _autoPoll();
-}
 async function _autoPoll(){
   let s;
   try{ s = await(await fetch('/api/auto-build/status')).json(); }catch{ return; }
   _autoOn = !!s.running;
-  const btn = document.getElementById('auto-btn'), lbl = document.getElementById('auto-lbl');
-  if(btn){
-    btn.classList.toggle('on', _autoOn);
-    if(_autoOn){
-      const day = (s.today_count!=null && s.daily_limit) ? `[${s.today_count}/${s.daily_limit}] ` : '';
-      const txt = s.current ? `${day}${s.current} — ${s.phase||''}` : `${day}${s.phase||'läuft…'}`;
-      lbl.textContent = txt.length > 42 ? txt.slice(0,41)+'…' : txt;
-    }else{
-      lbl.textContent = s.done ? `Auto-Builder · ${s.done} gebaut` : 'Auto-Builder';
-    }
+  const el = document.getElementById('start-build');
+  if(el){
+    const limit = s.daily_limit ?? 5;
+    el.textContent = _autoOn
+      ? `${s.today_count ?? 0}/${limit} Seiten`
+      : (s.done ? `${s.done} Seiten gebaut` : `0/${limit} Seiten`);
   }
+  _updateStartMetaVisibility();
   clearTimeout(_autoTimer);
   if(_autoOn) _autoTimer = setTimeout(_autoPoll, 6000);   // gedrosselt von 3 s → 6 s
 }
@@ -794,6 +759,7 @@ function _initSidebar(){
   try{
     const d=await(await fetch('/api/status')).json();
     if(d.stats) _applyStats(d.stats);
+    if(d.workers) _updateWorkerMeta(d.workers);
     if(d.running){_running=true;_setUI(true);_connectSSE();}
   }catch{}
   loadTop();
@@ -805,6 +771,12 @@ function _initSidebar(){
   _initSidebar();
   _autoPoll();
   _limitPoll();
+  // 'leads' (Mein Status) ist die statische Default-Seite — ohne passenden URL-Hash
+  // ruft _initPageFromHash() showPage() nie auf, darum hier zusätzlich absichern.
+  const _activePage = document.querySelector('.page.active');
+  if(!_activePage || _activePage.dataset.page === 'leads'){
+    loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll();
+  }
 })();
 
 // ── Claude-Limit-Banner: alle 15 s prüfen, bei vollem Limit direkt anzeigen ────
@@ -814,6 +786,7 @@ async function _limitPoll(){
     const d = await(await fetch('/api/status')).json();
     _claudeLimit = (d && d.claude_limit) || null;
     _renderLimitBanner(_claudeLimit);
+    if(d && d.workers) _updateWorkerMeta(d.workers);
   }catch{}
   setTimeout(_limitPoll, 15000);
 }
@@ -910,6 +883,9 @@ function showPage(name){
   if(name !== 'costs') _stopCostsPoll();
   if(name === 'home')  loadHome();
   if(name === 'costs') { loadCosts(); _startCostsPoll(); }
+  // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log) nur, solange sichtbar
+  if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); }
+  if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); }
 }
 
 function _initPageFromHash(){
@@ -1659,6 +1635,161 @@ function clearLogView() {
   const el = document.getElementById('log-entries');
   if (el) el.innerHTML = '';
   _logLastTs = '';
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MEIN STATUS — Status-Leiste, Website-Bau-Card, Versand-Queue (Leads-Tab)
+   ════════════════════════════════════════════════════════════════════════════ */
+let _myStatusPollId = null;
+
+async function loadMyStatus(){
+  let d;
+  try{ d = await(await fetch('/api/mystatus')).json(); }catch{ return; }
+  _renderMyStatus(d);
+}
+
+function _startMyStatusPoll(){
+  if(_myStatusPollId) clearInterval(_myStatusPollId);
+  _myStatusPollId = setInterval(loadMyStatus, 8000);
+}
+function _stopMyStatusPoll(){
+  if(_myStatusPollId){ clearInterval(_myStatusPollId); _myStatusPollId = null; }
+}
+
+function _fmtEta(seconds){
+  seconds = Math.max(0, Math.round(seconds||0));
+  if(seconds <= 0) return 'jetzt';
+  const m = Math.floor(seconds/60);
+  return m > 0 ? `${m} Min` : `${seconds}s`;
+}
+
+function _renderMyStatus(d){
+  if(!d) return;
+  const col  = d.collector || {};
+  const scr  = d.scraper   || {};
+  const bld  = d.builder   || {};
+  const web  = d.websites  || {};
+  const rev  = d.review    || {};
+  const cl   = d.claude_limit || {};
+  const paid = d.paid      || {};
+
+  // Sammler-Chip (10-Min-Sammel-Zyklus)
+  const cDot = document.getElementById('ms-collector-dot');
+  const cTxt = document.getElementById('ms-collector-txt');
+  if(cDot && cTxt){
+    if(!col.enabled){
+      cDot.className = 'ms-dot';
+      cTxt.textContent = 'Lead-Sammler deaktiviert';
+    } else if(col.in_window){
+      cDot.className = 'ms-dot on';
+      const left = Math.max(0, (col.run_seconds || 600) - (col.window_elapsed || 0));
+      cTxt.textContent = `Sammelt gerade — noch ${_fmtEta(left)}`;
+    } else if(scr.running){
+      cDot.className = 'ms-dot on';
+      cTxt.textContent = 'Läuft (manuell gestartet)';
+    } else {
+      cDot.className = 'ms-dot';
+      cTxt.textContent = `Nächster Lauf in ${_fmtEta(col.seconds_to_next)}`;
+    }
+  }
+  const wTxt = document.getElementById('ms-worker-txt');
+  if(wTxt){
+    const workers = scr.workers || [];
+    const alive = workers.filter(w => w.alive).length;
+    wTxt.textContent = `${alive}/${workers.length || 6} Worker`;
+  }
+
+  // Token-/Kosten-Leiste (Claude-Session-Limit für den Webseiten-Bau)
+  const tTxt  = document.getElementById('ms-token-txt');
+  const tFill = document.getElementById('ms-token-fill');
+  if(tTxt && tFill){
+    const pct = Math.min(100, Math.max(0, cl.percent || 0));
+    tTxt.textContent = `Session-Limit: ${pct}%`;
+    tFill.style.width = pct + '%';
+    tFill.className = 'ms-token-fill' + (pct >= 95 ? ' full' : pct >= 75 ? ' near' : '');
+  }
+  const costEl  = document.getElementById('ms-cost');
+  const costTxt = document.getElementById('ms-cost-txt');
+  if(costEl && costTxt){
+    const eur = Number(paid.api_eur_today || 0);
+    if(paid.paid && eur > 0){
+      costEl.classList.add('show');
+      costTxt.textContent = `+${eur.toFixed(2)} € Extra-Tokens heute`;
+    } else {
+      costEl.classList.remove('show');
+    }
+  }
+
+  // Website-Bau-Card
+  const bDot   = document.getElementById('ms-build-dot');
+  const bPhase = document.getElementById('ms-build-phase');
+  const bFill  = document.getElementById('ms-build-fill');
+  const bCnt   = document.getElementById('ms-build-cnt');
+  if(bDot) bDot.className = 'ms-build-dot' + (bld.running ? ' on' : '');
+  if(bPhase) bPhase.textContent = bld.running ? (bld.phase || 'läuft…') : 'Bereit (nicht aktiv)';
+  const limit = bld.daily_limit || 5, today = bld.today_count || 0;
+  if(bFill) bFill.style.width = Math.min(100, Math.round(today / limit * 100)) + '%';
+  if(bCnt) bCnt.textContent = `${today}/${limit} Seiten heute`;
+  _setNum('mbs-live',   web.live   || 0);
+  _setNum('mbs-dead',   web.dead   || 0);
+  _setNum('mbs-errors', web.errors || 0);
+
+  // Versand-Queue
+  _setNum('ms-send-approved', rev.approved || 0);
+  _setNum('ms-send-sent',     rev.sent     || 0);
+  _setNum('ms-send-pending',  rev.pending  || 0);
+}
+
+// ── Eingebettetes Live-Log (eigener Poller — unabhängig vom Log-Drawer unten) ──
+let _msLogLastTs = '';
+let _msLogFilter = '';
+let _msLogTimer  = null;
+
+function _startStatusLogPoll(){
+  _pollStatusLogs();
+  if(_msLogTimer) clearInterval(_msLogTimer);
+  _msLogTimer = setInterval(_pollStatusLogs, 5000);
+}
+function _stopStatusLogPoll(){
+  if(_msLogTimer){ clearInterval(_msLogTimer); _msLogTimer = null; }
+}
+async function _pollStatusLogs(){
+  try{
+    const url = '/api/logs?limit=100' + (_msLogLastTs ? '&since=' + encodeURIComponent(_msLogLastTs) : '');
+    const d = await(await fetch(url)).json();
+    if(d.logs && d.logs.length){
+      _msLogLastTs = d.last_ts || _msLogLastTs;
+      _appendStatusLogs(d.logs);
+    }
+  }catch{}
+}
+function _appendStatusLogs(entries){
+  const el = document.getElementById('ms-log-entries');
+  if(!el) return;
+  const wasBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  entries.forEach(e => {
+    if(_msLogFilter && e.level !== _msLogFilter) return;
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.dataset.lvl = e.level;
+    const col = LOG_COLORS[e.level] || '#4a6080';
+    div.innerHTML = `<span class="ll-ts">${e.ts}</span>`
+      + `<span class="ll-lvl" style="color:${col}">${e.level.padEnd(7)}</span>`
+      + `<span class="ll-worker">[${e.worker}]</span>`
+      + `<span class="ll-msg">${_e(e.msg)}</span>`;
+    el.appendChild(div);
+  });
+  while(el.children.length > 200) el.removeChild(el.firstChild);
+  if(wasBottom) el.scrollTop = el.scrollHeight;
+}
+function setStatusLogFilter(lvl){
+  _msLogFilter = lvl;
+  document.querySelectorAll('.ms-log-filters .lf-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.lvl === lvl));
+  document.querySelectorAll('#ms-log-entries .log-line').forEach(l => {
+    l.style.display = (!lvl || l.dataset.lvl === lvl) ? '' : 'none';
+  });
 }
 
 

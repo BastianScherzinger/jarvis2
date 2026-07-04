@@ -50,9 +50,9 @@ if (os.environ.get("JARVIS_QUIET_ACCESS_LOG", "1") or "1").strip().lower() not i
         "/static/", "/workspace/", "/favicon.ico",
         # Dashboard-Poll-Endpunkte
         "/api/websites/grouped", "/api/auto-build/status", "/api/status", "/api/top",
-        "/api/activity/recent", "/api/home/stats", "/api/logs", "/api/limit/status",
-        "/api/costs", "/api/media/", "/api/evaluated/", "/api/graph/", "/api/inbox/replies",
-        "/api/claude/status", "/api/verifier/model",
+        "/api/activity/recent", "/api/home/stats", "/api/mystatus", "/api/logs",
+        "/api/limit/status", "/api/costs", "/api/media/", "/api/evaluated/", "/api/graph/",
+        "/api/inbox/replies", "/api/claude/status", "/api/verifier/model",
     )
     _OK_CODES = ('" 200 ', '" 204 ', '" 304 ')
 
@@ -241,6 +241,14 @@ def _startup_cleanup():
     except Exception as e:
         _logger.warn("Startup", f"Fremd-Seiten-Cleanup übersprungen: {type(e).__name__}")
 
+    # Lead-Sammler (Scraper + Bewertung) fortsetzen, wenn er beim letzten Mal lief (Sir hat
+    # NICHT aktiv gestoppt) — Schließen/Absturz darf keine manuell gestartete Sitzung "vergessen".
+    try:
+        if controller.resume_if_needed():
+            _logger.info("Startup", "Lead-Sammler automatisch fortgesetzt")
+    except Exception as e:
+        _logger.warn("Startup", f"Sammler-Resume fehlgeschlagen: {type(e).__name__}")
+
     # Night-Builder fortsetzen wenn er beim letzten Mal lief
     try:
         import auto_builder
@@ -299,6 +307,8 @@ def favicon():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
+    # EIN Knopf fürs Dashboard: startet Lead-Sammler (Scraping+Bewertung) UND den
+    # Auto-Website-Builder zusammen — Sir muss nicht mehr zwei Systeme einzeln bedienen.
     # Manuellen Start an den stündlichen Lead-Sammler melden: fällt er in dessen laufendes
     # 10-Min-Fenster, stoppt der Scheduler den vom Nutzer gewollten Dauerlauf NICHT weg.
     try:
@@ -306,6 +316,11 @@ def api_start():
         lead_collector.note_manual_start()
     except Exception:
         pass
+    try:
+        import auto_builder
+        auto_builder.start()
+    except Exception as e:
+        _logger.warn("HTTP", f"Auto-Builder-Start (via /api/start) übersprungen: {type(e).__name__}")
     if not controller.is_running():
         controller.start()
         return jsonify({"ok": True})
@@ -315,6 +330,11 @@ def api_start():
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     controller.stop()
+    try:
+        import auto_builder
+        auto_builder.stop()   # greift zwischen Makeover-Stufen — Fortschritt bleibt gesichert
+    except Exception as e:
+        _logger.warn("HTTP", f"Auto-Builder-Stop (via /api/stop) übersprungen: {type(e).__name__}")
     return jsonify({"ok": True})
 
 
@@ -1913,6 +1933,65 @@ def api_home_stats():
         "total": total, "live": live, "building": building, "errors": errors,
         "sent": sent, "sites": cards, "builder": ab,
     })
+
+
+@app.route("/api/mystatus")
+def api_mystatus():
+    """Aggregierter Status für den 'Mein Status'-Tab: 10-Min-Sammel-Zyklus, Website-Bau,
+    Railway-Gesundheit, Versand-Queue, Token-/Kosten-Leiste. Ein Aufruf statt vieler
+    Einzel-Polls (analog zu /api/home/stats)."""
+    out: dict = {}
+
+    try:
+        import lead_collector
+        out["collector"] = lead_collector.status()
+    except Exception:
+        out["collector"] = {}
+
+    out["scraper"] = {"running": controller.is_running(), "workers": controller.worker_health()}
+
+    try:
+        import auto_builder
+        out["builder"] = auto_builder.status()
+    except Exception:
+        out["builder"] = {}
+
+    try:
+        import db_websites
+        sites = db_websites.get_all()
+        out["websites"] = {
+            "total":    len(sites),
+            "live":     sum(1 for s in sites if s.get("live")),
+            "building": sum(1 for s in sites if s.get("status") in ("queued", "running")),
+            "errors":   sum(1 for s in sites if s.get("status") == "error"),
+            "dead":     sum(1 for s in sites if (s.get("live_url") or "").strip()
+                             and not s.get("live")),
+        }
+    except Exception:
+        out["websites"] = {}
+
+    try:
+        import review_queue as rq
+        out["review"] = rq.stats()
+    except Exception:
+        out["review"] = {}
+
+    try:
+        import claude_limit
+        out["claude_limit"] = claude_limit.status()
+    except Exception:
+        out["claude_limit"] = {}
+
+    try:
+        import cost_tracker
+        out["paid"]       = cost_tracker.paid_tokens_detected()
+        out["today_cost"] = cost_tracker.today_summary()
+    except Exception:
+        out["paid"] = {}
+        out["today_cost"] = {}
+
+    out["stats"] = _stats()
+    return jsonify(out)
 
 
 # ── Kosten-Tab ────────────────────────────────────────────────────────────────

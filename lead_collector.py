@@ -62,7 +62,8 @@ def _top_n() -> int:
 
 
 def _stop_buffer() -> int:
-    """Puffer nach controller.stop(), damit Alt-Worker das Stop-Signal sehen (Race-Schutz)."""
+    """Puffer nach controller.stop(), damit ein gerade IN-FLIGHT befindlicher Lead (z.B.
+    mitten in einem Ollama-Call) noch fertig wird und in DB2 landet, bevor wir zählen."""
     return max(0, _int_env("JARVIS_LEAD_STOP_BUFFER", 20))
 
 
@@ -185,10 +186,35 @@ def _build_report(new_count: int, top: list) -> "tuple[str, str, list]":
 # hierher; fällt er ins laufende Fenster, unterbleibt das Stoppen.
 _manual_start_ts = [0.0]
 
+# Live-Status fürs Dashboard (Mein-Status-Tab) — rein informativ, keine Steuerung.
+_in_window   = [False]                        # läuft gerade ein Sammel-Fenster?
+_window_start = [0.0]
+_last_result: dict = {"new_count": None, "ts": 0.0, "top": []}
+
 
 def note_manual_start() -> None:
     """Von app.py (/api/start) aufgerufen: merkt den Zeitpunkt eines manuellen Starts."""
     _manual_start_ts[0] = time.time()
+
+
+def status() -> dict:
+    """Live-Status des stündlichen Sammlers fürs Dashboard (Mein-Status-Tab): läuft gerade
+    ein Fenster, wann kommt das nächste, was hat der letzte Lauf gefunden."""
+    last = _last_run()
+    interval = _interval()
+    now = time.time()
+    next_due = (last + interval) if last else now
+    return {
+        "enabled":          enabled(),
+        "interval_seconds": interval,
+        "run_seconds":      _run_seconds(),
+        "last_run_ts":      last,
+        "seconds_to_next":  max(0, int(next_due - now)),
+        "due_now":          _due(),
+        "in_window":        _in_window[0],
+        "window_elapsed":   max(0, int(now - _window_start[0])) if _in_window[0] else 0,
+        "last_result":      dict(_last_result),
+    }
 
 
 # ── Zyklus ─────────────────────────────────────────────────────────────────────
@@ -200,46 +226,54 @@ def _run_once() -> None:
     import discord_bot
 
     fenster_start = time.time()
-    manuell  = controller.is_running()         # War der Sammler schon an (Nutzer)?
-    snapshot = db_evaluated.max_id()           # id-Stand vor dem Lauf
+    _in_window[0] = True
+    _window_start[0] = fenster_start
+    try:
+        manuell  = controller.is_running()         # War der Sammler schon an (Nutzer)?
+        snapshot = db_evaluated.max_id()           # id-Stand vor dem Lauf
 
-    selbst_gestartet = False
-    if not manuell:
-        controller.start()                     # idempotent; wir sind der Starter
-        selbst_gestartet = True
-        logger.info("LeadCollector", f"Sammel-Lauf gestartet ({_run_seconds()}s).")
-    else:
-        logger.info("LeadCollector", "Sammler läuft bereits (manuell) — hänge mich nur an.")
-
-    # Unterbrechbares Warten: reagiert sofort auf einen Dashboard-Stop (_stop_event).
-    controller._stop_event.wait(_run_seconds())
-
-    if selbst_gestartet:
-        if _manual_start_ts[0] >= fenster_start:
-            # Sir hat WÄHREND unseres Fensters manuell gestartet → sein Lauf, nicht stoppen.
-            logger.info("LeadCollector", "Manueller Start während des Fensters erkannt — "
-                                         "Sammler bleibt an.")
+        selbst_gestartet = False
+        if not manuell:
+            controller.start()                     # idempotent; wir sind der Starter
+            selbst_gestartet = True
+            logger.info("LeadCollector", f"Sammel-Lauf gestartet ({_run_seconds()}s).")
         else:
-            # Zweistufig statt hartem controller.stop(): erst nur die Scraper stoppen,
-            # dann den Evaluator noch den Rest-Backlog abarbeiten lassen (gekappt), ERST
-            # DANN auch ihn stoppen. Sonst blieben frisch gesammelte, aber noch nicht
-            # bewertete Leads bis zum nächsten Stunden-Lauf als 'pending' liegen — der
-            # stündliche Sammler hätte dann Leads gefunden, aber nicht alle bewertet.
-            controller.stop_scrapers()         # NUR stoppen, was WIR gestartet haben
-            _drain_evaluator_backlog()
-            controller.stop_evaluator()
-            # Race-Puffer: Alt-Workern Zeit geben, das Stop-Signal zu sehen, bevor gezählt
-            # wird. Echtes sleep — _stop_event ist gerade GESETZT, ein wait() darauf wäre
-            # ein No-Op und würde sofort zurückkehren.
-            time.sleep(_stop_buffer())
+            logger.info("LeadCollector", "Sammler läuft bereits (manuell) — hänge mich nur an.")
 
-    new_count = db_evaluated.count_since(snapshot)
-    top       = db_evaluated.get_top(_top_n())
-    title, desc, fields = _build_report(new_count, top)
-    posted = discord_bot.post_report(title, desc, fields, 0x00d4ff)
-    logger.success("LeadCollector",
-                   f"Lauf fertig: {new_count} neue Leads · Report "
-                   f"{'in Discord gepostet' if posted else 'lokal protokolliert'}.")
+        # Unterbrechbares Warten: reagiert sofort auf einen Dashboard-Stop (_stop_event).
+        controller._stop_event.wait(_run_seconds())
+
+        if selbst_gestartet:
+            if _manual_start_ts[0] >= fenster_start:
+                # Sir hat WÄHREND unseres Fensters manuell gestartet → sein Lauf, nicht stoppen.
+                logger.info("LeadCollector", "Manueller Start während des Fensters erkannt — "
+                                             "Sammler bleibt an.")
+            else:
+                # Zweistufig statt hartem controller.stop(): erst nur die Scraper stoppen,
+                # dann den Evaluator noch den Rest-Backlog abarbeiten lassen (gekappt), ERST
+                # DANN auch ihn stoppen. Sonst blieben frisch gesammelte, aber noch nicht
+                # bewertete Leads bis zum nächsten Stunden-Lauf als 'pending' liegen — der
+                # stündliche Sammler hätte dann Leads gefunden, aber nicht alle bewertet.
+                controller.stop_scrapers()         # NUR stoppen, was WIR gestartet haben
+                _drain_evaluator_backlog()
+                controller.stop_evaluator()
+                # Race-Puffer: Alt-Workern Zeit geben, das Stop-Signal zu sehen, bevor gezählt
+                # wird. Echtes sleep — _stop_event ist gerade GESETZT, ein wait() darauf wäre
+                # ein No-Op und würde sofort zurückkehren.
+                time.sleep(_stop_buffer())
+
+        new_count = db_evaluated.count_since(snapshot)
+        top       = db_evaluated.get_top(_top_n())
+        _last_result["new_count"] = new_count
+        _last_result["ts"]        = time.time()
+        _last_result["top"]       = top
+        title, desc, fields = _build_report(new_count, top)
+        posted = discord_bot.post_report(title, desc, fields, 0x00d4ff)
+        logger.success("LeadCollector",
+                       f"Lauf fertig: {new_count} neue Leads · Report "
+                       f"{'in Discord gepostet' if posted else 'lokal protokolliert'}.")
+    finally:
+        _in_window[0] = False
 
 
 def _loop() -> None:

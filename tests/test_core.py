@@ -1520,10 +1520,13 @@ def test_railway_deploy_resumes_existing_service_across_rotated_projects(monkeyp
 
 # ── Railway: erzwungene Rotation (Live-Watch-Symptom-Trigger, 02.07.2026) ──────
 def test_railway_force_rotate_creates_next_project(monkeypatch):
+    # Rotation greift nur, wenn das aktive Projekt tatsaechlich nahe an der Kapazitaetsgrenze
+    # ist (_rotate_at(), Default 50) — hier simuliert als "voll" (50 Services).
     import agent_railway as ar
     monkeypatch.setattr(ar, "_token", lambda: "tok")
     monkeypatch.setattr(ar, "all_generated_projects",
                         lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_service_count", lambda tok, pid: 50)
     monkeypatch.setattr(ar, "_find_project_with_env", lambda tok, name: {"found": False})
     calls = {"create": 0}
 
@@ -1539,11 +1542,31 @@ def test_railway_force_rotate_creates_next_project(monkeypatch):
     assert calls["create"] == 1
 
 
+def test_railway_force_rotate_skips_when_not_near_capacity(monkeypatch):
+    # Der eigentliche Bugfix: ein "mehrere Seiten offline"-Symptom darf NICHT blind ein neues
+    # Projekt anlegen, wenn das aktive Projekt noch weit unter der Kapazitaetsgrenze liegt —
+    # sonst entstehen (wie beobachtet) mehrere Rotationen/Tag ohne echten Grund.
+    import agent_railway as ar
+    monkeypatch.setattr(ar, "_token", lambda: "tok")
+    monkeypatch.setattr(ar, "all_generated_projects",
+                        lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_service_count", lambda tok, pid: 4)
+
+    def fail_gql(*a, **k):
+        raise AssertionError("projectCreate haette hier nicht aufgerufen werden duerfen")
+    monkeypatch.setattr(ar, "_gql", fail_gql)
+
+    res = ar.force_rotate(reason="3 Seiten offline")
+    assert res == {"ok": False, "error": "not_near_capacity",
+                   "service_count": 4, "rotate_at": 50, "project": "Generated Websites"}
+
+
 def test_railway_force_rotate_already_exists_no_duplicate_create(monkeypatch):
     import agent_railway as ar
     monkeypatch.setattr(ar, "_token", lambda: "tok")
     monkeypatch.setattr(ar, "all_generated_projects",
                         lambda tok: [{"id": "p1", "name": "Generated Websites", "suffix": 1}])
+    monkeypatch.setattr(ar, "_service_count", lambda tok, pid: 50)
     monkeypatch.setattr(ar, "_find_project_with_env", lambda tok, name:
                         {"found": True, "project_id": "p2", "env_id": "e2"})
 
@@ -1598,6 +1621,7 @@ def test_maybe_force_rotation_calls_railway_and_notifies(monkeypatch):
     import auto_builder as ab
     import agent_railway, discord_bot
     monkeypatch.setattr(ab, "_live_last_forced_rotation", [0.0])
+    monkeypatch.setattr(ab, "_internet_ok", lambda: True)   # kein echter Netzwerk-Check im Test
     monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
     monkeypatch.setattr(agent_railway, "force_rotate", lambda reason="":
                         {"ok": True, "project": "Generated Websites 2", "already": False})
@@ -1613,6 +1637,7 @@ def test_maybe_force_rotation_respects_cooldown(monkeypatch):
     import time as _t
     monkeypatch.setattr(ab, "_live_last_forced_rotation", [_t.time()])   # gerade eben ausgelöst
     monkeypatch.setattr(ab, "_LIVE_ROTATE_COOLDOWN", 21600)
+    monkeypatch.setattr(ab, "_internet_ok", lambda: True)   # kein echter Netzwerk-Check im Test
     fr_calls = []
     monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
     monkeypatch.setattr(agent_railway, "force_rotate",
@@ -1625,6 +1650,7 @@ def test_maybe_force_rotation_no_duplicate_notify_when_already(monkeypatch):
     import auto_builder as ab
     import agent_railway, discord_bot
     monkeypatch.setattr(ab, "_live_last_forced_rotation", [0.0])
+    monkeypatch.setattr(ab, "_internet_ok", lambda: True)   # kein echter Netzwerk-Check im Test
     monkeypatch.setattr(agent_railway, "is_ready", lambda: True)
     monkeypatch.setattr(agent_railway, "force_rotate", lambda reason="":
                         {"ok": True, "project": "Generated Websites 2", "already": True})
@@ -1632,6 +1658,58 @@ def test_maybe_force_rotation_no_duplicate_notify_when_already(monkeypatch):
     monkeypatch.setattr(discord_bot, "notify", lambda *a, **k: calls.append(a) or True)
     ab._maybe_force_rotation(3)
     assert calls == []
+
+
+def test_live_check_repairs_multiple_sites_sequentially(monkeypatch):
+    # Bugfix: frueher reparierte _live_check_once() nur EINE Seite pro Durchlauf (return
+    # nach der ersten). Jetzt werden alle offenen (bis zum Batch-Deckel) nacheinander
+    # abgearbeitet — jede wird per _wait_repair_job() abgewartet, bevor die naechste startet.
+    import auto_builder as ab
+    import db_websites
+    import os as _os
+    import types, sys
+    sites = [{"job_id": f"j{i}", "name": f"Site{i}", "folder": f"/tmp/site{i}",
+              "live_url": f"https://s{i}.example", "live": 0, "step": ""} for i in range(3)]
+    monkeypatch.setattr(db_websites, "get_all", lambda: sites)
+    monkeypatch.setattr(db_websites, "update", lambda *a, **k: None)
+    monkeypatch.setattr(_os.path, "isdir", lambda p: True)
+    monkeypatch.setitem(sys.modules, "discord_bot",
+                        types.SimpleNamespace(link_is_live=lambda u, timeout=8: False))
+    monkeypatch.setattr(ab, "_maybe_force_rotation", lambda n: None)
+    monkeypatch.setattr(ab, "_sync_one", lambda job_id: None)
+    monkeypatch.setattr(ab, "_wait_repair_job", lambda jid, timeout=600: {"status": "done"})
+    deployed = []
+    wb = types.SimpleNamespace(
+        makeover_busy=lambda: False,
+        deploy_existing=lambda folder, name: deployed.append((folder, name)) or f"job-{name}",
+    )
+    monkeypatch.setitem(sys.modules, "website_builder", wb)
+    ab._live_fail_count.clear()
+    ab._live_redeploy_at.clear()
+    ab._live_gaveup.clear()
+    try:
+        ab._live_check_once()
+        assert len(deployed) == 3
+        assert {d[1] for d in deployed} == {"Site0", "Site1", "Site2"}
+    finally:
+        ab._live_fail_count.clear()
+        ab._live_redeploy_at.clear()
+        ab._live_gaveup.clear()
+
+
+def test_maybe_force_rotation_skips_on_own_internet_blip(monkeypatch):
+    # Bugfix: ein kurzer Aussetzer der EIGENEN Internetverbindung kann viele Seiten in
+    # einem Durchlauf faelschlich als "offline" erscheinen lassen — das darf NIE eine
+    # Railway-Rotation ausloesen (force_rotate() wird dann gar nicht erst aufgerufen).
+    import auto_builder as ab
+    import agent_railway
+    monkeypatch.setattr(ab, "_live_last_forced_rotation", [0.0])
+    monkeypatch.setattr(ab, "_internet_ok", lambda: False)
+    fr_calls = []
+    monkeypatch.setattr(agent_railway, "force_rotate",
+                        lambda reason="": fr_calls.append(1) or {"ok": True})
+    ab._maybe_force_rotation(10)
+    assert fr_calls == []
 
 
 # ── db_websites: Kundenantwort schützt vor Alt-Demo-Teardown ───────────────────
@@ -1891,6 +1969,20 @@ def test_lead_collector_drains_backlog_before_stopping_evaluator(monkeypatch):
     monkeypatch.setenv("JARVIS_LEAD_DRAIN_MAX", "30")
     lc._run_once()
     assert calls["stop_scrapers"] == 1 and calls["stop_evaluator"] == 1
+
+
+def test_lead_collector_status_reflects_last_run(monkeypatch):
+    # status() ist die Grundlage fuer den 'Mein Status'-Tab: in_window muss nach einem
+    # abgeschlossenen Lauf wieder False sein (auch bei einer Exception im finally-Block),
+    # last_result muss den echten new_count des Laufs zeigen.
+    lc, calls = _lc_stub_env(monkeypatch, running=False)
+    assert lc.status()["in_window"] is False    # vor dem Lauf: kein Fenster aktiv
+    lc._run_once()
+    st = lc.status()
+    assert st["in_window"] is False             # nach dem Lauf: wieder zu
+    assert st["last_result"]["new_count"] == 7   # aus dem gestubbten count_since()
+    assert st["last_result"]["ts"] > 0
+    assert st["enabled"] is True
 
 
 def test_lead_collector_drain_caps_wait(monkeypatch):

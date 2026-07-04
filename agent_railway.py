@@ -80,11 +80,17 @@ def _target_project_name(token: str) -> str:
 
 
 def force_rotate(reason: str = "") -> dict:
-    """Erzwingt SOFORT ein neues Sammel-Projekt für KOMMENDE Deploys, unabhängig vom
-    Service-Zähler (_rotate_at()). Für den Live-Watcher: sieht er mehrere Seiten
-    gleichzeitig offline (typisches Symptom eines vollen/blockierten Projekts — die
-    historische Ursache für „Seiten werden gebaut, gehen aber nie live"), soll nicht
-    erst der nächste normale Deploy zufällig auf die Rotation stoßen.
+    """Erzwingt ein neues Sammel-Projekt für KOMMENDE Deploys — ABER NUR, wenn das aktuell
+    aktive Projekt tatsächlich nahe an der Kapazitätsgrenze (_rotate_at()) ist. Für den
+    Live-Watcher: sieht er mehrere Seiten gleichzeitig offline (mögliches Symptom eines
+    vollen/blockierten Projekts), soll nicht erst der nächste normale Deploy zufällig auf
+    die Rotation stoßen.
+
+    WICHTIG: prüft den echten Service-Zähler (_service_count) BEVOR ein neues Projekt
+    angelegt wird — sonst würde jedes "mehrere Seiten offline"-Symptom (das genauso gut ein
+    kurzer Netz-Aussetzer oder einzelne Build-Fehler sein kann) ein neues, meist leeres
+    Projekt erzeugen, ohne das eigentliche Problem zu lösen (mehrfach beobachtet: 3-4
+    Rotationen/Tag trotz Projekten weit unter der 50er-Grenze).
 
     Repariert NICHT die aktuell toten Seiten (die laufen weiter über den bestehenden
     Redeploy-Pfad in ihrem bisherigen Projekt) — legt nur das nächste, leere
@@ -92,11 +98,24 @@ def force_rotate(reason: str = "") -> dict:
     "jüngste" Projekt immer live über die Railway-API neu bestimmt (kein lokaler
     State), reicht das alleinige Anlegen — der nächste deploy() sieht es automatisch.
 
-    Gibt {"ok": True, "project": name, "already": bool} oder {"ok": False, "error"}."""
+    Gibt {"ok": True, "project": name, "already": bool} oder
+    {"ok": False, "error": "not_near_capacity", "service_count": int, "rotate_at": int}
+    wenn das aktive Projekt noch Luft hat, oder {"ok": False, "error": str} bei einem
+    echten API-Fehler."""
     token = _token()
     if not token:
         return {"ok": False, "error": "RAILWAY_TOKEN fehlt in .env"}
     projects = all_generated_projects(token)
+    if projects:
+        newest = projects[-1]
+        try:
+            n_svc = _service_count(token, newest["id"])
+        except Exception:
+            n_svc = -1
+        if n_svc >= 0 and n_svc < _rotate_at():
+            return {"ok": False, "error": "not_near_capacity",
+                    "service_count": n_svc, "rotate_at": _rotate_at(),
+                    "project": newest["name"]}
     next_suffix = (projects[-1]["suffix"] + 1) if projects else 1
     next_name = _project_name_for_suffix(next_suffix)
     # Bereits vorhanden (Race mit einem parallelen deploy(), oder schon rotiert)?

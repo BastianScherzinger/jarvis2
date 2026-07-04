@@ -1146,6 +1146,11 @@ _live_redeploy_at: dict = {}        # folder → letzter Re-Deploy-Zeitpunkt (Co
 _live_fail_count: dict = {}         # folder → erfolglose Re-Deploys in Folge (Backoff-Zähler)
 _live_last_forced_rotation = [0.0]  # Cooldown-Zeitstempel für die erzwungene Rotation
 _live_gaveup: set = set()           # folder → „gebe vorerst auf" bereits geloggt (einmal pro Serie)
+# Wie viele Seiten EIN _live_check_once()-Durchlauf höchstens nacheinander repariert (statt
+# nur einer pro 120s-Zyklus — bei einem größeren Rückstand (z.B. nach einer fehlerhaften
+# Rotation) dauerte das Abarbeiten sonst Stunden). Jede Seite wird sequenziell abgewartet
+# (kein Gate-Gerangel), darum trotzdem ein Deckel gegen unbegrenzt lange Durchläufe.
+_LIVE_REPAIR_BATCH = max(1, int(os.environ.get("JARVIS_LIVE_REPAIR_BATCH", "30") or "30"))
 
 
 def start_live_watch() -> None:
@@ -1169,10 +1174,27 @@ def _live_watch_loop() -> None:
         time.sleep(max(30, _LIVE_WATCH_INTERVAL))
 
 
+def _wait_repair_job(job_id: str, timeout: int = 600):
+    """Wartet auf einen Live-Watch-Re-Deploy-Job, BEVOR die nächste Seite drankommt — sonst
+    würde website_builder._run_deploy() nach nur 30s Warten auf den Makeover-Gate aufgeben
+    ('verschoben'), sobald mehrere Re-Deploys kurz hintereinander ausgelöst werden. Bewusst
+    UNABHÄNGIG von auto_builder.is_running(): der Live-Watcher läuft auch, wenn der
+    Night-Builder gerade aus ist (siehe Modul-Docstring von start_live_watch())."""
+    import website_builder
+    end = time.time() + timeout
+    while time.time() < end:
+        job = website_builder.get(job_id)
+        if not job or job.get("status") in ("done", "error"):
+            return job
+        time.sleep(3)
+    return website_builder.get(job_id)
+
+
 def _live_check_once() -> None:
     """Ein Durchlauf: jede aktive Seite mit Live-URL HTTP-prüfen, live-Flag ehrlich setzen,
-    kaputte LOKALE Seiten (Ordner vorhanden) automatisch neu deployen (eine nach der anderen,
-    mit Cooldown). Cross-PC-Seiten ohne lokalen Ordner werden nur ehrlich als offline markiert."""
+    dann bis zu _LIVE_REPAIR_BATCH kaputte LOKALE Seiten (Ordner vorhanden) NACHEINANDER neu
+    deployen — jede wird abgewartet, bevor die nächste startet (kein Gate-Timeout-Gerangel).
+    Cross-PC-Seiten ohne lokalen Ordner werden nur ehrlich als offline markiert."""
     import db_websites
     import website_builder
     try:
@@ -1189,6 +1211,7 @@ def _live_check_once() -> None:
     if down >= _LIVE_ROTATE_THRESHOLD:
         _maybe_force_rotation(down)
 
+    to_repair: list[tuple[str, str]] = []    # [(folder, name)] — erst sammeln, dann seriell abarbeiten
     for w in sites:
         url    = (w.get("live_url") or "").strip()
         folder = (w.get("folder") or "").strip()
@@ -1228,9 +1251,6 @@ def _live_check_once() -> None:
         # Hier: Seite NICHT live (oder ohne URL).
         if not has_local:
             continue                         # Cross-PC-Seite ohne Ordner → hier nicht reparierbar
-        # Nichts deployen, solange ein Build/Makeover läuft (eine Seite gleichzeitig).
-        if website_builder.makeover_busy():
-            continue
         # Cooldown je Ordner, damit nicht im Kreis neu deployt wird. Nach mehreren
         # erfolglosen Versuchen (Seite gilt als dauerhaft kaputt) auf langen Backoff gehen,
         # statt eine tote Seite endlos alle 10 Min neu zu deployen.
@@ -1245,24 +1265,50 @@ def _live_check_once() -> None:
             logger.warn("LiveWatch", f"'{name}' nach {fails} erfolglosen Re-Deploys weiterhin tot — "
                                      f"seltener Versuch (alle {_LIVE_GIVEUP_COOLDOWN // 3600} h). "
                                      "Railway-Build-Log prüfen.")
+        to_repair.append((folder, name))
+        if len(to_repair) >= _LIVE_REPAIR_BATCH:
+            break
+
+    if not to_repair:
+        return
+    if len(to_repair) > 1:
+        logger.info("LiveWatch", f"{len(to_repair)} Seite(n) nicht erreichbar — arbeite sie "
+                                 "nacheinander ab (jede wird vor der nächsten fertig abgewartet).")
+    for folder, name in to_repair:
+        # Nichts deployen, solange ein Build/Makeover läuft (eine Seite gleichzeitig) — läuft
+        # gerade eins (z.B. manuell gestartet), Rest kommt im nächsten 120s-Durchlauf dran.
+        if website_builder.makeover_busy():
+            logger.info("LiveWatch", "Makeover läuft parallel — Rest-Reparatur folgt im "
+                                     "nächsten Durchlauf.")
+            break
         _live_redeploy_at[folder] = time.time()
-        _live_fail_count[folder] = fails + 1     # zählt hoch bis die Seite wieder live ist
+        fails = _live_fail_count.get(folder, 0) + 1
+        _live_fail_count[folder] = fails         # zählt hoch bis die Seite wieder live ist
         logger.info("LiveWatch", f"'{name}' nicht erreichbar → Re-Deploy wird angestoßen "
-                                 f"(Versuch {fails + 1}).")
+                                 f"(Versuch {fails}).")
         try:
-            website_builder.deploy_existing(folder, name)
+            jid = website_builder.deploy_existing(folder, name)
+            _wait_repair_job(jid)
         except Exception as e:
-            logger.warn("LiveWatch", f"Re-Deploy '{name}' ({url or 'ohne URL'}) fehlgeschlagen: "
+            logger.warn("LiveWatch", f"Re-Deploy '{name}' fehlgeschlagen: "
                                      f"{type(e).__name__}: {str(e)[:120]}")
-        return                               # nur EINE Seite pro Durchlauf neu deployen
 
 
 def _maybe_force_rotation(down_count: int) -> None:
-    """Mehrere Seiten gleichzeitig offline -> erzwingt sofort ein neues Railway-Sammel-
-    projekt für KOMMENDE Deploys (repariert NICHT die aktuell toten Seiten selbst — das
-    macht weiter der normale Redeploy-Pfad in _live_check_once). Cooldown verhindert
-    Spam, solange dieselbe Ausfallserie andauert."""
+    """Mehrere Seiten gleichzeitig offline -> erzwingt (nach Kapazitäts-Check in
+    agent_railway.force_rotate) ein neues Railway-Sammelprojekt für KOMMENDE Deploys
+    (repariert NICHT die aktuell toten Seiten selbst — das macht weiter der normale
+    Redeploy-Pfad in _live_check_once). Cooldown verhindert Spam, solange dieselbe
+    Ausfallserie andauert."""
     if time.time() - _live_last_forced_rotation[0] < _LIVE_ROTATE_COOLDOWN:
+        return
+    # Ein kurzer Aussetzer der EIGENEN Internetverbindung kann in einem einzigen 120s-
+    # Durchlauf viele Seiten gleichzeitig fälschlich als "offline" erscheinen lassen (jede
+    # einzelne HTTP-Prüfung schlägt dann fehl) — das hat nichts mit Railway zu tun. Denselben
+    # Check nutzt der Night-Builder bereits bei der Exhaustion-Behandlung (_wait_online).
+    if not _internet_ok():
+        logger.info("LiveWatch", f"{down_count} Seiten offline, aber eigene Internetverbindung "
+                                 "gerade instabil — werte das NICHT als Railway-Symptom.")
         return
     try:
         import agent_railway
@@ -1284,6 +1330,12 @@ def _maybe_force_rotation(down_count: int) -> None:
                 )
             except Exception:
                 pass
+        elif res.get("error") == "not_near_capacity":
+            logger.info("LiveWatch", f"{down_count} Seiten offline, aber aktives Railway-Projekt "
+                                     f"hat nur {res.get('service_count', '?')}/"
+                                     f"{res.get('rotate_at', '?')} Services — keine Rotation, "
+                                     "Ursache liegt vermutlich anderswo (einzelne Build-Fehler, "
+                                     "Railway-Account-/Guthaben-Status manuell prüfen).")
         elif not res.get("ok"):
             logger.warn("LiveWatch", f"Erzwungene Rotation fehlgeschlagen: {res.get('error','')[:120]}")
     except Exception as e:

@@ -160,9 +160,12 @@ def send_email(to: str, betreff: str, text: str, *, html: str | None = None,
         logger.success("Mailer", f"Mail gesendet an {to}")
         return {"ok": True, "status": "gesendet", "fehler": ""}
     except Exception as e:
-        # Passwort/Postfach NIE loggen — nur Fehlertyp
-        logger.error("Mailer", f"Versand fehlgeschlagen: {type(e).__name__}")
-        return {"ok": False, "status": "fehler", "fehler": f"{type(e).__name__}"}
+        # SMTP-Fehlermeldungen (Server-Antwortcode + -text) enthalten nie das Passwort —
+        # das gibt der Server nicht zurück. Nur den Typnamen zu loggen machte frühere
+        # Massen-Fehlschläge (z.B. Stundenlimit vs. echter SMTP-Fehler) ununterscheidbar.
+        detail = f"{type(e).__name__}: {str(e)[:180]}" if str(e) else type(e).__name__
+        logger.error("Mailer", f"Versand fehlgeschlagen: {detail}")
+        return {"ok": False, "status": "fehler", "fehler": detail}
 
 
 def send_to_lead(lead: dict) -> dict:

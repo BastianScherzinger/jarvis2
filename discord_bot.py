@@ -268,7 +268,10 @@ def _send_one_real(review: dict) -> tuple:
     # bypass_redirect=True: bewusst an den echten Kunden (Voting ist die Freigabe).
     betreff, text, html = _build_for(to)
     r = mailer.send_email(to, betreff, text, html=html, bypass_redirect=True)
-    return bool(r.get("ok")), (r.get("status") or r.get("fehler") or "")
+    # WICHTIG: 'fehler' zuerst — mailer.py setzt 'status' bei JEDEM Fehlerfall auf den
+    # Literal-String "fehler" (truthy!), darum würde "status or fehler" den echten Grund
+    # (z.B. "Stundenlimit erreicht") nie zurückgeben, sondern immer nur das Wort "fehler".
+    return bool(r.get("ok")), (r.get("fehler") or r.get("status") or "")
 
 
 import threading as _threading
@@ -441,7 +444,14 @@ def send_approved_now() -> dict:
             if not cur or cur.get("status") == rq.SENT or cur.get("sent_ts"):
                 continue
             ok, info = _send_one_real(r)
-            rq.mark_sent(r["id"], ok, info)
+            # Ratenlimit-Fehlschläge NICHT als SKIPPED verbuchen (mark_sent setzt sonst
+            # dauerhaft status=SKIPPED — approved_unsent() sieht den Review dann NIE wieder,
+            # der Kunde bekäme seine Seite also gar nicht mehr). Bleibt der Review APPROVED,
+            # holt ihn der Nachzügler-Loop (_noon_watchdog_loop) automatisch nach, sobald im
+            # rollierenden Stundenfenster (mailer._rate_ok) wieder Kapazität frei ist.
+            rate_limited = (not ok) and "Stundenlimit" in (info or "")
+            if not rate_limited:
+                rq.mark_sent(r["id"], ok, info)
             # Empfänger-Anzeige: Einzeladresse oder „N Empfänger" im Custom-Modus.
             rec   = r.get("recipients") or []
             to_disp = (f"{len(rec)} Empfänger" if rec else (r.get("email") or "—"))
@@ -456,7 +466,8 @@ def send_approved_now() -> dict:
                 sent_items.append(item)
             else:
                 failed += 1
-                lines.append(f"⚠️ {item['name']}: {info}")
+                tag = " (Nachzügler-Versand holt das automatisch nach)" if rate_limited else ""
+                lines.append(f"⚠️ {item['name']}: {info}{tag}")
                 failed_items.append(item)
         logger.info("Discord", f"{_send_hour()}-Uhr-Versand: {sent} gesendet, {failed} übersprungen")
         # Verschickte Seiten jetzt im Hintergrund auf 1A-Premium-Standard heben (Master-Prompt).
@@ -824,11 +835,19 @@ if _HAS_DISCORD:
         except Exception:
             pass
 
+    # Nachzügler-Versand: wie oft (Sekunden) nach dem 12-Uhr-Lauf erneut geprüft wird, ob noch
+    # APPROVED-Reviews offen sind (z.B. durch JARVIS_EMAIL_RATE zurückgehalten) — die rollierende
+    # Stunde in mailer._rate_ok() gibt zwischendurch wieder Kapazität frei.
+    _RETRY_INTERVAL = int(os.environ.get("JARVIS_EMAIL_RETRY_INTERVAL", "900") or "900")
+    _last_retry_ts = [0.0]
+
     def _noon_watchdog_loop():
         """Unabhängiger Sicherheits-Auslöser für den Tagesversand: prüft jede Minute, ob die
         Versandstunde erreicht und heute noch nicht versendet wurde — und stößt den Versand
         dann an, SELBST wenn der discord.py-Task-Loop gestorben oder der Bot getrennt ist.
-        Der Versand (Mailer) hängt nicht an Discord; der Report wird best-effort nachgereicht."""
+        Der Versand (Mailer) hängt nicht an Discord; der Report wird best-effort nachgereicht.
+        Nach dem Tagesversand holt derselbe Loop periodisch alle noch offenen (ratenlimitierten)
+        Reviews nach — sonst blieben sie bis zum nächsten Tag oder für immer unversendet liegen."""
         import time as _t
         _t.sleep(90)                                  # App-/Bot-Start abwarten
         while True:
@@ -843,6 +862,21 @@ if _HAS_DISCORD:
                             asyncio.run_coroutine_threadsafe(_post_noon_report(res), _loop)
                     except Exception:
                         pass
+                elif enabled() and _noon_ran_today():
+                    now = _t.time()
+                    if now - _last_retry_ts[0] >= _RETRY_INTERVAL and rq.approved_unsent():
+                        _last_retry_ts[0] = now
+                        logger.info("Discord", "Nachzügler-Versand: hole zuvor ratenlimitierte "
+                                               "Mails nach.")
+                        res = send_approved_now()
+                        if res.get("sent"):
+                            try:
+                                notify(f"📨 Nachzügler-Versand — {res['sent']} weitere "
+                                      f"Webseite(n) verschickt",
+                                      "Waren zuvor durch das Stunden-Sendelimit "
+                                      "(JARVIS_EMAIL_RATE) zurückgehalten worden.", 0x00d4ff)
+                            except Exception:
+                                pass
             except Exception as e:
                 logger.warn("Discord", f"Noon-Watchdog-Fehler: {type(e).__name__}")
             _t.sleep(60)
