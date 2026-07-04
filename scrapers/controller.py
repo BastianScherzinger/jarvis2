@@ -2,12 +2,14 @@
 Scraper-Controller — 6 unabhängige Worker laufen parallel.
 Vollständig lokal: Scraper + lokale KI (Ollama) finden und bewerten alle Leads.
 """
+import json
 import os
 import queue
 import random
 import threading
 import itertools
 import time
+from pathlib import Path
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN, HIGH_VALUE
 from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal
@@ -21,6 +23,48 @@ _scraper_stop_event = threading.Event()  # stoppt NUR die 6 Scraper-Worker
 _active            = False
 _evaluator_started = False   # läuft der Evaluator (via Scraper ODER standalone)?
 _eval_lock         = threading.Lock()   # schützt _evaluator_started gegen Race Condition
+
+# Persistenter An/Aus-Schalter — überlebt Schließen/Absturz/Neustart, analog zu
+# auto_builder._persist_running(). Stand "running": true → resume_if_needed() nimmt
+# das Sammeln beim nächsten App-Start automatisch wieder auf. Die eigentlichen Daten
+# (Leads) liegen ohnehin durchgehend committet in db_raw/db_evaluated (WAL-Modus) —
+# dieser Schalter merkt sich nur, OB Sir zuletzt "an" wollte, nicht die Lead-Daten selbst.
+_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "scraper_state.json"
+
+
+def _persist_running(running: bool) -> None:
+    try:
+        _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_PATH.write_text(
+            json.dumps({"running": bool(running), "ts": time.time()}, ensure_ascii=False),
+            encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _persisted_running() -> bool:
+    try:
+        return bool(json.loads(_STATE_PATH.read_text(encoding="utf-8")).get("running"))
+    except Exception:
+        return False
+
+
+def resume_if_needed() -> bool:
+    """Beim App-Start aufrufen: war der Sammler beim letzten Mal an (Sir hat nicht
+    aktiv gestoppt), nimmt er automatisch wieder auf — Sir muss nach einem Schließen/
+    Absturz nicht erneut auf Start drücken."""
+    if _persisted_running() and not is_running():
+        logger.info("Controller", "Vorheriger Sammel-Lauf war aktiv → automatische Fortsetzung")
+        start()
+        return True
+    return False
+
+# Beide Events werden NIE wiederverwendet/geclearet — jeder start()/_spawn_evaluator()
+# erzeugt ein FRISCHES Event-Objekt für seine Generation und reicht es den Threads dieser
+# Generation explizit als Parameter durch (nicht per Modul-Global-Lookup zur Laufzeit).
+# Damit kann ein spätes Clear() einer neuen Generation nie ein Alt-Worker "wiederbeleben",
+# der das Stop-Signal seiner eigenen (weiterhin gesetzten) Generation noch nicht gesehen hat —
+# das frühere Event-Race (siehe stop()) ist damit strukturell ausgeschlossen, nicht nur verzögert.
 
 # SSE-Fan-out: jeder verbundene Client bekommt seine EIGENE Queue. Eine einzige
 # geteilte Queue würde Events bei mehreren Tabs auf die Clients aufteilen
@@ -67,12 +111,17 @@ def _warmup_model() -> None:
 
 
 def _spawn_evaluator() -> None:
-    """Startet Warmup + Evaluator-Threads. Idempotent (via _evaluator_started)."""
-    global _evaluator_started
+    """Startet Warmup + Evaluator-Threads. Idempotent (via _evaluator_started).
+    Erzeugt pro Generation ein frisches _stop_event (siehe Modul-Kopf) — reicht es
+    explizit an Evaluator- und Watchdog-Threads weiter, damit ein späteres stop()/
+    _spawn_evaluator() dieser Generation nichts an bereits laufenden Alt-Threads ändert."""
+    global _evaluator_started, _stop_event
     with _eval_lock:
         if _evaluator_started:
             return
         _evaluator_started = True
+        my_stop_event = threading.Event()
+        _stop_event = my_stop_event
     threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
     db_raw.init_db()
     db_raw.reset_stale()
@@ -85,16 +134,19 @@ def _spawn_evaluator() -> None:
         n_eval = _default_eval
     threading.Thread(
         target=evaluator_pipeline.run_continuous,
-        args=(_on_lead, _stop_event, n_eval),
+        args=(_on_lead, my_stop_event, n_eval),
         name="Worker-Evaluator", daemon=True,
     ).start()
-    threading.Thread(target=_watchdog_loop, name="Evaluator-Watchdog", daemon=True).start()
+    threading.Thread(target=_watchdog_loop, args=(my_stop_event,),
+                      name="Evaluator-Watchdog", daemon=True).start()
     logger.info("Controller", f"Evaluator gestartet ({n_eval} Threads)")
 
 
-def _watchdog_loop() -> None:
-    """Setzt periodisch hängengebliebene 'running'-Leads zurück (Crash-Schutz)."""
-    while not _stop_event.is_set():
+def _watchdog_loop(stop_event: threading.Event) -> None:
+    """Setzt periodisch hängengebliebene 'running'-Leads zurück (Crash-Schutz).
+    Bekommt das Event seiner eigenen Generation explizit übergeben (siehe Kommentar
+    oben bei den Modul-Events) statt es aus dem Modul-Global neu aufzulösen."""
+    while not stop_event.is_set():
         time.sleep(120)
         try:
             n = db_raw.reset_stale_running(10)
@@ -106,7 +158,6 @@ def _watchdog_loop() -> None:
 
 def ensure_evaluator_running() -> None:
     """Stellt sicher dass der Evaluator läuft — auch wenn die Scraper aus sind."""
-    _stop_event.clear()
     _spawn_evaluator()
 
 
@@ -145,12 +196,14 @@ def get_verifier_model() -> str:
 
 
 def start() -> None:
-    global _active
+    global _active, _scraper_stop_event
     if _active:
         return
-    _stop_event.clear()
-    _scraper_stop_event.clear()
+    # Frisches Event für diese Scraper-Generation (siehe Modul-Kopf-Kommentar) — kein
+    # Clear() eines evtl. noch von Alt-Workern beobachteten Events mehr.
+    _scraper_stop_event = threading.Event()
     _active = True
+    _persist_running(True)
 
     logger.info("Controller", f"Starte {6} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
 
@@ -212,11 +265,14 @@ def stop() -> None:
     _scraper_stop_event.set()
     _stop_event.set()
     _active = False
+    _persist_running(False)   # echter Nutzer-Stop — resume_if_needed() lässt es beim nächsten Start aus
     # Reset unter demselben Lock, unter dem _spawn_evaluator ihn prüft/setzt (Flag-Race).
-    # Hinweis: das EVENT-Race bleibt bewusst bestehen — ein sofortiges start() cleart
-    # _stop_event, bevor langsame Alt-Threads es gesehen haben. Aufrufer, die stop→start
-    # zyklisch fahren (lead_collector), lassen darum einen Puffer (JARVIS_LEAD_STOP_BUFFER).
-    # Vollständiger Fix (Generationen-Event pro start()) steht im Backlog.
+    # Ein unmittelbar folgendes start()/_spawn_evaluator() erzeugt für die NÄCHSTE Generation
+    # ein frisches Event-Objekt (siehe Modul-Kopf) statt dieses hier zu clearen — Alt-Worker,
+    # die noch auf dieses (jetzt dauerhaft gesetzte) Event warten, sehen das Stop-Signal
+    # garantiert. JARVIS_LEAD_STOP_BUFFER bleibt trotzdem sinnvoll: er gibt einem gerade
+    # IN-FLIGHT befindlichen Lead (z.B. mitten in einem Ollama-Call) Zeit, fertig zu werden
+    # und noch in DB2 zu landen, bevor der Lead-Collector die Trefferzahl zählt.
     with _eval_lock:
         _evaluator_started = False
 

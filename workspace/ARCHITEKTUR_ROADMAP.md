@@ -78,5 +78,7 @@ Sprach-Gesprächsmodus (VAD), Shop-Workflow (Skill → neuer Ordner → Redesign
 - ✅ #7 SSE-Stats auf 1×/Sek gecacht (kein N+1 mehr pro Lead-Event).
 - ✅ #8 Claude-History clientseitig auf 40 Einträge begrenzt.
 
-**Offen:** nur noch #2 (`leads.db` eliminieren) — siehe Begründung oben (eigener, interaktiv
-getesteter Schritt, nicht blind).
+**Offen:** keine der oben gelisteten Punkte mehr — #2 (`leads.db` eliminieren) war zum
+Zeitpunkt dieser Zeile noch offen vermerkt, ist aber laut Abschnitt oben (19.06.2026) erledigt
+und im Code verifiziert (`db.py`/`scrapers/verifier.py` existieren nicht mehr, kein Import
+mehr referenziert sie). Diese Status-Zeile war die stehengebliebene alte Fassung.

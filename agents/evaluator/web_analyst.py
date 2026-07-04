@@ -105,7 +105,12 @@ def _name_tokens(name: str) -> list[str]:
 def _pick_website(lead: dict, hits: list[dict]) -> str:
     """Wählt aus den Such-Treffern die wahrscheinliche eigene Website. URL oder "".
     Bevorzugt Treffer deren Domain einen Namens-Bestandteil enthält (passgenauer),
-    fällt sonst auf den ersten Nicht-Verzeichnis-Treffer zurück (findet trotzdem was)."""
+    dann Treffer deren Titel/Snippet den Firmennamen nennt (generische Domain, z.B.
+    Homepage-Baukasten-Subdomain). KEIN Blind-Fallback mehr auf den ersten beliebigen
+    Nicht-Verzeichnis-Treffer: eine falsch zugeordnete Fremd-Website (Nachbar-Betrieb im
+    selben Suchergebnis) würde E-Mail, Alter und Pitch-Text auf Basis einer komplett
+    falschen Seite erzeugen — "keine Website gefunden" ist dann die ehrlichere,
+    fürs Lead-Scoring sicherere Einordnung als eine geratene Zuordnung."""
     # Schritt 0 — bereits gesetzte URL SOFORT nehmen, wenn keine Verzeichnis-/Social-Domain.
     vorhanden = (lead.get("website_url") or "").strip()
     if vorhanden and not _ist_verzeichnis(vorhanden):
@@ -116,16 +121,25 @@ def _pick_website(lead: dict, hits: list[dict]) -> str:
     if not eigene:
         return ""
 
-    # 1. Wahl: Domain enthält einen Namens-Bestandteil → sehr wahrscheinlich die echte Seite.
     tokens = _name_tokens(lead.get("name", ""))
-    if tokens:
-        for url in eigene:
-            dom = _domain(url)
-            if any(t in dom for t in tokens):
-                return url
+    if not tokens:
+        return ""   # Name liefert keine auswertbaren Wort-Bestandteile → nicht raten
 
-    # 2. Wahl: erster plausibler Nicht-Verzeichnis-Treffer.
-    return eigene[0]
+    # 1. Wahl: Domain enthält einen Namens-Bestandteil → sehr wahrscheinlich die echte Seite.
+    for url in eigene:
+        if any(t in _domain(url) for t in tokens):
+            return url
+
+    # 2. Wahl: Titel/Snippet des Treffers nennt den Firmennamen, auch wenn die Domain
+    # selbst generisch ist (Homepage-Baukasten, Subdomain eines Anbieters etc.).
+    by_url = {(hit.get("url") or "").strip(): hit for hit in hits}
+    for url in eigene:
+        hit  = by_url.get(url, {})
+        text = f"{hit.get('title', '')} {hit.get('snippet', '')}".lower()
+        if any(t in text for t in tokens):
+            return url
+
+    return ""   # keine belastbare Übereinstimmung → lieber "keine Website" als eine geratene
 
 
 def analyze(lead: dict) -> dict:
@@ -191,6 +205,11 @@ def analyze(lead: dict) -> dict:
     html = ""
     if url:
         html = http_get(url, timeout=8)
+        if not html:
+            # Ein Timeout/Fehler kann ein langsamer, aber intakter Server sein — EIN
+            # Retry mit mehr Zeit, bevor der Lead fälschlich als "veraltet" markiert wird
+            # (Qualität > Tempo hier, nur dieser eine Fetch pro Lead, kein Scraper-Durchsatz).
+            html = http_get(url, timeout=14)
         if not html:
             issues.append("Website nicht erreichbar")
             result["website_veraltet"] = 1
