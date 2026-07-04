@@ -208,17 +208,12 @@ function _renderBL(bl){
 }
 
 // ── Lead empfangen ────────────────────────────────────────────────────────────
+// Kein Live-Feed mehr (Mein Status zeigt stattdessen Zahlen + eingebettetes Log) —
+// diese Funktion pflegt nur noch die Datengrundlage für Stats/Hot-Liste/Graph/Rate.
 function _onLead(lead){
   _allLeads.unshift(lead);
   _feedCount++;
   _sessionFinder[lead.finder] = (_sessionFinder[lead.finder]||0) + 1;
-
-  document.getElementById('empty-state')?.remove();
-  document.getElementById('feed-cnt').textContent = _feedCount;
-
-  const feed = document.getElementById('chat-feed');
-  feed.insertBefore(_buildMsg(lead), feed.firstChild);
-  if(feed.children.length > 300) feed.lastChild?.remove();
 
   // Hot Sidebar
   if(lead.lead_typ==='Hot') _addHotCard(lead);
@@ -228,10 +223,13 @@ function _onLead(lead){
 }
 
 function _onErr(msg){
-  document.getElementById('empty-state')?.remove();
-  const el = document.createElement('div');
-  el.className='msg-err';el.textContent='⚠ '+msg;
-  document.getElementById('chat-feed').insertBefore(el,document.getElementById('chat-feed').firstChild);
+  if(!msg) return;
+  const el = document.getElementById('ticker-text');
+  if(!el) return;
+  el.textContent = '⚠ ' + msg;
+  el.classList.remove('tk-fade');
+  void el.offsetWidth;   // Reflow → Animation neu starten
+  el.classList.add('tk-fade');
 }
 
 // ── Activity-Ticker ────────────────────────────────────────────────────────────
@@ -242,48 +240,6 @@ function _onActivity(msg){
   el.classList.remove('tk-fade');
   void el.offsetWidth;   // Reflow → Animation neu starten
   el.classList.add('tk-fade');
-}
-
-// ── Message bauen ─────────────────────────────────────────────────────────────
-function _buildMsg(lead){
-  const f    = fi(lead.finder);
-  const t    = new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const wrap = document.createElement('div');
-  wrap.className = 'msg';
-
-  const webTag = !lead.has_website
-    ? `<span class="tag no-web">✗ Kein Website</span>`
-    : lead.website_alter >= 0
-      ? `<span class="tag">${lead.website_alter}j alt</span>` : '';
-  const telTag = lead.telefon ? `<span class="tag tel">✓ Tel</span>` : '';
-  const brTag  = lead.branche ? `<span class="tag br">${_e(lead.branche)}</span>` : '';
-
-  const foot = [
-    lead.adresse ? `<div class="lc-ft"><span class="lc-ft-i">📍</span>${_e(lead.adresse.substring(0,30))}${lead.adresse.length>30?'…':''}</div>` : '',
-    lead.telefon ? `<div class="lc-ft"><span class="lc-ft-i">📞</span>${_e(lead.telefon)}</div>` : '',
-    lead.bewertung ? `<div class="lc-ft"><span class="lc-ft-i">⭐</span>${lead.bewertung}${lead.anz_bewertungen?' ('+lead.anz_bewertungen+')':''}</div>` : '',
-  ].filter(Boolean).join('');
-
-  const jl = _jattr(lead);
-
-  wrap.innerHTML = `
-    <div class="msg-av av-${f.cls}">${f.av}</div>
-    <div class="msg-body">
-      <div class="msg-meta">
-        <span class="msg-from from-${f.cls}">${f.lbl}</span>
-        <span class="msg-badge badge-${lead.lead_typ}">${lead.lead_typ}</span>
-        <span class="msg-time">${t}</span>
-      </div>
-      <div class="lead-card ${lead.lead_typ}" data-id="${lead.id||0}" onclick='openModal(${jl})'>
-        <div class="lc-main">
-          <div class="lc-name">${_e(lead.name)}</div>
-          <div class="lc-score ${lead.lead_typ}">${lead.score}</div>
-        </div>
-        <div class="lc-tags">${webTag}${telTag}${brTag}</div>
-        ${foot ? `<div class="lc-foot">${foot}</div>` : ''}
-      </div>
-    </div>`;
-  return wrap;
 }
 
 function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -369,21 +325,6 @@ async function setVerifierModel(){
   }catch{}
 }
 
-// ── Filter ────────────────────────────────────────────────────────────────────
-function applyFilter(){
-  const fT=document.getElementById('flt-typ').value;
-  const fW=document.getElementById('flt-web').value;
-  const fB=document.getElementById('flt-bl').value;
-  document.querySelectorAll('.msg').forEach(g=>{
-    const card=g.querySelector('.lead-card');
-    if(!card){g.style.display='';return;}
-    const id  =parseInt(card.dataset.id||'0');
-    const lead=_allLeads.find(l=>l.id===id);
-    if(!lead){g.style.display='';return;}
-    const ok=((!fT||lead.lead_typ===fT)&&(!fW||String(lead.has_website)===fW)&&(!fB||lead.bundesland===fB));
-    g.style.display=ok?'':'none';
-  });
-}
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 let _modalLead = null;
@@ -1713,7 +1654,9 @@ function _renderMyStatus(d){
   const costTxt = document.getElementById('ms-cost-txt');
   if(costEl && costTxt){
     const eur = Number(paid.api_eur_today || 0);
-    if(paid.paid && eur > 0){
+    // Schwelle 1 Cent statt "> 0": Mini-Bruchteile (z.B. 0.0005 €) rundeten sonst sichtbar
+    // auf "+0.00 €" — technisch korrekt, aber irrefuehrend als hervorgehobener Hinweis.
+    if(paid.paid && eur >= 0.01){
       costEl.classList.add('show');
       costTxt.textContent = `+${eur.toFixed(2)} € Extra-Tokens heute`;
     } else {

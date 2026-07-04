@@ -159,10 +159,10 @@
     </div>
   </div>
 
-  <!-- ── LEFT: Website-Bau-Status + Lead-Stats ──────────────────────────── -->
+  <!-- ── LEFT: Prozess-Status (Bau + Zahlen) ──────────────────────────────── -->
   <aside class="left-panel">
 
-    <!-- Auto-Builder / Webseiten-Status (ersetzt die 3D-Sphäre) -->
+    <!-- Auto-Builder / Webseiten-Status -->
     <div class="ms-build-card" id="ms-build-card">
       <div class="ms-build-head">
         <span class="ms-build-dot" id="ms-build-dot"></span>
@@ -206,48 +206,11 @@
       <span>Mit Telefon</span>
       <span class="mp-val" id="s-tel">0</span>
     </div>
-
-    <button class="text-btn red" onclick="clearFeed()">✕ Feed leeren</button>
   </aside>
 
-  <!-- ── CENTER: Live-Feed + eingebettete Logs ───────────────────────────── -->
-  <section class="feed-section">
-    <div class="feed-head">
-      <span class="feed-title">Live Feed</span>
-      <span class="feed-cnt" id="feed-cnt">0</span>
-    </div>
-    <div class="chat-feed" id="chat-feed">
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon">◎</div>
-        <div class="empty-title">Bereit</div>
-        <div class="empty-sub">START drücken — Leads erscheinen hier</div>
-      </div>
-    </div>
-
-    <!-- Eingebettetes Live-Log (kein separates Aufklappen mehr nötig) -->
-    <div class="ms-log-panel">
-      <div class="ms-log-head">
-        <span class="ms-log-title">⬡ Live-Log</span>
-        <div class="ms-log-filters">
-          <button class="lf-btn active" data-lvl="" onclick="setStatusLogFilter('')">Alle</button>
-          <button class="lf-btn" data-lvl="ERROR" onclick="setStatusLogFilter('ERROR')">Fehler</button>
-          <button class="lf-btn" data-lvl="WARN" onclick="setStatusLogFilter('WARN')">Warn</button>
-        </div>
-      </div>
-      <div class="ms-log-entries" id="ms-log-entries"></div>
-    </div>
-  </section>
-
-  <!-- ── RIGHT: Versand-Status + Quellen-Diagramm ────────────────────────── -->
+  <!-- ── RIGHT: Opportunities + Quellen ───────────────────────────────────── -->
   <aside class="right-panel">
-    <div class="panel-title">Versand-Queue</div>
-    <div class="ms-send-row" id="ms-send-row">
-      <div class="ms-send-item"><b id="ms-send-approved">0</b><span>freigegeben</span></div>
-      <div class="ms-send-item"><b id="ms-send-sent">0</b><span>versendet</span></div>
-      <div class="ms-send-item"><b id="ms-send-pending">0</b><span>wartend</span></div>
-    </div>
-
-    <div class="panel-title" style="margin-top:16px">Top 10 Opportunities</div>
+    <div class="panel-title">Top 10 Opportunities</div>
     <div id="top-list" class="top-list"></div>
 
     <div class="panel-title" style="margin-top:16px">Quellen</div>
@@ -258,29 +221,24 @@
     <div class="panel-title" style="margin-top:16px">Bundesländer</div>
     <div class="bl-chart" id="bl-chart"></div>
 
-    <div class="panel-title" style="margin-top:16px">Filter</div>
-    <select class="flt" id="flt-typ" onchange="applyFilter()">
-      <option value="">Alle Typen</option>
-      <option value="Hot">🔴 Hot</option>
-      <option value="Warm">🟡 Warm</option>
-      <option value="Cold">🔵 Cold</option>
-    </select>
-    <select class="flt" id="flt-web" onchange="applyFilter()">
-      <option value="">Website: alle</option>
-      <option value="0">✗ Ohne Website</option>
-      <option value="1">✓ Mit Website</option>
-    </select>
-    <select class="flt" id="flt-bl" onchange="applyFilter()">
-      <option value="">Alle Regionen</option>
-      <option value="Berlin">Berlin</option>
-      <option value="Schleswig-Holstein">Schleswig-Holstein</option>
-    </select>
-
     <div class="panel-title" style="margin-top:16px">Hot Leads</div>
     <div class="hot-list" id="hot-list">
       <div class="hot-empty">Noch keine Hot Leads</div>
     </div>
   </aside>
+
+  <!-- ── UNTEN: eingebettetes Live-Log (volle Breite) ────────────────────── -->
+  <div class="ms-log-panel ms-log-panel-full">
+    <div class="ms-log-head">
+      <span class="ms-log-title">⬡ Live-Log</span>
+      <div class="ms-log-filters">
+        <button class="lf-btn active" data-lvl="" onclick="setStatusLogFilter('')">Alle</button>
+        <button class="lf-btn" data-lvl="ERROR" onclick="setStatusLogFilter('ERROR')">Fehler</button>
+        <button class="lf-btn" data-lvl="WARN" onclick="setStatusLogFilter('WARN')">Warn</button>
+      </div>
+    </div>
+    <div class="ms-log-entries" id="ms-log-entries"></div>
+  </div>
 
 </main>
 
@@ -1045,6 +1003,7 @@
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><div class="feat-tx"><b>Medien-Studio</b><span>Hero-Bilder & Werbevideos via Higgsfield-Abo, lokal-first</span></div></div>
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></div><div class="feat-tx"><b>Cloud-Sync</b><span>Leads & Seiten über Supabase über mehrere PCs hinweg</span></div></div>
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="feat-tx"><b>Rechtssicher</b><span>Impressum, Ein-Klick-Abmeldung & Opt-out in jeder Mail</span></div></div>
+      <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div><div class="feat-tx"><b>E-Mail-Zustellbarkeitsprüfung</b><span>DNS/MX-Check vor jedem Versand — keine Bounces mehr an tote Adressen</span></div></div>
     </div>
 
     <!-- ══ PIPELINE (dynamisch) ══ -->
