@@ -1,7 +1,7 @@
 """
 Geteilte HTTP- und Ollama-Helfer für alle Scraper und den Verifier.
 Öffentliche API: get, ddg_search, ask_ollama, extract_json, ollama_models,
-warmup_ollama, UA.
+warmup_ollama, UA, DIRECTORY_HEADERS, get_directory, parse_rating.
 """
 import json
 import os
@@ -106,6 +106,72 @@ def get(url: str, timeout: int = 10) -> str:
             return r.read().decode("utf-8", errors="replace")
     except Exception:
         return ""
+
+
+# ── Verzeichnis-Scraper: gemeinsame Header/Get/Rating-Helfer ─────────────────
+# Vorher 4x byte-identisch dupliziert in gelbe_seiten/dasoertliche/elfacht/golocal.py
+# (siehe workspace/LEAD_COLLECTOR_UND_AUDIT.md, "Fix 6"). Bewusst getrennt von `get()`
+# oben (andere Header/Timeout, andere Aufrufer) statt es zu überladen.
+DIRECTORY_HEADERS = {
+    "User-Agent": UA,
+    "Accept-Language": "de-DE,de;q=0.9",
+    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+}
+
+
+def get_directory(url: str, timeout: int = 14) -> str:
+    """HTTP-GET mit den vollen Verzeichnis-Scraper-Headern (UA+Accept-Language+Accept)."""
+    req = urllib.request.Request(url, headers=DIRECTORY_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def parse_rating(art) -> tuple[float, int]:
+    """Extrahiert (Sterne 0-5, Anzahl Bewertungen) aus einem Verzeichnis-Listen-Eintrag
+    (BeautifulSoup-Tag). Robust — gibt (0.0, 0) zurück wenn nichts gefunden, crasht nie."""
+    bewertung, anz = 0.0, 0
+    try:
+        rate_el = (
+            art.select_one("[itemprop='ratingValue']") or
+            art.select_one("[class*='rating']") or
+            art.select_one("[class*='stars']") or
+            art.select_one("[class*='bewertung']")
+        )
+        txt = ""
+        if rate_el:
+            txt = rate_el.get("content") or rate_el.get("aria-label") or rate_el.get_text(" ", strip=True)
+        if txt:
+            m = re.search(r"(\d[.,]?\d?)", txt)
+            if m:
+                val = float(m.group(1).replace(",", "."))
+                if 0.0 <= val <= 5.0:
+                    bewertung = val
+    except Exception:
+        bewertung = 0.0
+    try:
+        cnt_el = (
+            art.select_one("[itemprop='reviewCount']") or
+            art.select_one("[class*='count']")
+        )
+        cnt_txt = ""
+        if cnt_el:
+            cnt_txt = cnt_el.get("content") or cnt_el.get_text(" ", strip=True)
+        if not cnt_txt:
+            full = art.get_text(" ", strip=True)
+            mb = re.search(r"\((\d+)\s*Bewertung", full, re.I) or \
+                 re.search(r"(\d+)\s*Bewertung", full, re.I)
+            if mb:
+                cnt_txt = mb.group(1)
+        if cnt_txt:
+            mc = re.search(r"\d+", cnt_txt)
+            if mc:
+                anz = int(mc.group(0))
+    except Exception:
+        anz = 0
+    return bewertung, anz
 
 
 # ── Web-Suche (Multi-Engine + globaler Rate-Limiter) ──────────────────────────

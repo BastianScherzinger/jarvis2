@@ -11,7 +11,6 @@ dedizierter Enrichment-Worker).
 import re
 import json
 
-from scrapers.website_checker import check_website
 from scrapers.regions import get_bundesland
 
 
@@ -62,7 +61,6 @@ def read_detail(page, region: str, branche: str) -> dict | None:
                 break
 
         has_web  = bool(website_url and "google" not in website_url)
-        web_info = check_website(website_url) if has_web else {}
 
         # Bilder / Hero-Foto-URL erfassen (gespeicherte Maps-Bilder)
         foto_url = ""
@@ -175,7 +173,7 @@ def read_detail(page, region: str, branche: str) -> dict | None:
             "telefon":        telefon,
             "website_url":    website_url if has_web else "",
             "has_website":    int(has_web),
-            "website_alter":  web_info.get("alter_jahre", -1),
+            "website_alter":  -1,  # Alter wird zentral im Evaluator ermittelt (web_analyst.py)
             "bewertung":      rating,
             "anz_bewertungen": anz_rev,
             "bilder":         int(bilder),

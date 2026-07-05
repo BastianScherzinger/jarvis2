@@ -36,13 +36,31 @@ def _site_key(name: str, stadt: str) -> str:
         return hashlib.md5(f"{(name or '').lower()}|{(stadt or '').lower()}".encode()).hexdigest()
 
 
+_thread_local = threading.local()
+
+
 def _conn() -> sqlite3.Connection:
+    """Wiederverwendete Connection PRO THREAD statt einer neuen Connection + 2x PRAGMA bei
+    JEDEM einzelnen Aufruf. Der bestehende globale `_lock` serialisiert ohnehin jeden Zugriff —
+    diese Änderung spart nur das ständige Neu-Verbinden, ändert nichts an der Nebenläufigkeit.
+    Prüft den Pfad mit, falls DB_PATH zur Laufzeit geändert wird (z.B. in Tests)."""
+    path   = str(DB_PATH)
+    cached = getattr(_thread_local, "conn", None)
+    if cached is not None and getattr(_thread_local, "path", None) == path:
+        return cached
+    if cached is not None:
+        try:
+            cached.close()
+        except Exception:
+            pass
     DB_PATH.parent.mkdir(exist_ok=True)
-    c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
-    return c
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
+    _thread_local.conn = conn
+    _thread_local.path = path
+    return conn
 
 
 def _parse_liste(roh) -> list:

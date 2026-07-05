@@ -16,34 +16,53 @@ import time
 
 from agents.scorer import score as calc_score
 from agents.quality import is_real_business
-from scrapers.website_checker import check_website
 from leadpackages.sources_dach import get_region
 from leadpackages import sources_herold
 import db_raw as _db_raw
 import logger
 
 
-def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 20):
-    """Läuft als langlebiger Thread durch alle (AT-Stadt, Branche)-Kombis."""
-    # Einmaliger Dependency-Check statt bei JEDER Anfrage zu scheitern: curl_cffi ist eine
-    # transitive Abhängigkeit von scrapling.fetchers.Fetcher, die auf manchen Maschinen
-    # trotz frisch installierter requirements.txt fehlt (beobachtet: scrapling zieht sie
-    # nicht auf jeder Plattform automatisch mit). Ohne diesen Check würde der Worker im
-    # Sekundentakt denselben ModuleNotFoundError loggen, ohne je einen Treffer zu liefern.
-    try:
-        from scrapling.fetchers import Fetcher  # noqa: F401
-    except ImportError as e:
-        on_lead({"_error": f"herold.at-Worker beendet — Abhängigkeit fehlt: {e}. "
-                           f"Beheben mit: pip install curl_cffi"})
-        logger.error("Herold", f"Abhängigkeit fehlt ({e}) — Worker beendet sich, "
-                              f"statt jede Anfrage erfolglos zu wiederholen. "
-                              f"Beheben mit: pip install curl_cffi")
-        return
+_DEP_RECHECK_INTERVAL = 1800  # 30 Min
 
+
+def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 20):
+    """Läuft als langlebiger Thread durch alle (AT-Stadt, Branche)-Kombis.
+
+    Prüft die curl_cffi-Abhängigkeit (transitiv über scrapling.fetchers.Fetcher, fehlt auf
+    manchen Maschinen trotz frisch installierter requirements.txt) periodisch statt nur
+    einmalig beim Start: fehlt sie, pausiert der Worker (statt sich dauerhaft zu beenden) und
+    prüft alle _DEP_RECHECK_INTERVAL Sekunden erneut — wird curl_cffi während der Laufzeit
+    nachinstalliert (z.B. via `pip install curl_cffi` ohne App-Neustart), läuft er automatisch
+    an, statt bis zum nächsten Neustart tot zu bleiben.
+    """
     counter = 0
+    dep_ok = False
+    dep_missing_logged = False
+
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
             break
+
+        if not dep_ok:
+            try:
+                from scrapling.fetchers import Fetcher  # noqa: F401
+                dep_ok = True
+                if dep_missing_logged:
+                    logger.success("Herold", "curl_cffi jetzt verfügbar — Worker läuft an.")
+                    on_lead({"_activity": "herold.at: Abhängigkeit gefunden, läuft jetzt."})
+            except ImportError as e:
+                if not dep_missing_logged:
+                    on_lead({"_error": f"herold.at-Worker pausiert — Abhängigkeit fehlt: {e}. "
+                                       f"Beheben mit: pip install curl_cffi "
+                                       f"(prüft automatisch alle 30 Min erneut)"})
+                    logger.error("Herold", f"Abhängigkeit fehlt ({e}) — pausiert, prüft "
+                                          f"automatisch alle 30 Min erneut. "
+                                          f"Beheben mit: pip install curl_cffi")
+                    dep_missing_logged = True
+                if stop_event.wait(_DEP_RECHECK_INTERVAL):
+                    break
+                continue
+
         counter += 1
         if counter % 10 == 0:
             on_lead({"_activity": f"herold.at scannt {region}/{branche}"})
@@ -73,7 +92,6 @@ def _scrape_query(stadt: str, branche: str, on_lead, stop_event, max_per: int):
 
         website_url = (eintrag.get("website_url") or "").strip()
         has_web     = bool(website_url)
-        web_info    = check_website(website_url) if has_web else {}
 
         lead = {
             "name":            name[:120],
@@ -84,7 +102,7 @@ def _scrape_query(stadt: str, branche: str, on_lead, stop_event, max_per: int):
             "telefon":         (eintrag.get("telefon") or "")[:50],
             "website_url":     website_url[:300] if has_web else "",
             "has_website":     int(has_web),
-            "website_alter":   web_info.get("alter_jahre", -1),
+            "website_alter":   -1,  # Alter wird zentral im Evaluator ermittelt (web_analyst.py)
             "bewertung":       0.0,
             "anz_bewertungen": 0,
             "bilder":          0,

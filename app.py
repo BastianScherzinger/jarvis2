@@ -1962,6 +1962,19 @@ def api_home_stats():
     })
 
 
+@app.route("/api/calibration/suggestions")
+def api_calibration_suggestions():
+    """Rein beratender Score-Kalibrierungs-Bericht (Backlog B9) — vergleicht reale
+    Konversionsraten je Branche/Score-Band mit der aktuellen Einstufung. Ändert NIE
+    automatisch score_writer.py; meldet nur, sobald genug Fälle (Mindeststichprobe)
+    vorliegen. Siehe agents/evaluator/calibration.py."""
+    try:
+        from agents.evaluator import calibration
+        return jsonify({"ok": True, **calibration.suggest_branch_calibration()})
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"{type(e).__name__}: {e}"})
+
+
 @app.route("/api/mystatus")
 def api_mystatus():
     """Aggregierter Status für den 'Mein Status'-Tab: 10-Min-Sammel-Zyklus, Website-Bau,
@@ -2113,7 +2126,12 @@ def server_config() -> dict:
       JARVIS_HOST   (Default 0.0.0.0)
       JARVIS_PORT / PORT  (Default 5000)
       JARVIS_THREADS  (Default = 2× CPU-Kerne, 8–32)
-      JARVIS_SERVER / JARVIS_PROD  → Produktionsmodus (waitress statt Dev-Server)."""
+      JARVIS_SERVER / JARVIS_PROD  → Produktionsmodus (waitress statt Dev-Server).
+      Default seit 05.07.2026: AN (waitress) — der Flask-Dev-Server war zuvor ohne
+      explizites Flag der De-facto-Standard, obwohl JARVIS dauerhaft läuft. waitress wurde
+      gegen die SSE-Streaming-Routen (Claude-Chat) verifiziert: Chunks kommen progressiv an,
+      kein Puffern (siehe JARVIS2_ANALYSE.md, Backlog B6). Explizit abschaltbar mit
+      JARVIS_SERVER=0 (z.B. für den Werkzeug-Debug-Reloader in der lokalen Entwicklung)."""
     host = os.environ.get("JARVIS_HOST", "0.0.0.0")
     try:
         port = int(os.environ.get("JARVIS_PORT") or os.environ.get("PORT") or 5000)
@@ -2125,8 +2143,13 @@ def server_config() -> dict:
         threads = 0
     if threads <= 0:
         threads = min(32, max(8, (os.cpu_count() or 4) * 2))
-    prod = (os.environ.get("JARVIS_SERVER") or os.environ.get("JARVIS_PROD") or "").strip().lower() \
-        in ("1", "true", "yes", "on", "prod", "production")
+    raw = (os.environ.get("JARVIS_SERVER") or os.environ.get("JARVIS_PROD") or "").strip().lower()
+    if raw in ("0", "false", "no", "off", "dev", "development"):
+        prod = False
+    else:
+        # Default AN — auch wenn raw leer ist (keine Variable gesetzt). Nur ein expliziter
+        # Aus-Wert oben schaltet auf den Dev-Server zurück.
+        prod = True
     return {"host": host, "port": port, "threads": threads, "prod": prod}
 
 

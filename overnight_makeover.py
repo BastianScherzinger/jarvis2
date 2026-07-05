@@ -375,12 +375,22 @@ def _looks_limited(text: str) -> bool:
     at claude.ai/settings/usage". Ohne diesen Fall wurde die Meldung von KEINEM der
     bisherigen Muster erkannt ("hit your limit" ist KEIN Substring von "hit your monthly
     spend limit") — website_builder.py deployte die unpolierte Seite dadurch als
-    vermeintliche Rettung und schickte sie sogar automatisch an echte Kunden."""
+    vermeintliche Rettung und schickte sie sogar automatisch an echte Kunden.
+
+    Rein textbasiert (die Claude-Code-CLI liefert keinen strukturierten Fehlercode für
+    Limits — interne Fehler kommen nur als generisches subtype='error_during_execution'
+    mit dem eigentlichen Grund im Freitext, siehe claude_coder.py). Die Musterliste ist
+    daher bewusst breit gehalten (B10, workspace/LEAD_COLLECTOR_UND_AUDIT.md) — jede neue,
+    hier unbekannte Anthropic-Formulierung sollte ergänzt werden, sobald sie in den Logs
+    auftaucht (siehe Diagnose-Warnung im Aufrufer für genau diesen Fall)."""
     t = (text or "").lower()
     return any(s in t for s in (
         "session limit", "usage limit", "rate limit", "hit your limit", "weekly limit",
         "weekly usage", "reached your limit", "resets", "quota", "try again later",
-        "spend limit"))
+        "spend limit", "credit balance", "insufficient credit", "usage cap",
+        "exceeded your", "please upgrade", "upgrade your plan", "limit reached",
+        "you have reached", "too many requests", "over your limit", "monthly limit",
+        "claude.ai/settings/usage", "claude.ai/upgrade"))
 
 
 def _limit_scope(text: str) -> str:
@@ -1108,6 +1118,20 @@ def run_makeover(folder: "str | Path", meta: dict, say=None, stop=None,
                     break
                 continue
             else:
+                # Diagnose-Breadcrumb (B10): eine echte CLI-Fehlermeldung ohne jede Änderung,
+                # die aber KEIN bekanntes Limit-Muster trifft, könnte eine neue, noch nicht in
+                # _looks_limited() erfasste Anthropic-Formulierung sein (genau der Bug-Typ vom
+                # 05.07.2026 mit "spend limit"). Ändert das Verhalten NICHT (Stufe bleibt
+                # optional überspringbar) — macht aber sichtbar, dass hier nachgeschärft
+                # werden sollte, statt eine unerkannte Limit-Meldung stumm als "echter
+                # Fehler, weiter" durchrutschen zu lassen.
+                if not changed and (res.get("cli_error") or res.get("reason")):
+                    logger.warn(
+                        "Makeover",
+                        f"{name} · '{stage['label']}' scheiterte ohne Änderung und OHNE "
+                        f"erkanntes Limit-Muster — evtl. neue Anthropic-Formulierung? "
+                        f"Text: {((res.get('summary') or '') + ' ' + (res.get('reason') or ''))[:160]!r}"
+                    )
                 break
             # Limit erkannt. Scope (Session/Weekly) + Roh-Meldung (für Reset-Zeit) bestimmen.
             _ltext = (res.get("summary") or "") + " " + (res.get("reason") or "")

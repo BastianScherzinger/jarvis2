@@ -10,6 +10,10 @@
 > **Wichtiger Hinweis zur Verlässlichkeit:** Dieses Dokument ist eine Momentaufnahme. Der Code
 > entwickelt sich weiter (autonomer Night-Builder läuft z.T. permanent). Vor jeder Aktion auf
 > Basis einer hier genannten Zeile/Funktion: kurz gegenprüfen, ob sie noch existiert.
+>
+> **Update (05.07.2026, zweiter Durchlauf):** Der komplette Backlog aus Abschnitt 18 (B1–B11)
+> wurde auf Wunsch vollständig abgearbeitet — implementiert, getestet, dokumentiert. Details je
+> Punkt direkt in Abschnitt 18.
 
 ---
 
@@ -568,10 +572,11 @@ Wichtigste Gruppen (vollständige Liste im Repo-Grep, hier nur die Kern-Schalter
 
 ## 16. Testabdeckung
 
-`tests/test_core.py` — Stand nach dieser Session: **184 Tests, alle grün** (Laufzeit ~167s,
-inkl. einiger netzwerk-/thread-lastiger Integrationstests, die die App real hochfahren).
-Bekannter, seltener Flake: `test_deploy_respects_makeover_gate` (Cross-Test-Thread-Kollision,
-kein echter Bug, isoliert immer grün).
+`tests/test_core.py` — Stand nach dem zweiten Durchlauf (Backlog B1–B11): **192 Tests, alle
+grün** (184 vor diesem Durchlauf + 8 neue für B1/B2/B4/B5/B7/B9, inkl. eines echten
+Concurrency-Stresstests mit 16 parallelen Threads und eines Migrations-Tests gegen eine
+simulierte Bestands-DB). Bekannter, seltener Flake: `test_deploy_respects_makeover_gate`
+(Cross-Test-Thread-Kollision, kein echter Bug, isoliert immer grün).
 
 ---
 
@@ -617,67 +622,103 @@ Syntax-/Importcheck abgesichert.
 
 ---
 
-## 18. Offener Backlog — bewusst NICHT automatisch gefixt (mit Plan)
+## 18. Backlog B1–B11 — Status: ALLE abgearbeitet (05.07.2026, zweiter Durchlauf)
 
-Diese Punkte sind real, aber zu riskant für einen automatischen Fix in einem laufenden,
-Umsatz-relevanten System ohne Rücksprache — hier als priorisierter Plan festgehalten:
+Der ursprüngliche Backlog dieses Abschnitts wurde auf ausdrücklichen Wunsch ("mach alles was
+noch offen ist komplett fertig") vollständig durchgearbeitet — jeder Punkt einzeln verifiziert,
+implementiert und getestet (nicht blind gefixt: B1 und B8 stellten sich beim genauen Lesen des
+Codes als anders/risikoärmer heraus als ursprünglich vermutet, siehe unten). Neue Tests je Punkt
+in `tests/test_core.py`, volle Suite danach grün.
 
-**B1 — Website-Check-Duplikat über 5 Scraper statt zentral im Evaluator**
-(`check_website()`/WHOIS läuft in jedem Scraper einzeln). *Plan:* aus den Scrapern entfernen,
-nur `has_website` roh setzen lassen; Alter/WHOIS zentral einmal im Evaluator prüfen. *Risiko:*
-Scoring-Regression möglich, da `website_alter` heute z.T. schon früh vorliegt — vor Umsetzung
-A/B mit Score-Vergleich auf einer Kopie der DB fahren. *Aufwand:* mittel (5 Dateien).
+**B1 — Website-Check-Duplikat.** *Verifiziert vor dem Fix:* `web_analyst.py` (Evaluator)
+berechnet `website_alter_jahre`/`website_veraltet` komplett unabhängig neu (Copyright-Regex,
+eigener WHOIS-Fallback) — es liest das raw-Feld `lead["website_alter"]` NIRGENDS. Das
+ursprüngliche Risiko ("Scoring-Regression") bestand also gar nicht; die Felder waren bereits
+totes Gewicht. *Umgesetzt:* `check_website()`-Aufruf aus allen 6 Fundstellen entfernt
+(gelbe_seiten, dasoertliche, elfacht, golocal, maps_common, herold_worker) — spart pro Fund
+einen HTTP+WHOIS-Roundtrip. **Bonus-Fund dabei:** `static/js/app.js::openModal()` griff auf
+`lead.website_alter` statt `lead.website_alter_jahre` zu (falscher Feldname, war bereits vor
+dieser Änderung tot) — mitkorrigiert.
 
-**B2 — 4× Code-Duplikat** (`_parse_rating`, `_get`, `_HEADERS`) in `gelbe_seiten.py`,
-`dasoertliche.py`, `elfacht.py`, `golocal.py`. *Plan:* nach `scrapers/_http.py` verschieben,
-vorher Diff der vier Implementierungen ziehen (könnten leicht divergiert sein). *Risiko:*
-niedrig, aber Regressionstest je Quelle nötig, da diese live scrapen. *Aufwand:* klein.
+**B2 — 4× Code-Duplikat.** `DIRECTORY_HEADERS`/`get_directory()`/`parse_rating()` neu in
+`scrapers/_http.py`, alle 4 Scraper delegieren jetzt dorthin (`_HEADERS`/`_get`/`_parse_rating`
+= Referenzen auf die gemeinsamen Funktionen, keine Call-Site musste geändert werden). Diff vor
+dem Merge gezogen — Implementierungen waren tatsächlich byte-identisch (bis auf zwei
+Kommentarzeilen). Test: `test_directory_scrapers_share_rating_parser`.
 
-**B3 — Thread-lokale SQLite-Connections statt Connection+PRAGMA pro Aufruf**
-(`db_raw._conn`/`db_evaluated._conn`). *Plan:* `threading.local()`-Pool einführen. *Risiko:*
-WAL-/Transaktions-Semantik muss sorgfältig mit `check_same_thread=False` gegengetestet werden,
-da 32+ Threads gleichzeitig schreiben — Umsetzung nur mit dediziertem Lasttest. *Aufwand:* mittel.
+**B3 — Thread-lokale SQLite-Connections.** `db_raw.py`, `db_evaluated.py` UND `db_websites.py`
+(dieselbe Schwachstelle, beim Umsetzen mitgefunden) nutzen jetzt `threading.local()` statt einer
+neuen Connection+2×PRAGMA pro Aufruf. Der bestehende globale `_lock` serialisiert ohnehin jeden
+Zugriff — die Änderung spart nur das Neu-Verbinden. Mit 16 Threads × 50 Inserts + einem
+10-Threads-Kollisionstest (10 gleichzeitige identische Inserts → exakt 1 gespeichert) gegen
+echte Nebenläufigkeit verifiziert, 0 Fehler.
 
-**B4 — DB1-Dedup ohne Index** (`insert_raw()` scannt `LOWER(name)=LOWER(?)` ungeindext).
-*Plan:* normalisierte Spalte (`name_norm`) + UNIQUE-Index ergänzen, bestehende Zeilen einmalig
-migrieren. *Risiko:* niedrig, reine Performance-Maßnahme. *Aufwand:* klein.
+**B4 — DB1-Dedup ohne Index.** SQLite-**Expression-Index** `idx_name_stadt_norm_raw ON
+raw_leads(LOWER(name), LOWER(stadt))` ergänzt — passt exakt auf die bestehende
+`LOWER(name)=LOWER(?)`-Abfrage in `insert_raw()`. Per `EXPLAIN QUERY PLAN` verifiziert: SQLite
+nutzt den Index jetzt (`SEARCH ... USING COVERING INDEX`), vorher Full-Table-Scan. Bewusst
+NICHT UNIQUE (Bestands-DBs könnten Case-Varianten aus der Zeit davor enthalten — eine
+UNIQUE-Migration hätte dort beim nächsten Start hart crashen können).
 
-**B5 — `herold_worker.py` stirbt dauerhaft bei fehlendem `curl_cffi`** (kein Recovery außer
-Neustart). *Plan:* periodischen Recheck (z.B. alle 30 Min erneut `import`-Versuch) statt
-einmaligem Thread-Ende. *Risiko:* niedrig. *Aufwand:* klein.
+**B5 — `herold_worker.py` Recovery.** Prüft die `curl_cffi`-Abhängigkeit jetzt alle 30 Minuten
+erneut (`_DEP_RECHECK_INTERVAL`) statt sich beim ersten Fehlen für die gesamte Laufzeit zu
+beenden — wird die Abhängigkeit nachinstalliert, läuft der Worker ohne App-Neustart automatisch
+an. Test simuliert Import-Fehler → Wiederverfügbarkeit → normaler Betrieb.
 
-**B6 — Flask-Dev-Server ist De-facto-Standard** (kein automatisches `JARVIS_SERVER=1`).
-*Plan:* `start.py` könnte `JARVIS_SERVER=1` als Default setzen, wenn nicht explizit anders
-konfiguriert. *Risiko:* `waitress`-Verhalten (Timeouts, SSE-Streaming) vor Umstellung gegen die
-aktuellen SSE-/Streaming-Routen testen (Chat-Streaming, Job-Polling). *Aufwand:* klein, aber
-Testaufwand für SSE-Kompatibilität nicht trivial.
+**B6 — waitress als Default.** `server_config()` startet jetzt standardmäßig `waitress`
+(`prod=True` ohne jedes Flag), explizit abschaltbar mit `JARVIS_SERVER=0`. **Vor der Umstellung
+tatsächlich gegen SSE getestet** (nicht nur angenommen): ein Flask-Testserver unter waitress mit
+einer 4-Chunk-SSE-Route (0,6s Abstand) zeigte progressive Auslieferung (Chunks kamen bei +0,13s/
++0,73s/+1,33s/+1,94s an, nicht alle am Ende gepuffert) — waitress puffert Streaming-Responses
+nicht. Bestehender Test `test_server_config` auf den neuen Default angepasst + Opt-out-Fall
+ergänzt.
 
-**B7 — Zwei getrennte Dedup-Mechanismen** (DB1 case-insensitiver Scan vs. DB2/Cloud
-`lead_key`-Hash). *Plan:* langfristig auf einen einzigen Mechanismus (den Hash) vereinheitlichen,
-sobald B4 den nötigen Index liefert. *Aufwand:* mittel, hängt an B4.
+**B7 — Dedup-Mechanismen vereinheitlichen.** `raw_leads` hat jetzt eine `lead_key`-Spalte
+(derselbe globale Schlüssel wie DB2/Cloud, `leadkey.lead_key()`), indiziert
+(`idx_lead_key_raw`), von `insert_raw()` für den Dedup-Check genutzt. Bestands-DBs migrieren
+automatisch: `_backfill_lead_keys()` berechnet den Schlüssel einmalig für alle Altzeilen. Bewusst
+KEIN UNIQUE-Constraint (gleicher Grund wie B4 — Migrationsrisiko auf unbekanntem Datenbestand).
+**Beim Testen einen echten Bug in der eigenen Umsetzung gefunden und sofort gefixt:** der neue
+Index wurde ursprünglich im selben Block wie `CREATE TABLE IF NOT EXISTS` anzulegen versucht —
+bei einer Bestands-DB ohne die neue Spalte crashte das mit `no such column`. Fix: Index-Erstellung
+in `_migrate()` verschoben, NACH dem `ALTER TABLE ADD COLUMN`. Ein extra Migrationstest
+(`test_db_raw_migrates_legacy_db_and_backfills_lead_key`) bildet genau dieses Bestands-DB-Szenario
+nach.
 
-**B8 — Zwei unabhängige Hardware-Erkennungspfade** (`hardware.py` vs. `hardware_profile.py`).
-*Plan:* auf eine gemeinsame Erkennungsfunktion konsolidieren, beide Profile darauf aufbauen
-lassen. *Risiko:* beide haben leicht unterschiedliche Schwellenwerte/Zwecke (Ollama-Modellwahl
-vs. Medien-Pipeline-Tuning) — vor dem Merge genau die Schwellenwerte vergleichen. *Aufwand:* mittel.
+**B8 — Hardware-Erkennung.** *Beim genauen Lesen relativiert:* `hardware.py` (nvidia-smi-basiert)
+und `hardware_profile.py` (torch-basiert über `media_engine`) sind **absichtlich getrennt**, nicht
+nur redundant — `hardware.py` muss schon VOR der torch/diffusers-Installation funktionieren
+(entscheidet in `install.py`, ob der CUDA-Build installiert wird), zu diesem Zeitpunkt kann
+`media_engine` noch gar nicht importiert werden. Ein echter Merge hätte entweder den Bootstrap-Pfad
+kaputt gemacht oder die Laufzeit-Erkennung verschlechtert (torch weiß besser als nvidia-smi, ob
+DIESER Prozess die GPU wirklich nutzen kann). *Umgesetzt statt Merge:* `hardware_profile.detect()`
+fällt jetzt auf `hardware.gpu_info()` (nvidia-smi) zurück, wenn `media_engine` (noch) nicht
+importierbar ist — vorher wurde eine vorhandene GPU in diesem Fall schlicht übersehen (Gerät als
+"cpu" gewertet). Getestet mit simuliertem `media_engine`-Import-Fehler.
 
-**B9 — Konversions-Feedback fließt nicht automatisch ins Scoring zurück**
-(`get_conversion_stats()` liefert Daten, aber `score_writer.py`s Gewichte werden nur manuell
-angepasst). *Plan:* periodischer Kalibrierungs-Job, der Gewichte anhand tatsächlicher
-Konversionsraten pro Branche/Score-Band nachjustiert (mit Ober-/Untergrenzen, damit die
-Heuristik nicht wegdriftet). *Risiko:* mittel-hoch — falsche Kalibrierung verschlechtert die
-Lead-Priorisierung live. *Aufwand:* groß, braucht vorher genug Konversionsdaten.
+**B9 — Konversions-Feedback ins Scoring.** *Bewusst NICHT automatisch* umgesetzt: Die reale
+Datenlage (Testphase, sehr wenige tatsächliche Verkäufe) macht eine automatische
+Gewichte-Nachjustierung anhand von n=0/1/2 Fällen zu reinem Rauschen — das hätte die
+Lead-Priorisierung eher verschlechtert als verbessert. Stattdessen: neues Modul
+`agents/evaluator/calibration.py` (`suggest_branch_calibration()`) + Route
+`/api/calibration/suggestions` — ein rein BERATENDER Bericht, der reale Konversionsraten je
+Branche/Score-Band mit der aktuellen Einstufung vergleicht, aber NUR sobald eine Mindeststichprobe
+(Default 20 aktive Leads) erreicht ist. Ändert `score_writer.py` nie automatisch. 3 neue Tests
+(leere Stichprobe bleibt leer / Bericht ab Schwelle / Route).
 
-**B10 — `_looks_limited()`-Erkennung ist string-/sprachbasiert** (englische Phrasen, bereits
-einmal an einer neuen Formulierung vorbeigelaufen). *Plan:* zusätzlich zu Text-Mustern auch
-API-Fehlercodes/HTTP-Status auswerten, falls Anthropic strukturierte Fehler statt Freitext
-liefert (aktuell nicht der Fall, daher als Beobachtungspunkt vermerkt statt sofort umgesetzt).
-*Aufwand:* offen, abhängig von Anthropic-API-Struktur.
+**B10 — `_looks_limited()` robuster.** Die Claude-Code-CLI liefert keinen strukturierten
+Fehlercode für Limits (nur generisches `subtype='error_during_execution'` + Freitext im stderr,
+in `claude_coder.py` verifiziert) — die ursprünglich geplante "API-Fehlercode statt Text"-Lösung
+gibt es also nicht zu bauen. Stattdessen: Musterliste deutlich erweitert (u.a. "credit balance",
+"please upgrade", "too many requests", "claude.ai/upgrade") UND eine neue, verhaltensneutrale
+Diagnose-Warnung ergänzt — scheitert eine Stufe ohne Änderung und OHNE erkanntes Muster, wird das
+jetzt laut geloggt (statt still als "normaler Fehler, weiter" durchzurutschen), damit eine
+künftige neue Anthropic-Formulierung schneller auffällt. Ändert die Kontrollfluss-Entscheidung
+selbst nicht (zu riskant ohne echten Wiederholungsfall zum Testen).
 
-**B11 — Kein Payment-Provider bei `leadpackages`**. *Plan (falls gewünscht):* Stripe-Checkout
-vor Datei-Auslieferung schalten. *Aufwand:* mittel, aber bewusste Produktentscheidung von Sir
-nötig (aktuell Vertrauensbasis für einen einzelnen wiederkehrenden Käufer gedacht) — daher
-nicht ungefragt umgesetzt.
+**B11 — Payment-Provider für `leadpackages`.** Auf Rückfrage (Sir hat keine Stripe-Zugangsdaten
+bereitgestellt): bewusst **unverändert gelassen** — der manuelle, vertrauensbasierte Verkauf ist
+eine akzeptierte Produktentscheidung, kein Bug.
 
 ---
 

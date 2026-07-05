@@ -30,7 +30,15 @@ _TABLE = {
 
 @functools.lru_cache(maxsize=1)
 def detect() -> dict:
-    """Roh-Hardware (gecacht). cores/ram_gb/device/vram_gb/gpu_name."""
+    """Roh-Hardware (gecacht). cores/ram_gb/device/vram_gb/gpu_name.
+
+    GPU-Erkennung bevorzugt media_engine (torch-basiert — die für DIESEN Python-Prozess
+    tatsächlich nutzbare GPU, berücksichtigt CUDA-Treiber-/Toolkit-Kompatibilität). Das ist
+    bewusst NICHT dasselbe wie hardware.py::gpu_info() (nvidia-smi-basiert): hardware.py muss
+    schon VOR der torch/diffusers-Installation funktionieren (install.py entscheidet damit erst,
+    ob der CUDA-Build installiert wird) — media_engine kann zu diesem Zeitpunkt noch gar nicht
+    importiert werden. Fällt media_engine (noch) nicht verfügbar/importierbar, wird darum auf
+    hardware.gpu_info() zurückgefallen, statt eine vorhandene GPU fälschlich zu übersehen."""
     cores = os.cpu_count() or 4
     ram = 0.0
     device, vram, gpu = "cpu", 0.0, ""
@@ -39,16 +47,31 @@ def detect() -> dict:
         ram = float(hardware.ram_gb())
     except Exception:
         pass
+
+    got_gpu_from_media_engine = False
     try:
         import media_engine
         hw = media_engine.hardware_info()
         device = hw.get("device", "cpu")
         vram = float(hw.get("vram_gb", 0.0) or 0.0)
         gpu = hw.get("gpu_name", "")
+        got_gpu_from_media_engine = True
         if not ram:
             ram = float(hw.get("ram_gb", 0.0) or 0.0)
     except Exception:
         pass
+
+    if not got_gpu_from_media_engine:
+        # media_engine (torch) noch nicht installiert/importierbar — nvidia-smi-Fallback,
+        # damit eine vorhandene GPU nicht fälschlich als "keine GPU" gewertet wird.
+        try:
+            import hardware as _hw
+            name, vram_gb = _hw.gpu_info()
+            if vram_gb > 0:
+                device, vram, gpu = "cuda", vram_gb, name
+        except Exception:
+            pass
+
     return {"cores": cores, "ram_gb": round(ram, 1), "device": device,
             "vram_gb": round(vram, 1), "gpu_name": gpu}
 

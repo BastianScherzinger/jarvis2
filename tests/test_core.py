@@ -1102,13 +1102,19 @@ def test_server_config(monkeypatch):
     for k in ("JARVIS_HOST", "JARVIS_PORT", "PORT", "JARVIS_THREADS", "JARVIS_SERVER", "JARVIS_PROD"):
         monkeypatch.delenv(k, raising=False)
     cfg = app.server_config()
-    assert cfg["host"] == "0.0.0.0" and cfg["port"] == 5000 and cfg["prod"] is False
+    # Seit 05.07.2026 Default AN (waitress) — ohne jedes Flag lief zuvor dauerhaft der
+    # Flask-Dev-Server, obwohl JARVIS permanent läuft (Backlog B6, SSE-getestet).
+    assert cfg["host"] == "0.0.0.0" and cfg["port"] == 5000 and cfg["prod"] is True
     assert 8 <= cfg["threads"] <= 32
     monkeypatch.setenv("JARVIS_PORT", "8080")
     monkeypatch.setenv("JARVIS_THREADS", "16")
     monkeypatch.setenv("JARVIS_SERVER", "1")
     cfg2 = app.server_config()
     assert cfg2["port"] == 8080 and cfg2["threads"] == 16 and cfg2["prod"] is True
+    # Expliziter Opt-out (z.B. für den Werkzeug-Debug-Reloader in der Entwicklung)
+    monkeypatch.setenv("JARVIS_SERVER", "0")
+    cfg3 = app.server_config()
+    assert cfg3["prod"] is False
 
 
 def test_ad_prompts_video_prompt():
@@ -1198,6 +1204,50 @@ def test_media_website_ad_video_route(monkeypatch):
     # ohne url -> 400
     r2 = c.post("/api/media/generate/website-ad-video", json={})
     assert r2.status_code == 400
+
+
+# ── Score-Kalibrierungs-Bericht (Backlog B9) — nur beratend, nie automatisch ───────
+def test_calibration_zu_wenig_daten_bleibt_leer(monkeypatch):
+    import db_evaluated
+    from agents.evaluator import calibration
+    fake = {
+        "nach_branche": [{"branche": "Zahnarzt", "verkauft": 1, "aktiv": 3, "gesamt": 10}],
+        "nach_score_band": [{"band": "Hot(72+)", "verkauft": 1, "aktiv": 3}],
+    }
+    monkeypatch.setattr(db_evaluated, "get_conversion_stats", lambda: fake)
+    r = calibration.suggest_branch_calibration()
+    assert r["genug_daten"] is False
+    assert r["branchen"] == [] and r["score_bands"] == []
+
+
+def test_calibration_meldet_ab_mindeststichprobe(monkeypatch):
+    import db_evaluated
+    from agents.evaluator import calibration
+    fake = {
+        "nach_branche": [
+            {"branche": "Zahnarzt", "verkauft": 8, "aktiv": 25, "gesamt": 40},
+            {"branche": "Friseur", "verkauft": 1, "aktiv": 5, "gesamt": 30},
+        ],
+        "nach_score_band": [{"band": "Hot(72+)", "verkauft": 10, "aktiv": 30}],
+    }
+    monkeypatch.setattr(db_evaluated, "get_conversion_stats", lambda: fake)
+    r = calibration.suggest_branch_calibration()
+    assert r["genug_daten"] is True
+    assert len(r["branchen"]) == 1
+    assert r["branchen"][0]["branche"] == "Zahnarzt"
+    assert r["branchen"][0]["aktuelle_einstufung"] == "hoch"
+    assert r["branchen"][0]["konversionsrate"] == 0.32
+
+
+def test_calibration_route(monkeypatch):
+    import app
+    from agents.evaluator import calibration
+    monkeypatch.setattr(calibration, "suggest_branch_calibration",
+                        lambda: {"genug_daten": False, "branchen": [], "score_bands": [], "hinweis": "x"})
+    c = app.app.test_client()
+    r = c.get("/api/calibration/suggestions")
+    d = r.get_json()
+    assert d.get("ok") is True and d.get("genug_daten") is False
 
 
 # ── Video-Studio: direkte Werkzeug-Steuerung (jedes Filmora-Tool manuell) ───────
@@ -2491,6 +2541,11 @@ def test_looks_limited_erkennt_monthly_spend_limit():
     assert om._looks_limited("You have reached your session usage limit") is True
     assert om._looks_limited("weekly limit reached") is True
     assert om._looks_limited("SyntaxError: unexpected token") is False
+    # B10 (05.07.2026): breitere Musterliste gegen künftige, noch unbekannte Formulierungen
+    assert om._looks_limited("Your credit balance is too low to access the API") is True
+    assert om._looks_limited("Please upgrade your plan to continue") is True
+    assert om._looks_limited("429 Too Many Requests") is True
+    assert om._looks_limited("visit claude.ai/upgrade for more usage") is True
 
 
 # ── Supabase-Kontingent-Schutz: nach einem 402 nicht bei JEDEM Push erneut anfragen ────
@@ -2543,3 +2598,124 @@ def test_hero_engine_cooldown_nach_kontingentfehler(monkeypatch):
     with pytest.raises(RuntimeError):
         me.generate_hero_cloud("prompt")
     assert calls["n"] == 1
+
+
+# ── Backlog B2: Rating-Parser/Header/Get sind gemeinsam in scrapers/_http.py ───────
+def test_directory_scrapers_share_rating_parser():
+    from bs4 import BeautifulSoup
+    import scrapers.gelbe_seiten as gs
+    import scrapers.dasoertliche as do
+    import scrapers.elfacht as el
+    import scrapers.golocal as go
+    from scrapers import _http
+
+    html = ('<div><span itemprop="ratingValue" content="4.5"></span>'
+            '<span itemprop="reviewCount" content="12"></span></div>')
+    art = BeautifulSoup(html, "html.parser").div
+    for mod in (gs, do, el, go):
+        assert mod._parse_rating is _http.parse_rating
+        assert mod._get is _http.get_directory
+        assert mod._HEADERS is _http.DIRECTORY_HEADERS
+        assert mod._parse_rating(art) == (4.5, 12)
+
+
+# ── Backlog B1: Scraper setzen website_alter nicht mehr selbst (zentral im Evaluator) ──
+def test_scrapers_no_longer_call_check_website():
+    import ast
+    for fn in ("gelbe_seiten.py", "dasoertliche.py", "elfacht.py", "golocal.py",
+               "maps_common.py", "herold_worker.py"):
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "scrapers", fn)
+        src = open(path, encoding="utf-8").read()
+        assert "check_website" not in src, f"{fn} ruft check_website noch auf (B1 rueckgaengig?)"
+        ast.parse(src)   # bleibt syntaktisch gueltig
+
+
+# ── Backlog B4/B7: DB1-Dedup ueber lead_key (indiziert) statt LOWER()-Scan ─────────
+def test_db_raw_dedup_via_lead_key(tmp_path, monkeypatch):
+    import db_raw
+    from leadkey import lead_key
+    monkeypatch.setattr(db_raw, "DB_PATH", tmp_path / "raw.db")
+    db_raw._thread_local.__dict__.clear()   # sauberer Start ohne gecachte Connection
+    db_raw.init_db()
+
+    lead = {"name": "Mueller GmbH", "stadt": "Berlin", "bundesland": "Berlin",
+            "branche": "Dachdecker", "has_website": 0}
+    rid1 = db_raw.insert_raw(dict(lead))
+    assert rid1 is not None
+
+    dup = dict(lead)
+    dup["name"], dup["stadt"] = "MUELLER gmbh", "BERLIN"
+    assert db_raw.insert_raw(dup) is None      # case-insensitiv erkannt, kein zweiter Eintrag
+
+    with db_raw._conn() as c:
+        row = c.execute("SELECT lead_key FROM raw_leads WHERE id=?", (rid1,)).fetchone()
+    assert row["lead_key"] == lead_key("Mueller GmbH", "Berlin")
+
+
+def test_db_raw_migrates_legacy_db_and_backfills_lead_key(tmp_path, monkeypatch):
+    import sqlite3
+    import db_raw
+    from leadkey import lead_key
+
+    old_path = tmp_path / "raw_legacy.db"
+    c = sqlite3.connect(str(old_path))
+    c.execute("""CREATE TABLE raw_leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, schluessel TEXT UNIQUE, name TEXT NOT NULL,
+        adresse TEXT, stadt TEXT, bundesland TEXT, branche TEXT, telefon TEXT,
+        website_url TEXT, has_website INTEGER DEFAULT 0, maps_url TEXT,
+        bilder_maps INTEGER DEFAULT 0, bewertung REAL DEFAULT 0, anz_bewertungen INTEGER DEFAULT 0,
+        finder TEXT, eval_status TEXT DEFAULT 'pending', gefunden_am TEXT)""")
+    c.execute("INSERT INTO raw_leads (name, stadt) VALUES ('Alt Betrieb', 'Muenchen')")
+    c.commit()
+    c.close()
+
+    monkeypatch.setattr(db_raw, "DB_PATH", old_path)
+    db_raw._thread_local.__dict__.clear()
+    db_raw.init_db()   # darf NICHT crashen (Index erst nach der Spalten-Migration anlegen)
+
+    with db_raw._conn() as conn:
+        row = conn.execute(
+            "SELECT lead_key FROM raw_leads WHERE name='Alt Betrieb'"
+        ).fetchone()
+    assert row["lead_key"] == lead_key("Alt Betrieb", "Muenchen")
+
+
+# ── Backlog B5: herold_worker pausiert statt zu sterben, wenn curl_cffi fehlt ──────
+def test_herold_worker_pausiert_und_erholt_sich_bei_fehlender_abhaengigkeit(monkeypatch):
+    import threading
+    import scrapers.herold_worker as hw
+
+    monkeypatch.setattr(hw, "_DEP_RECHECK_INTERVAL", 0.01)
+
+    calls = {"scrape": 0}
+    monkeypatch.setattr(hw, "_scrape_query", lambda *a, **k: calls.__setitem__(
+        "scrape", calls["scrape"] + 1))
+
+    import builtins
+    real_import = builtins.__import__
+    state = {"blocked": True}
+
+    def fake_import(name, *args, **kwargs):
+        if name == "scrapling.fetchers" and state["blocked"]:
+            raise ImportError("curl_cffi fehlt (simuliert)")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    events = []
+    stop_event = threading.Event()
+
+    def on_lead(x):
+        events.append(x)
+        # Nach dem Pause-Hinweis: Abhängigkeit "installieren" und nach einem
+        # erfolgreichen Scrape wieder stoppen.
+        if "_error" in x:
+            state["blocked"] = False
+        elif "_activity" in x and calls["scrape"] >= 1:
+            stop_event.set()
+
+    hw.run_continuous([("Wien", "Dachdecker")], on_lead, stop_event, max_per=5)
+
+    assert any("_error" in e and "pausiert" in e["_error"] for e in events)
+    assert calls["scrape"] >= 1   # nach Wiederverfügbarkeit lief das Scraping normal weiter

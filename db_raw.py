@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
+from leadkey import lead_key as _lead_key
+
 DB_PATH = Path(__file__).parent / "data" / "leads_raw.db"
 _lock   = threading.Lock()
 
@@ -34,13 +36,32 @@ _BL_KUERZEL = {
 }
 
 
+_thread_local = threading.local()
+
+
 def _conn() -> sqlite3.Connection:
+    """Wiederverwendete Connection PRO THREAD statt einer neuen Connection + 2x PRAGMA bei
+    JEDEM einzelnen Aufruf (spürbar bei 32+ parallelen Evaluator-Threads mit vielen kleinen
+    DB-Zugriffen). Der bestehende globale `_lock` serialisiert ohnehin jeden Zugriff — diese
+    Änderung spart nur das ständige Neu-Verbinden, ändert nichts an der Nebenläufigkeit.
+    Prüft den Pfad mit, falls DB_PATH zur Laufzeit geändert wird (z.B. in Tests)."""
+    path   = str(DB_PATH)
+    cached = getattr(_thread_local, "conn", None)
+    if cached is not None and getattr(_thread_local, "path", None) == path:
+        return cached
+    if cached is not None:
+        try:
+            cached.close()
+        except Exception:
+            pass
     DB_PATH.parent.mkdir(exist_ok=True)
-    c = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
-    return c
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")   # unter Last warten statt sofort 'locked'
+    _thread_local.conn = conn
+    _thread_local.path = path
+    return conn
 
 
 def init_db() -> None:
@@ -66,7 +87,8 @@ def init_db() -> None:
             finder          TEXT,
             eval_status     TEXT DEFAULT 'pending',
             claimed_at      TEXT,
-            gefunden_am     TEXT
+            gefunden_am     TEXT,
+            lead_key        TEXT
         )
         """)
         c.execute(
@@ -74,6 +96,15 @@ def init_db() -> None:
             "ON raw_leads(eval_status, has_website, bewertung DESC)"
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_name_stadt_raw ON raw_leads(name, stadt)")
+        # Der Dedup-Check in insert_raw() vergleicht case-insensitiv (LOWER(name)=LOWER(?) AND
+        # LOWER(stadt)=LOWER(?)) — der Index oben auf den Rohspalten hilft SQLite dabei NICHT
+        # (Funktionen auf Spalten verhindern normale Index-Nutzung). Dieser Expression-Index
+        # auf genau denselben Ausdrücken macht den Dedup-Scan bei wachsender Tabelle wieder
+        # schnell, ohne Migration/Datenänderung nötig zu machen.
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_name_stadt_norm_raw "
+            "ON raw_leads(LOWER(name), LOWER(stadt))"
+        )
         c.commit()
     _migrate()
 
@@ -88,6 +119,32 @@ def _migrate() -> None:
             c.execute("ALTER TABLE raw_leads ADD COLUMN foto_urls TEXT")
         if "claimed_at" not in have:
             c.execute("ALTER TABLE raw_leads ADD COLUMN claimed_at TEXT")
+        needs_backfill = "lead_key" not in have
+        if needs_backfill:
+            c.execute("ALTER TABLE raw_leads ADD COLUMN lead_key TEXT")
+        # Muss NACH der ALTER TABLE oben stehen (nicht in init_db()'s CREATE-INDEX-Block) —
+        # bei einer Bestands-DB ohne lead_key-Spalte existiert die Spalte zum Zeitpunkt von
+        # init_db() noch nicht, CREATE INDEX würde dort mit "no such column" fehlschlagen.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_lead_key_raw ON raw_leads(lead_key)")
+        c.commit()
+    if needs_backfill:
+        _backfill_lead_keys()
+
+
+def _backfill_lead_keys() -> None:
+    """Einmalige Nachrüstung für Bestands-DBs: berechnet lead_key (derselbe globale
+    Dedup-Schlüssel wie DB2/Cloud, siehe leadkey.py) für alle Zeilen ohne. Läuft nur einmal
+    (danach ist die Spalte für alle Zeilen gesetzt), best-effort pro Zeile."""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT id, name, stadt FROM raw_leads WHERE lead_key IS NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                key = _lead_key(row["name"] or "", row["stadt"] or "")
+                c.execute("UPDATE raw_leads SET lead_key=? WHERE id=?", (key, row["id"]))
+            except Exception:
+                continue
         c.commit()
 
 
@@ -133,18 +190,21 @@ def insert_raw(lead: dict) -> int | None:
     from agents.name_clean import quick_clean
     name = quick_clean(name) or name
     lead["name"] = name
+    key = _lead_key(name, stadt)
 
     # bilder_maps aus 'bilder' übernehmen wenn nicht explizit gesetzt
     row = {k: v for k, v in lead.items() if k in _RAW_COLUMNS}
     if "bilder_maps" not in row:
         row["bilder_maps"] = int(lead.get("bilder", 0) or 0)
     row.setdefault("gefunden_am", datetime.now().isoformat(timespec="seconds"))
+    row["lead_key"] = key
 
     with _lock, _conn() as c:
-        # Case-insensitiver Dedup-Check (vorher exakt → "Müller" ≠ "müller" doppelt).
+        # Dedup über den globalen lead_key (leadkey.py) — derselbe Schlüssel wie DB2/Cloud
+        # (vereinheitlicht, vorher ein eigener ungeindexter LOWER(name)/LOWER(stadt)-Scan hier
+        # vs. lead_key-Hash dort). Indiziert über idx_lead_key_raw.
         dup = c.execute(
-            "SELECT 1 FROM raw_leads WHERE LOWER(name)=LOWER(?) AND LOWER(stadt)=LOWER(?) LIMIT 1",
-            (name, stadt),
+            "SELECT 1 FROM raw_leads WHERE lead_key=? LIMIT 1", (key,)
         ).fetchone()
         if dup:
             return None

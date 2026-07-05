@@ -254,7 +254,7 @@ function openModal(lead){
   const f=fi(lead.finder);
   const webRow=lead.has_website
     ?`<div class="m-row"><span class="m-k">Website</span><span class="m-v warn"><a href="${_e(lead.website_url)}" target="_blank">${_e(lead.website_url||'Link')} ↗</a></span></div>
-      <div class="m-row"><span class="m-k">Alter</span><span class="m-v ${lead.website_alter>5?'warn':''}">${lead.website_alter>=0?lead.website_alter+' Jahre':'unbekannt'}</span></div>`
+      <div class="m-row"><span class="m-k">Alter</span><span class="m-v ${lead.website_alter_jahre>5?'warn':''}">${lead.website_alter_jahre>=0?lead.website_alter_jahre+' Jahre':'unbekannt'}</span></div>`
     :`<div class="m-row"><span class="m-k">Website</span><span class="m-v no">❌ Kein Website</span></div>`;
 
   document.getElementById('modal-inner').innerHTML=`
