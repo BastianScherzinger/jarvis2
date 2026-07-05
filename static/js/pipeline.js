@@ -77,7 +77,8 @@ const _PL_LV_COLOR = {
 const _D = {
   scrapers: _PL_SCRAPERS.map(n => ({ name: n, alive: false, count: 0 })),
   stats: { total: 0, live: 0, sent: 0, building: 0, active: 0, running: false,
-           freigabe: 0, versand: 0 },   // freigabe = wartet auf Freigabe, versand = sendebereit
+           freigabe: 0, versand: 0,     // freigabe = wartet auf Freigabe, versand = sendebereit
+           evalLanes: 1 },              // parallele Bewertungs-Lanes (RAM-basiert, vom Backend)
   prev:  { live: -1, sent: -1 },
   logs:  [],            // {ts, level, worker, msg}
   errors: _PL_STAGES.map(() => []),   // pro Station: [{ts, worker, msg, level}]  (rote Blase + Panel)
@@ -116,6 +117,7 @@ async function _plPollStatus() {
       _D.scrapers.forEach(s => { s.alive = !!by[s.name]; });
       _D.stats.active = _D.scrapers.filter(s => s.alive).length;
       if (st.stats) _D.stats.total = st.stats.total || 0;
+      _D.stats.evalLanes = Math.max(1, st.eval_lanes | 0);   // Anzahl paralleler Bewertungs-Lanes
     }
     if (hs) {
       _D.stats.live = hs.live || 0; _D.stats.sent = hs.sent || 0; _D.stats.building = hs.building || 0;
@@ -444,6 +446,9 @@ function _plDraw(P) {
             _PL_STAGES[k + 1].color, 0.14 + e * 0.5, P.hubR * 0.4);
   }
 
+  // Parallele Bewertungs-Lanes (RAM-basiert): ober-/unterhalb der 3 Eval-Stationen
+  if (!P.mini) _plDrawEvalLanes(P);
+
   // Bubbles (additiv)
   ctx.globalCompositeOperation = 'lighter';
   for (const b of P.bubbles) { const p = _plPos(b); _plGlowDot(P, p.x, p.y, b.r, b.color); }
@@ -488,11 +493,61 @@ function _plDrawGroups(P) {
       ctx.stroke(); ctx.setLineDash([]);
       ctx.font = '700 9px Orbitron, sans-serif'; ctx.textAlign = 'center';
       ctx.fillStyle = col; ctx.globalAlpha = 0.9;
-      ctx.fillText(g.toUpperCase(), (a.x + b.x) / 2, y - 4);
+      const lanes = Math.max(1, _D.stats.evalLanes | 0);
+      const gtxt = g.toUpperCase() + (isEval && lanes > 1 ? `  ·  ${lanes}× PARALLEL` : '');
+      ctx.fillText(gtxt, (a.x + b.x) / 2, y - 4);
       ctx.restore();
     }
     i = j + 1;
   }
+}
+
+// ── Parallele Bewertungs-Lanes ───────────────────────────────────────────────
+// Ab 32 GB RAM laufen mehrere Bewertungs-Lanes gleichzeitig (32 GB → 3, 64 GB → 5). Jede
+// Lane schiebt einen eigenen Lead durch dieselben 3 Agenten (ANALYSE→RECHERCHE→SCORING). Die
+// mittlere Reihe sind die bestehenden Stationen; je zusätzlicher Lane kommt EIN Arbeiter
+// oberhalb und einer unterhalb dazu (32 GB: 1 oben/1 unten, 64 GB: 2 oben/2 unten) — genau die
+// gewünschte Optik. Rein additiv: die Haupt-Stationen bleiben unangetastet.
+function _plDrawEvalLanes(P) {
+  const lanes = Math.max(1, _D.stats.evalLanes | 0);
+  if (lanes < 2) return;
+  const idxs = [_PL_IX.EVAL_WEB, _PL_IX.EVAL_SOCIAL, _PL_IX.EVAL_SCORE];
+  const extra = lanes - 1;                       // zusätzliche Arbeiter-Reihen (ohne die Mitte)
+  const up = Math.floor(extra / 2), down = Math.ceil(extra / 2);
+  const offs = [];
+  for (let u = 1; u <= up; u++) offs.push(-u);
+  for (let d = 1; d <= down; d++) offs.push(d);
+  const dy = P.hubR * 2.15;                       // vertikaler Lane-Abstand
+  const r  = P.hubR * 0.34;                        // kleiner Arbeiter-Radius
+  const ctx = P.ctx;
+  const active = _D.stats.running;
+  const a = P.st[idxs[0]], b = P.st[idxs[idxs.length - 1]];
+  offs.forEach(o => {
+    const yoff = o * dy;
+    // durchgehende Lane-Leitung über die 3 Eval-Stationen (fliessende Striche)
+    ctx.save();
+    ctx.strokeStyle = _plAlpha('#38bdf8', 0.16); ctx.lineWidth = 1.1;
+    if (!_PL_REDUCED) { ctx.setLineDash([2, 10]); ctx.lineDashOffset = -(P.t * 40) % 12; }
+    ctx.beginPath(); ctx.moveTo(a.x, a.y + yoff); ctx.lineTo(b.x, b.y + yoff); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+    // je Eval-Station ein Arbeiter-Disc auf dieser Lane + senkrechte Anbindung an die Mitte
+    idxs.forEach(si => {
+      const nd = P.st[si], stg = _PL_STAGES[si];
+      const x = nd.x, y = nd.y + yoff;
+      ctx.save();
+      ctx.strokeStyle = _plAlpha(stg.color, 0.14); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(nd.x, nd.y); ctx.lineTo(x, y); ctx.stroke();
+      ctx.restore();
+      const breathe = active ? (0.5 + 0.5 * Math.sin(P.t * 2.2 + si + o)) : 0.2;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
+      g.addColorStop(0, _plAlpha(stg.color, 0.28 + breathe * 0.24));
+      g.addColorStop(1, _plAlpha(stg.color, 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(8,14,22,.9)'; ctx.fill();
+      ctx.lineWidth = 1.2; ctx.strokeStyle = _plAlpha(stg.color, 0.55 + breathe * 0.3); ctx.stroke();
+    });
+  });
 }
 
 function _plPipe(P, x0, y0, x1, y1, cx, cy, color, alpha, width) {

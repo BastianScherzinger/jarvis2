@@ -129,13 +129,20 @@ def _spawn_evaluator() -> None:
     db_raw.reset_stale()
     from agents.evaluator import maps_enrichment
     maps_enrichment.start_pool()
-    # Max Threads = CPU-Kerne des PCs (so parallelisiert die Bewertung maximal; die
-    # eigentlichen Ollama-Calls bleiben durch JARVIS_OLLAMA_PARALLEL geschützt).
-    _default_eval = min(32, max(4, (os.cpu_count() or 4)))
+    # Parallele Bewertungs-Lanes: jede Lane schiebt einen gefundenen Lead komplett durch die
+    # 3-Agenten-Kette (Analyse → Recherche → Scoring) und sammelt ihn im Scoring/DB2. Die Zahl
+    # skaliert mit dem RAM (hardware.eval_lanes: 32 GB → 3, 64 GB → 5), weil jede Lane eine
+    # eigene gleichzeitige Ollama-Scoring-Inferenz belegt — das ist der echte Flaschenhals.
+    # scrapers/_http hebt den Ollama-Semaphor passend an, sonst würden die Lanes dort aufstauen.
+    # Override: JARVIS_EVAL_THREADS (feste Zahl) bzw. JARVIS_EVAL_LANES (in hardware.eval_lanes).
+    import hardware
+    _ram = hardware.ram_gb()
+    _default_eval = hardware.eval_lanes(_ram)
     try:
         n_eval = int(os.environ.get("JARVIS_EVAL_THREADS", str(_default_eval)) or _default_eval)
     except (ValueError, TypeError):
         n_eval = _default_eval
+    n_eval = max(1, n_eval)
     threading.Thread(
         target=evaluator_pipeline.run_continuous,
         args=(_on_lead, my_stop_event, n_eval),
@@ -143,7 +150,8 @@ def _spawn_evaluator() -> None:
     ).start()
     threading.Thread(target=_watchdog_loop, args=(my_stop_event,),
                       name="Evaluator-Watchdog", daemon=True).start()
-    logger.info("Controller", f"Evaluator gestartet ({n_eval} Threads)")
+    logger.info("Controller",
+                f"Evaluator gestartet ({n_eval} parallele Bewertungs-Lanes · {_ram:.0f} GB RAM)")
 
 
 def _watchdog_loop(stop_event: threading.Event) -> None:

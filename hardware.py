@@ -68,6 +68,41 @@ def ram_gb() -> float:
         return 0.0
 
 
+# ── Bewertungs-Parallelität (RAM-basiert) ────────────────────────────────────
+
+def eval_lanes(ram: "float | None" = None) -> int:
+    """Anzahl paralleler Bewertungs-Lanes (Analyse → Recherche → Scoring), RAM-basiert.
+
+    Jede Lane fährt eine eigene, gleichzeitige Ollama-Scoring-Inferenz — das ist der
+    eigentliche Flaschenhals der Lead→Webseite-Pipeline. Mehr Lanes = die gefundenen Leads
+    werden echt parallel durch die 3-Agenten-Kette geschoben und im Scoring gesammelt, also
+    entsprechend schneller. Der Speicherbedarf skaliert mit den Lanes (KV-Cache je Ollama-Slot),
+    darum die Bindung an den RAM.
+
+        >= 64 GB → 5 Lanes,  >= 32 GB → 3,  >= 16 GB → 2,  sonst 1.
+
+    Override per .env: JARVIS_EVAL_LANES (feste Zahl). Bewusst leichtgewichtig (nur ram_gb,
+    kein torch/media_engine-Import) — wird sehr früh von scrapers/_http importiert."""
+    ov = os.environ.get("JARVIS_EVAL_LANES", "").strip()
+    if ov:
+        try:
+            return max(1, int(ov))
+        except (ValueError, TypeError):
+            pass
+    if ram is None:
+        try:
+            ram = ram_gb()
+        except Exception:
+            ram = 0.0
+    if ram >= 64:
+        return 5
+    if ram >= 32:
+        return 3
+    if ram >= 16:
+        return 2
+    return 1
+
+
 # ── GPU (NVIDIA) ─────────────────────────────────────────────────────────────
 
 def gpu_info() -> tuple[str, float]:

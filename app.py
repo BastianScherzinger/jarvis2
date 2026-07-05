@@ -407,10 +407,16 @@ def api_status():
         extra = extra_usage_watch.status()
     except Exception:
         extra = {"active": False}
+    try:
+        import hardware
+        _lanes = hardware.eval_lanes()
+    except Exception:
+        _lanes = 1
     return jsonify({
         "running": controller.is_running(),
         "stats":   _stats(),
         "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
+        "eval_lanes": _lanes,                      # parallele Bewertungs-Lanes (RAM-basiert) → Graph
         "claude_limit": limit,                    # „Limit voll"-Zeichen fürs Dashboard
         "extra_usage": extra,                      # Paid-Boost/Extra-Modus-Zeichen fürs Dashboard
     })

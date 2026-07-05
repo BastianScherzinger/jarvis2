@@ -53,8 +53,31 @@ def _detect_gpu_parallel() -> int:
     return 2
 
 
-_OLLAMA_PARALLEL = _detect_gpu_parallel()
+def _resolve_ollama_parallel() -> int:
+    """Erlaubte gleichzeitige Ollama-Calls.
+
+    Ist JARVIS_OLLAMA_PARALLEL ausdrücklich gesetzt, gilt exakt dieser Wert (User hat das Sagen).
+    Sonst: der GPU-/CPU-Default, aber MINDESTENS so viele wie es Bewertungs-Lanes gibt
+    (hardware.eval_lanes, RAM-basiert). Ohne diesen Floor würden 3/5 parallele Lanes hier am
+    Semaphor auf 2-3 aufstauen — das Scoring bliebe de facto seriell und die RAM-Parallelität
+    verpuffte. Best-effort: eine kaputte hardware-Erkennung darf den Import nie crashen."""
+    if os.environ.get("JARVIS_OLLAMA_PARALLEL", "").strip():
+        return _detect_gpu_parallel()               # expliziter User-Wert → unverändert
+    base = _detect_gpu_parallel()
+    try:
+        import hardware
+        return max(base, hardware.eval_lanes())
+    except Exception:
+        return base
+
+
+_OLLAMA_PARALLEL = _resolve_ollama_parallel()
 _OLLAMA_SEM = threading.Semaphore(_OLLAMA_PARALLEL)
+# Best-effort-Hinweis an einen (evtl. später im selben Prozessbaum gestarteten) Ollama-Server,
+# wie viele Anfragen er pro geladenem Modell gleichzeitig bedienen soll. Überschreibt nichts
+# Bestehendes und hat auf einen bereits laufenden externen `ollama serve` keinen Effekt — schadet
+# aber nie und dokumentiert die Absicht (moderne Ollama-Versionen parallelisieren ohnehin default).
+os.environ.setdefault("OLLAMA_NUM_PARALLEL", str(_OLLAMA_PARALLEL))
 _OLLAMA_URL = "http://127.0.0.1:11434/api/chat"
 # Großzügiger Timeout: Kaltstart eines 7B-Modells (Laden von Platte) kann
 # 30-120s dauern. keep_alive hält das Modell danach im Speicher.
