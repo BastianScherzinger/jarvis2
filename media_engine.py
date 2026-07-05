@@ -1453,6 +1453,34 @@ def hero_engine() -> str:
     return e if e in valid else "higgsfield"
 
 
+# Kontingent-/Billing-Fehler einer Hero-Engine (Higgsfield "Out of credits"/403, OpenAI
+# "Billing hard limit reached" etc.) sind ACCOUNT-weit und ändern sich nicht von einem
+# Seiten-Update zum nächsten — ohne Bremse probiert JEDER Makeover-Lauf alle 3 Engines
+# erneut, obwohl das Ergebnis feststeht (beobachtet: Higgsfield+OpenAI beide erschöpft,
+# aber bei jedem einzelnen Seiten-Update trotzdem 2-3 wirkungslose API-Calls).
+_HERO_ENGINE_COOLDOWN = 1800   # 30 Min Pause, bevor eine blockierte Engine erneut versucht wird
+_hero_engine_blocked_until: dict = {}
+
+
+def _hero_engine_blocked(engine: str) -> bool:
+    return time.time() < _hero_engine_blocked_until.get(engine, 0.0)
+
+
+def _hero_engine_block(engine: str, reason: str) -> None:
+    was_blocked = _hero_engine_blocked(engine)
+    _hero_engine_blocked_until[engine] = time.time() + _HERO_ENGINE_COOLDOWN
+    if not was_blocked:
+        _mlog("warn", "Hero", f"{engine} pausiert für {_HERO_ENGINE_COOLDOWN // 60} Min "
+                              f"(Kontingent/Billing: {reason[:100]}) statt bei jedem "
+                              f"Seiten-Update erneut wirkungslos zu versuchen.")
+
+
+def _looks_like_quota_error(text: str) -> bool:
+    t = (text or "").lower()
+    return any(s in t for s in ("credit", "insufficient", "not enough", "billing",
+                                "quota", "hard limit", "402", "403"))
+
+
 def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename: str = "hero.png",
                         width: int = 1536, height: int = 1024, name: str = "") -> dict:
     """Hero-Bild über eine CLOUD-Engine gemäß JARVIS_HERO_ENGINE (Default Higgsfield = Abo).
@@ -1477,6 +1505,9 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
                            "— Budget-Deckel. Morgen wieder oder JARVIS_HERO_DAILY_MAX erhöhen.")
     errs: list[str] = []
     for e in order:
+        if _hero_engine_blocked(e):
+            errs.append(f"{e}:gesperrt(Kontingent)")
+            continue
         try:
             if e == "higgsfield_mcp" and higgsfield_mcp_available():
                 import higgsfield_mcp
@@ -1508,7 +1539,11 @@ def generate_hero_cloud(prompt: str, output_dir: "Path | None" = None, filename:
                 return r
         except Exception as ex:
             errs.append(f"{e}:{type(ex).__name__}")
-            _mlog("warn", "Hero", f"{e}-Hero fehlgeschlagen: {str(ex)[:140]}")
+            msg = str(ex)
+            if _looks_like_quota_error(msg):
+                _hero_engine_block(e, msg)
+            else:
+                _mlog("warn", "Hero", f"{e}-Hero fehlgeschlagen: {msg[:140]}")
     raise RuntimeError("Keine Cloud-Hero-Engine erfolgreich: " + (", ".join(errs) or "nichts konfiguriert"))
 
 

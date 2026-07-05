@@ -370,16 +370,26 @@ def _fingerprint(folder: Path) -> str:
 
 
 def _looks_limited(text: str) -> bool:
-    """Erkennt eine Claude-Code-Limit-/Abbruch-Meldung im Ergebnis-Text (Session ODER Weekly)."""
+    """Erkennt eine Claude-Code-Limit-/Abbruch-Meldung im Ergebnis-Text (Session, Weekly
+    ODER monatliches Spend-Limit — z.B. "You've hit your monthly spend limit · raise it
+    at claude.ai/settings/usage". Ohne diesen Fall wurde die Meldung von KEINEM der
+    bisherigen Muster erkannt ("hit your limit" ist KEIN Substring von "hit your monthly
+    spend limit") — website_builder.py deployte die unpolierte Seite dadurch als
+    vermeintliche Rettung und schickte sie sogar automatisch an echte Kunden."""
     t = (text or "").lower()
     return any(s in t for s in (
         "session limit", "usage limit", "rate limit", "hit your limit", "weekly limit",
-        "weekly usage", "reached your limit", "resets", "quota", "try again later"))
+        "weekly usage", "reached your limit", "resets", "quota", "try again later",
+        "spend limit"))
 
 
 def _limit_scope(text: str) -> str:
-    """'weekly' wenn die Limit-Meldung nach Wochenlimit aussieht, sonst 'session'."""
-    return "weekly" if "weekly" in (text or "").lower() else "session"
+    """'weekly' wenn die Limit-Meldung nach Wochen- ODER Monats-/Spend-Limit aussieht
+    (beide brauchen eine deutlich längere Pause als das normale 5h-Session-Fenster —
+    'weekly' ist hier der konservativere vorhandene Cooldown, 'session' wäre zu kurz),
+    sonst 'session'."""
+    tl = (text or "").lower()
+    return "weekly" if ("weekly" in tl or "spend limit" in tl) else "session"
 
 
 def open_stages(folder: "str | Path") -> int:

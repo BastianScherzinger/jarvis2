@@ -110,6 +110,9 @@ def push(row: dict) -> None:
 
 
 def _push_one(row: dict) -> None:
+    import supabase_quota
+    if supabase_quota.blocked():
+        return
     url, key = _cfg()
     payload = json.dumps([_remote_row(row)], ensure_ascii=False, default=str).encode("utf-8")
     req = urllib.request.Request(
@@ -119,7 +122,10 @@ def _push_one(row: dict) -> None:
         with urllib.request.urlopen(req, timeout=_TIMEOUT):
             return
     except urllib.error.HTTPError as e:
-        logger.error("WebSync", f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:160]}")
+        if e.code == 402:
+            supabase_quota.mark_blocked("WebSync")
+        else:
+            logger.error("WebSync", f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:160]}")
     except Exception as e:
         logger.warn("WebSync", f"Push fehlgeschlagen: {type(e).__name__}")
 

@@ -2428,3 +2428,69 @@ def test_email_verify_probe_mailbox_haengt_nicht_endlos(monkeypatch):
     dt = time.time() - t0
     assert r is None
     assert dt < 4         # kehrt nach ~timeout+1s zurück, NICHT nach den vollen 10s
+
+
+# ── Debugging-Fund (05.07.2026, Live-Logs Zweit-PC): "monthly spend limit" wurde von
+# KEINEM bisherigen Limit-Muster erkannt -> website_builder deployte die unpolierte Seite
+# als vermeintliche Rettung und schickte sie automatisch an echte Kunden ────────────────
+def test_looks_limited_erkennt_monthly_spend_limit():
+    import overnight_makeover as om
+    msg = "Claude-Fehler (success): You've hit your monthly spend limit · raise it at claude.ai/settings/usage"
+    assert om._looks_limited(msg) is True
+    assert om._limit_scope(msg) == "weekly"     # längerer Cooldown als das 5h-Session-Fenster
+    # Regression: bestehende Muster bleiben erkannt, normale Fehler bleiben unbeeinflusst
+    assert om._looks_limited("You have reached your session usage limit") is True
+    assert om._looks_limited("weekly limit reached") is True
+    assert om._looks_limited("SyntaxError: unexpected token") is False
+
+
+# ── Supabase-Kontingent-Schutz: nach einem 402 nicht bei JEDEM Push erneut anfragen ────
+def test_supabase_quota_blockiert_nach_402(monkeypatch):
+    import supabase_quota as sq
+    monkeypatch.setattr(sq, "_blocked_until", [0.0])
+    assert sq.blocked() is False
+    sq.mark_blocked("Test")
+    assert sq.blocked() is True
+
+
+def test_cloud_sync_ueberspringt_push_waehrend_quota_blockiert(monkeypatch):
+    import cloud_sync
+    import supabase_quota as sq
+    monkeypatch.setattr(sq, "_blocked_until", [__import__("time").time() + 600])
+    # _upsert_batch muss SOFORT 0 liefern, ohne überhaupt eine Verbindung zu versuchen
+    calls = []
+    monkeypatch.setattr(cloud_sync.urllib.request, "urlopen",
+                        lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(AssertionError("sollte nicht aufgerufen werden")))
+    result = cloud_sync._upsert_batch("https://x.supabase.co", "key", [{"name": "A", "stadt": "B"}])
+    assert result == 0
+    assert calls == []
+
+
+# ── Hero-Engine-Kontingent: nach "Out of credits" nicht bei JEDEM Seiten-Update erneut
+# dieselbe erschöpfte Engine anfragen (beobachtet: 2-3 wirkungslose API-Calls pro Update) ──
+def test_hero_engine_cooldown_nach_kontingentfehler(monkeypatch):
+    import pytest
+    import media_engine as me
+    monkeypatch.setattr(me, "_hero_engine_blocked_until", {})
+    monkeypatch.setattr(me, "hero_quota_left", lambda: 5)
+    monkeypatch.setattr(me, "higgsfield_mcp_available", lambda: False)
+    monkeypatch.setattr(me, "openai_available", lambda: False)
+    monkeypatch.setattr(me, "higgsfield_available", lambda: True)
+    calls = {"n": 0}
+
+    def _boom(*a, **k):
+        calls["n"] += 1
+        raise RuntimeError("Higgsfield 403: Not enough credits")
+
+    monkeypatch.setattr(me, "generate_image_higgsfield", _boom)
+    monkeypatch.setenv("JARVIS_HERO_ENGINE", "higgsfield_only")
+
+    with pytest.raises(RuntimeError):
+        me.generate_hero_cloud("prompt")
+    assert calls["n"] == 1
+    assert me._hero_engine_blocked("higgsfield") is True
+
+    # Zweiter Versuch: Engine gesperrt -> generate_image_higgsfield wird NICHT erneut aufgerufen
+    with pytest.raises(RuntimeError):
+        me.generate_hero_cloud("prompt")
+    assert calls["n"] == 1

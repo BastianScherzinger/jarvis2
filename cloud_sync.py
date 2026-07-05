@@ -83,6 +83,9 @@ def _headers(key: str) -> dict:
 
 
 def _upsert_batch(url: str, key: str, leads: list[dict]) -> int:
+    import supabase_quota
+    if supabase_quota.blocked():
+        return 0
     rows = []
     for lead in leads:
         row = {k: lead.get(k) for k in _SYNC_COLS if k in lead}
@@ -106,7 +109,10 @@ def _upsert_batch(url: str, key: str, leads: list[dict]) -> int:
                 return len(rows)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")[:300]
-            logger.error("CloudSync", f"HTTP {e.code}: {body}")
+            if e.code == 402:
+                supabase_quota.mark_blocked("CloudSync/Leads")
+            else:
+                logger.error("CloudSync", f"HTTP {e.code}: {body}")
             return 0
         except Exception as e:
             last_err = type(e).__name__

@@ -14,6 +14,12 @@ discord.py>=2.4.0
 beautifulsoup4>=4.12.0
 # ── LeadForge / leadpackages (Datenpakete-Modul) ──────────────────────────────
 scrapling>=0.4.9
+# scrapling.fetchers.Fetcher braucht curl_cffi (Browser-Impersonation) — scrapling zieht
+# es nicht auf jeder Plattform automatisch als Pflicht-Dependency (beobachtet: fehlte auf
+# einer Zweit-Maschine, obwohl requirements.txt frisch installiert war -> herold.at-Worker
+# schlug bei JEDER Anfrage mit ModuleNotFoundError fehl). Explizit pinnen, damit es garantiert
+# mitkommt statt sich auf scrapling's eigene Extras zu verlassen.
+curl_cffi>=0.7.0
 rapidfuzz>=3.14.0
 openpyxl>=3.1.0
 # Optional (nur fuer die MCP-Bruecke der lokalen KIs): pip install mcp ollama

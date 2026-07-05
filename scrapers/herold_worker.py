@@ -25,6 +25,21 @@ import logger
 
 def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 20):
     """Läuft als langlebiger Thread durch alle (AT-Stadt, Branche)-Kombis."""
+    # Einmaliger Dependency-Check statt bei JEDER Anfrage zu scheitern: curl_cffi ist eine
+    # transitive Abhängigkeit von scrapling.fetchers.Fetcher, die auf manchen Maschinen
+    # trotz frisch installierter requirements.txt fehlt (beobachtet: scrapling zieht sie
+    # nicht auf jeder Plattform automatisch mit). Ohne diesen Check würde der Worker im
+    # Sekundentakt denselben ModuleNotFoundError loggen, ohne je einen Treffer zu liefern.
+    try:
+        from scrapling.fetchers import Fetcher  # noqa: F401
+    except ImportError as e:
+        on_lead({"_error": f"herold.at-Worker beendet — Abhängigkeit fehlt: {e}. "
+                           f"Beheben mit: pip install curl_cffi"})
+        logger.error("Herold", f"Abhängigkeit fehlt ({e}) — Worker beendet sich, "
+                              f"statt jede Anfrage erfolglos zu wiederholen. "
+                              f"Beheben mit: pip install curl_cffi")
+        return
+
     counter = 0
     for region, branche in itertools.cycle(all_combos):
         if stop_event.is_set():
