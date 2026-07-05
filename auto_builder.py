@@ -529,6 +529,12 @@ def _wait_job(job_id: str, timeout: int = 1800):
 
 
 def _email(name: str, link: str, branche: str, stadt: str, ansprechpartner: str = "") -> None:
+    # Beispiel-/Vorschau-Mail an die eigene Adresse — nur OPT-IN (JARVIS_PREVIEW_MAIL=1, Default
+    # AUS). Der User will keine Beispiel-Mails; der reale Versand läuft über die Discord-Queue
+    # (submit_for_review → send_approved_now). Diese Funktion wird aktuell nicht mehr aufgerufen,
+    # bleibt aber abgesichert, falls ein alter Pfad sie doch trifft.
+    if os.environ.get("JARVIS_PREVIEW_MAIL", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        return
     try:
         import mailer
         import offer_mail

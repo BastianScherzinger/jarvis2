@@ -1458,7 +1458,18 @@ def finalize_review(meta: dict, live_url: str, folder: str) -> dict:
     except Exception as e:
         logger.warn("Makeover", f"Discord-Review fehlgeschlagen: {type(e).__name__}")
 
-    # Fallback: Vorschau-Mail an Bastian
+    # Fallback: KEINE Beispiel-/Vorschau-Mail mehr an Bastian (der User will keine
+    # Beispiel-Mails). Diese Vorschau-Mail an die eigene Adresse ist nur noch OPT-IN über
+    # JARVIS_PREVIEW_MAIL=1 (Default AUS). Normalfall: Auto-Send ist an (Default) → die Seite
+    # ging oben schon in die Versand-Queue an den ECHTEN Kunden; dieser Fallback wird nur bei
+    # bewusst abgeschaltetem Auto-Send UND fehlendem Discord-Bot überhaupt erreicht.
+    _preview_on = os.environ.get("JARVIS_PREVIEW_MAIL", "0").strip().lower() in ("1", "true", "yes", "on")
+    if not _preview_on:
+        logger.info("Makeover", f"{name}: fertig, aber weder Auto-Send noch Discord aktiv — "
+                                "KEINE Beispiel-Mail versendet (JARVIS_PREVIEW_MAIL=1 aktiviert "
+                                "eine Vorschau-Mail an die eigene Adresse).")
+        _mark_review_submitted(folder)
+        return {"review": False}
     try:
         import mailer
         to = os.environ.get("JARVIS_FALLBACK_EMAIL", "bastian.scherzinger05@gmail.com")

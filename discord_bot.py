@@ -176,8 +176,16 @@ def disabled_reason() -> str:
 def auto_send() -> bool:
     """Auto-Send-Modus: fertige Seiten werden OHNE 👍-Bestätigung direkt freigegeben und
     gehen beim Tagesversand (DISCORD_SEND_HOUR) automatisch an den Kunden. Default: AN.
-    Ausschalten mit JARVIS_AUTO_SEND=0 (dann gilt wieder das 👍-Freigabe-Gate)."""
-    return os.environ.get("JARVIS_AUTO_SEND", "1").strip().lower() not in ("0", "false", "no", "off", "")
+    Ausschalten NUR mit einem ausdrücklichen JARVIS_AUTO_SEND=0/false/no/off (dann gilt wieder
+    das 👍-Freigabe-Gate).
+
+    WICHTIG: Ein LEERES `JARVIS_AUTO_SEND=` (nur der Key ohne Wert in der .env) galt früher als
+    AUS — dann fiel jede fertige Seite in die Beispiel-/Vorschau-Mail an Bastian statt an den
+    echten Kunden. Ein leerer Wert bedeutet jetzt: Default (AN)."""
+    val = os.environ.get("JARVIS_AUTO_SEND", "1").strip().lower()
+    if val == "":                                    # Key ohne Wert → Default AN (nicht AUS)
+        val = "1"
+    return val not in ("0", "false", "no", "off")
 
 
 # ── Versand-Latch: pro Stunden-Slot EINMAL versenden ───────────────────────────

@@ -163,6 +163,23 @@ _startup_t.Thread(target=_ensure_makeover_setup, daemon=True).start()
 # Discord-Freigabe-Bot (Voting-Gate vor dem Kundenversand) — nur wenn konfiguriert.
 def _start_discord():
     try:
+        import logger
+    except Exception:
+        logger = None
+    # Discord-Keys HART aus der .env nach os.environ laden (override=True), BEVOR wir Token/Kanal
+    # prüfen. Grund: Stand DISCORD_BOT_TOKEN vorab leer im Prozess-Environment, überging der
+    # Default-.env-Load ihn (`k not in os.environ`) → `enabled()` war False, `wants_discord()` war
+    # False → der Bot fiel STILL aus (weder Start- noch Fehlerzeile). Genau das passierte auf dem
+    # Ziel-PC, obwohl der Token in der .env stand. Jetzt gewinnt die .env.
+    try:
+        import config
+        config.reload_env(override=True, only={
+            "DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DISCORD_SEND_HOURS",
+            "DISCORD_SEND_HOUR", "DISCORD_APPROVALS_NEEDED", "DISCORD_OWNER_IDS",
+            "JARVIS_AUTO_SEND"})
+    except Exception:
+        pass
+    try:
         import discord_bot
         # Discord-UNABHÄNGIGER Auto-Send-Scheduler: läuft immer (auch wenn discord.py fehlt/kaputt
         # ist), damit der Tagesversand nicht mehr am Bot hängt. Früher lag der Versand komplett im
@@ -177,11 +194,14 @@ def _start_discord():
             # dem Ziel-PC nicht zu sehen, WARUM. Jetzt Klartext-Grund ins Log (häufigster Fall:
             # discord.py unter neuer Python-Version nicht ladbar → discord_bot repariert das
             # beim Import automatisch, hier bliebe nur ein echter Rest-Fehler übrig).
-            try:
-                import logger
+            if logger:
                 logger.warn("Discord", f"Bot NICHT gestartet: {discord_bot.disabled_reason()}")
-            except Exception:
-                pass
+        else:
+            # Kein Token in der .env — bisher der EINZIGE Fall, der komplett stumm blieb und das
+            # Debuggen auf dem Ziel-PC unmöglich machte. Jetzt eine klare (harmlose) Info-Zeile.
+            if logger:
+                logger.info("Discord", "Bot aus: kein DISCORD_BOT_TOKEN in .env gefunden "
+                                       "(nur der Discord-unabhängige Auto-Send-Scheduler läuft).")
     except Exception as e:
         try:
             import logger
