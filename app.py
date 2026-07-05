@@ -164,6 +164,12 @@ _startup_t.Thread(target=_ensure_makeover_setup, daemon=True).start()
 def _start_discord():
     try:
         import discord_bot
+        # Discord-UNABHÄNGIGER Auto-Send-Scheduler: läuft immer (auch wenn discord.py fehlt/kaputt
+        # ist), damit der Tagesversand nicht mehr am Bot hängt. Früher lag der Versand komplett im
+        # `if _HAS_DISCORD:`-Block → auf dem Ziel-PC (audioop-Crash) lief kein Slot, Seiten
+        # stapelten sich live-aber-unversendet. Der Scheduler hält sich zurück, solange der
+        # Discord-eigene Watchdog aktiv ist (kein Doppelversand).
+        discord_bot.start_send_scheduler()
         if discord_bot.enabled():
             discord_bot.start()
         elif discord_bot.wants_discord():

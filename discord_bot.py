@@ -1029,6 +1029,83 @@ if _HAS_DISCORD:
             _t.sleep(60)
 
 
+# ── Discord-UNABHÄNGIGER Auto-Send-Scheduler ───────────────────────────────────
+# Kernproblem (Ziel-PC: 127 Seiten live, kaum versendet): Der komplette Zeitversand — sowohl
+# die discord.py-`tasks.loop` als auch der `_noon_watchdog_loop` — lag AUSSCHLIESSLICH im
+# `if _HAS_DISCORD:`-Block. Konnte discord.py nicht laden (Python 3.13+ ohne `audioop` →
+# Import-Crash), lief KEIN einziger Versand-Slot → fertige, live-geschaltete Seiten stapelten
+# sich unversendet. Der Versand (reiner Mailer-Weg) hängt technisch NICHT an Discord — nur die
+# Verdrahtung tat es. Dieser Thread läuft immer und stößt im Auto-Send-Modus die fälligen Slots
+# an, auch ganz ohne Discord. Slot-Latch (_slot_ran/_mark_slot_ran) + _send_lock verhindern
+# Doppelversand, falls der Discord-Watchdog parallel läuft.
+_RETRY_INTERVAL_STANDALONE = int(os.environ.get("JARVIS_EMAIL_RETRY_INTERVAL", "900") or "900")
+_scheduler_started = False
+_sched_retry_ts = [0.0]
+
+
+def _fire_due_slots(context: str) -> dict:
+    """Stößt alle heute fälligen, noch nicht versendeten Versand-Slots an (idempotent per
+    Slot-Latch). Reiner Mailer-Weg — kein Discord nötig. `context` erscheint nur im Log.
+    Gibt das Versand-Ergebnis zurück (leer, wenn nichts fällig war)."""
+    due = _due_slots()
+    if not due:
+        return {"sent": 0, "failed": 0, "total": 0}
+    slot = due[-1]
+    logger.info("Discord", f"{slot}-Uhr-Versand ({context}) — hole {len(due)} fällige(n) Slot(s) nach.")
+    res = send_approved_now()
+    for h in due:                                     # alle fälligen Slots als erledigt markieren
+        _mark_slot_ran(h)
+    # Report best-effort — nur wenn ein Discord-Event-Loop existiert (Bot läuft).
+    try:
+        if _HAS_DISCORD and _loop is not None and (res.get("sent") or res.get("total")):
+            asyncio.run_coroutine_threadsafe(_post_noon_report(res), _loop)
+    except Exception:
+        pass
+    return res
+
+
+def _auto_send_scheduler_loop() -> None:
+    """Discord-unabhängiger Sicherheits-Scheduler: prüft jede Minute die fälligen Versand-Slots
+    und stößt sie im Auto-Send-Modus an — auch wenn discord.py fehlt/kaputt ist oder der Bot
+    nicht verbunden ist. Hält sich zurück, solange der Discord-eigene Watchdog aktiv ist (der
+    übernimmt dann inkl. Report); der Slot-Latch ist die zweite Absicherung gegen Doppelversand."""
+    import time as _t
+    _t.sleep(100)                                     # App-/Bot-Start abwarten (Discord-Watchdog: 90s)
+    while True:
+        try:
+            # Läuft der Discord-eigene Watchdog? Dann macht der die Arbeit — nicht doppeln.
+            discord_wd_active = bool(_HAS_DISCORD and _started and enabled())
+            if auto_send() and not discord_wd_active:
+                _fire_due_slots("Auto-Send-Scheduler, Discord-unabhängig")
+                # Nachzügler: zuvor ratenlimitierte (APPROVED) Reviews zwischen den Slots nachholen.
+                now = _t.time()
+                if (now - _sched_retry_ts[0] >= _RETRY_INTERVAL_STANDALONE
+                        and not _due_slots() and rq.approved_unsent()):
+                    _sched_retry_ts[0] = now
+                    logger.info("Discord", "Nachzügler-Versand (Discord-unabhängig): hole zuvor "
+                                           "ratenlimitierte Mails nach.")
+                    send_approved_now()
+        except Exception as e:
+            try:
+                logger.warn("Discord", f"Auto-Send-Scheduler-Fehler: {type(e).__name__}")
+            except Exception:
+                pass
+        _t.sleep(60)
+
+
+def start_send_scheduler() -> None:
+    """Startet den Discord-unabhängigen Auto-Send-Scheduler EINMALIG. Wird von app.py beim Start
+    aufgerufen — unabhängig davon, ob der Discord-Bot lädt oder läuft. So geht der Tagesversand
+    auch dann raus, wenn discord.py auf dem Ziel-PC nicht importierbar ist."""
+    global _scheduler_started
+    if _scheduler_started:
+        return
+    _scheduler_started = True
+    _threading.Thread(target=_auto_send_scheduler_loop, name="AutoSendScheduler",
+                      daemon=True).start()
+    logger.info("Discord", "Auto-Send-Scheduler gestartet (Discord-unabhängiger Tagesversand).")
+
+
 # ── Öffentliche API (vom Auto-Builder / app.py genutzt) ────────────────────────
 
 def submit_for_review(name: str, stadt: str, branche: str, link: str,
