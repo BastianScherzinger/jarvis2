@@ -1151,6 +1151,55 @@ def test_media_ad_video_route(monkeypatch):
     assert r2.status_code == 400
 
 
+# ── Werbevideo-Tab: Website-URL → TikTok-Ad (9:16, 10s) ─────────────────────────
+def test_website_ad_video_normalize_url():
+    import pytest
+    import website_ad_video as wav
+    assert wav.normalize_url("beispiel.de") == "https://beispiel.de"
+    assert wav.normalize_url("http://x.de") == "http://x.de"
+    assert wav.normalize_url("  https://y.de  ") == "https://y.de"
+    with pytest.raises(ValueError):
+        wav.normalize_url("")
+    with pytest.raises(ValueError):
+        wav.normalize_url("   ")
+
+
+def test_website_ad_video_qa_checks():
+    import website_ad_video as wav
+    good = {"duration": 10.02, "width": 1080, "height": 1920, "codec": "h264",
+            "has_audio": True, "size_mb": 4.2}
+    checks = wav.qa_checks(good)
+    assert checks["all_ok"] is True
+    bad = {"duration": 7.0, "width": 720, "height": 1280, "codec": "vp9",
+           "has_audio": False, "size_mb": 20.0}
+    checks2 = wav.qa_checks(bad)
+    assert checks2["all_ok"] is False
+    assert not checks2["duration_ok"] and not checks2["resolution_ok"]
+    assert not checks2["codec_ok"] and not checks2["audio_ok"] and not checks2["size_ok"]
+
+
+def test_website_ad_video_caption():
+    import website_ad_video as wav
+    caption, hashtags = wav.build_caption("kunde-beispiel.de")
+    assert "kunde-beispiel.de" in caption
+    assert len(hashtags) >= 5 and all(h.startswith("#") for h in hashtags)
+
+
+def test_media_website_ad_video_route(monkeypatch):
+    import app, media_queue
+    cap = {}
+    monkeypatch.setattr(media_queue, "submit",
+                        lambda kind, params: (cap.update(kind=kind, params=params), "jid")[1])
+    c = app.app.test_client()
+    r = c.post("/api/media/generate/website-ad-video", json={"url": "kunde.de"})
+    d = r.get_json()
+    assert d.get("ok") and d.get("job_id") == "jid"
+    assert cap["kind"] == "website_ad_video" and cap["params"]["url"] == "kunde.de"
+    # ohne url -> 400
+    r2 = c.post("/api/media/generate/website-ad-video", json={})
+    assert r2.status_code == 400
+
+
 # ── Video-Studio: direkte Werkzeug-Steuerung (jedes Filmora-Tool manuell) ───────
 def test_vs_run_tool_route(monkeypatch):
     import app, media_queue, filmora_mcp

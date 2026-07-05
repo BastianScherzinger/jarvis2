@@ -696,7 +696,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'leadpackages'];
+const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'ad-video', 'leadpackages'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -718,6 +718,7 @@ function showPage(name){
   if(name === 'custom' && typeof cbInit === 'function') cbInit();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
   if(name === 'video-studio' && typeof initVideoStudio === 'function') initVideoStudio();
+  if(name === 'ad-video' && typeof initAdVideo === 'function') initAdVideo();
   if(name === 'leadpackages' && typeof initLeadpackages === 'function') initLeadpackages();
   if(name === 'home')  loadHome();
   // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log + Top-25-Rangliste) nur, solange sichtbar

@@ -212,6 +212,30 @@ Das JARVIS-Dashboard hat folgende UI-Features die Sir direkt per Sprache oder Ch
 - Voice Activity Detection (VAD) mit RMS-Schwellwert
 - JARVIS antwortet automatisch per Stimme auf Voice-Eingaben
 
+### Werbevideo-Tab — Website-URL → TikTok-Ad (9:16, 10s)
+- Sidebar → Produktion → **Werbevideo** (`data-page="ad-video"`)
+- Eingabe: nur eine Website-URL (+ optional eigener Hook-/CTA-Text). Ein Klick auf
+  „Werbevideo bauen" reicht — kein Prompt-Engineering nötig.
+- Pipeline (`website_ad_video.py`, Job-Kind `website_ad_video` in `media_queue.py`):
+  1. **Playwright** (headless Chromium) lädt die Seite, schließt Cookie-Banner, scrollt
+     einmal komplett durch (Lazy-Load), nimmt Hero-Screenshot + Vollseiten-Screenshot auf
+     (bis zu 3 Versuche bei Ladefehlern).
+  2. **Kontrast-Heuristik** (PIL/numpy) wählt automatisch die 3 visuell auffälligsten
+     1080×1920-Ausschnitte der Seite (höchste Helligkeits-Standardabweichung) als Detail-Cuts.
+  3. **ffmpeg** (Binary aus `imageio_ffmpeg`, kein System-ffmpeg nötig) schneidet: Hook-Zoom
+     (1,5s) → Scroll-Pan über die Gesamtseite (5s) → Detail-Zoom-Cuts (2,5s) → CTA-Karte (1s),
+     dazu ein offline-synthetisierter Ambient-Ton (zwei sanfte Sinustöne, ein-/ausgeblendet —
+     bewusster Fallback, da kein lizenzfreier Beat eingebunden ist).
+  4. **QS-Check** über `ffmpeg -i`-Parsing (kein ffprobe gebündelt): Dauer/Auflösung/Codec/
+     Ton/Dateigröße; bei zu großer Datei automatischer Re-Encode mit höherem CRF.
+  5. Ergebnis: `workspace/media/ads/ad_<domain>_<timestamp>.mp4`, dazu Caption- und
+     Hashtag-Vorschlag fürs Posten.
+- **Wichtige ffmpeg-Falle (gelöst):** `-t <dauer>` MUSS eine Output-Option sein (nach `-vf`),
+  nicht vor `-i`. Als Input-Option begrenzt sie nur die Anzahl der (bei `-loop 1` mit
+  25fps-Default) eingelesenen Quell-Frames — `zoompan` vervielfacht aber jeden davon um `d`
+  Frames, wodurch ohne Output-`-t` ein Clip statt 1,5s reale ~55s dauerte und pro Clip
+  minutenlang CPU fraß, statt in <1s fertig zu sein.
+
 ---
 
 ## 7. Lokale KI-Worker — Ollama-Integration

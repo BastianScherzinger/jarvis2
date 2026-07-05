@@ -19,8 +19,11 @@ _worker_started = False
 _cloud_started = False
 
 # Cloud-Job-Typen brauchen KEINE lokale GPU → dürfen auf starkem Server parallel laufen.
+# website_ad_video steht mit dabei: Playwright + ffmpeg sind CPU/Browser-Arbeit, keine
+# GPU/VRAM-Konkurrenz zu den lokalen Diffusers-Jobs -> muss nicht in der seriellen Queue warten.
 _CLOUD_KINDS = {"higgsfield", "higgsfield_image", "openai_image",
-                "higgsfield_mcp_image", "higgsfield_mcp_video", "filmora_edit"}
+                "higgsfield_mcp_image", "higgsfield_mcp_video", "filmora_edit",
+                "website_ad_video"}
 
 _BASE = Path(__file__).parent
 _IMAGES_DIR = _BASE / "workspace" / "media" / "images"
@@ -136,6 +139,28 @@ def _worker(q: "queue.Queue") -> None:
         params = job["_params"]
 
         try:
+            if kind == "website_ad_video":
+                # Playwright+ffmpeg-Pipeline statt media_engine — braucht keine GPU,
+                # meldet Fortschritt live über denselben Job-Datensatz.
+                import website_ad_video
+                params_url = params.get("url", "")
+
+                def _prog(p: int, msg: str = "") -> None:
+                    _set(job_id, status="running", progress=int(p), stage=msg,
+                         elapsed=round(time.time() - t0, 1))
+
+                res = website_ad_video.build_ad_video(
+                    params_url, job_id,
+                    hook_text=params.get("hook_text", ""),
+                    cta_text=params.get("cta_text", ""),
+                    progress_cb=_prog,
+                )
+                _set(job_id, status="done", progress=100,
+                     result_url=res["web_url"], qa=res["qa"], checks=res["checks"],
+                     caption=res["caption"], hashtags=res["hashtags"],
+                     title=res.get("title", ""), elapsed=round(time.time() - t0, 1))
+                continue
+
             import media_engine  # lazy import
 
             if kind == "asset_set":

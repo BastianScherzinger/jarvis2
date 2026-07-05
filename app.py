@@ -1872,6 +1872,33 @@ def api_media_generate_ad_video():
     return jsonify({"ok": True, "job_id": job_id, "prompt": vp["prompt"], "summary": vp["summary"]})
 
 
+@app.route("/api/media/generate/website-ad-video", methods=["POST"])
+def api_media_generate_website_ad_video():
+    """TikTok-Werbevideo (9:16, 10s) direkt aus einer Website-URL: Playwright nimmt die
+    echte Seite auf (Hero, Scroll, automatisch gewählte Detail-Ausschnitte), ffmpeg
+    schneidet Hook/Scroll/Details/CTA mit Zoom-Bewegung + Ambient-Ton zusammen."""
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "reason": "url fehlt"}), 400
+    if len(url) > 500:
+        return jsonify({"ok": False, "reason": "url_too_long"}), 400
+    params = {
+        "url":       url,
+        "prompt":    url,
+        "hook_text": (body.get("hook_text") or "").strip()[:200],
+        "cta_text":  (body.get("cta_text") or "").strip()[:200],
+    }
+    job_id = media_queue.submit("website_ad_video", params)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/media/ads")
+def api_media_ads():
+    import website_ad_video
+    return jsonify({"ads": website_ad_video.list_recent()})
+
+
 @app.route("/api/media/job/<job_id>")
 def api_media_job(job_id):
     job = media_queue.get(job_id)

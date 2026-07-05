@@ -74,3 +74,5 @@ test_write*.txt
 .playwright-mcp/
 
 workspace/media/agent_*.png
+workspace/media/ads/
+workspace/media/_ad_tmp/

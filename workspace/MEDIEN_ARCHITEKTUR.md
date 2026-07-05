@@ -96,3 +96,72 @@ Ohne gültige Auth fällt jede Higgsfield-Aktion mit klarer Meldung zurück; lok
 ## Tests
 `tests/test_core.py`: +3 (build_video_prompt, image-higgsfield-Backend-Route,
 ad-video-Route lokal/higgsfield/400) → **52 grün**. `smoke_audit.py` 51/51 grün.
+
+## Update 05.07. — Werbevideo-Tab: Website-URL → echtes TikTok-Ad (9:16, 10s)
+Neuer, eigenständiger Reiter **Werbevideo** (`data-page="ad-video"`) — anders als die
+bisherigen Werbevideos (KI-generiert aus Text-Prompt via Wan/Higgsfield) nimmt dieser
+Weg die **echte Website** des Kunden per Playwright auf und schneidet daraus einen
+fertigen 9:16-Clip. Kein GPU/Cloud-Credit nötig, läuft komplett lokal & kostenlos.
+
+### Neue Datei: `website_ad_video.py`
+```
+build_ad_video(url, job_id, hook_text="", cta_text="", progress_cb=None) -> dict
+  1. _capture()          Playwright (headless Chromium): Seite laden (3 Versuche),
+                          Cookie-Banner schließen, Lazy-Load per Scroll vortriggern,
+                          Hero-Screenshot + Vollseiten-Screenshot (1080px Basisbreite,
+                          device_scale_factor=2 -> exakt 1080px Ausgabebreite).
+  2. _pick_detail_crops() PIL/numpy: 1080x1920-Fenster über die Gesamtseite scannen,
+                          die 3 Fenster mit höchster Helligkeits-Standardabweichung
+                          wählen (Kontrast-Heuristik statt GPU-Modell für "beste Szene").
+  3. _compose_text_card() PIL: Hook-/CTA-Text als abgedunkelter Textblock über eine
+                          Hero-Kopie -- kein ffmpeg-drawtext (keine Font-Abhängigkeit).
+  4. _clip_zoom/_clip_scroll  ffmpeg (imageio_ffmpeg-Binary): Hook-Zoom (1,5s) ->
+                          Scroll-Pan über Vollseite (5s) -> 3x Detail-Zoom (2,5s) ->
+                          CTA-Karte (1s) -> concat-Demuxer, Re-Encode auf 30fps.
+  5. _make_ambient_audio() zwei leise Sinustöne (196/294 Hz) mit Fade -- bewusster
+                          Offline-Fallback für den in der Vorgabe verlangten
+                          "sanften Ambient-Ton", wenn kein lizenzfreier Beat verfügbar ist.
+  6. _mux_final()          Video+Ton muxen, -t 10 hart getrimmt, CRF/Maxrate für ≤12MB.
+  7. probe()/qa_checks()   ffmpeg -i-Stderr geparst (kein ffprobe gebündelt) ->
+                          Dauer/Auflösung/Codec/Ton/Größe; bei zu groß automatischer
+                          Re-Encode mit höherem CRF (bis 2 Versuche).
+  8. build_caption()       Deutscher Caption-Vorschlag + 8 Hashtags fürs Posten.
+```
+Ausgabe: `workspace/media/ads/ad_<domain>_<timestamp>.mp4` (gitignored).
+
+### Kritischer ffmpeg-Bug (gefunden + gefixt)
+`-t <dauer>` wurde ursprünglich als **Input**-Option (vor `-i`) übergeben. Bei
+`-loop 1` liefert der image2-Demuxer standardmäßig 25fps -> `-t 1.5` vor `-i` erzeugte
+~37 identische Input-Frames, die `zoompan` (Parameter `d=45`) JEDES EINZELN nochmal um
+45 Frames verlängerte -> ein 1,5s-Clip wurde zu ~55s und brauchte je nach Clip mehrere
+Minuten CPU-Zeit (im Test: 962 CPU-Sekunden, nie fertig). Fix: `-t` als **Output**-Option
+(nach `-vf`/`-r`) gesetzt -> Clip fertig in <1s, exakte Ziel-Länge. Lehre: bei
+`-loop 1`-Standbild-Inputs für Zoom/Pan-Filter IMMER `-t`/`-r` als Output-Optionen setzen,
+nie vor `-i`.
+
+### Architektur-Einordnung
+`website_ad_video` läuft NICHT über `media_engine.py` (kein Diffusers/Torch) -- eigener
+Job-Kind `website_ad_video` in `media_queue.py`, in die **Cloud-Queue** (`_CLOUD_KINDS`)
+eingereiht, weil Playwright+ffmpeg keine lokale GPU/VRAM brauchen und so nicht hinter
+den seriellen Bild/Video-Diffusers-Jobs warten müssen.
+```
+Frontend (ad_video.js)  -> POST /api/media/generate/website-ad-video {url, hook_text, cta_text}
+                         -> GET  /api/media/job/<id>           (Poll: progress, stage, result_url, qa, checks, caption, hashtags)
+                         -> GET  /api/media/ads                (Galerie bisheriger Werbevideos)
+app.py                  -> media_queue.submit("website_ad_video", params)
+media_queue.py           -> website_ad_video.build_ad_video(..., progress_cb=_set)
+website_ad_video.py       -> Playwright + ffmpeg (imageio_ffmpeg), siehe oben
+```
+
+### Tests
+`tests/test_core.py`: +5 (normalize_url, qa_checks gut/schlecht, build_caption,
+website-ad-video-Route inkl. 400 ohne url).
+
+### Verbesserungsmöglichkeiten
+- Ambient-Ton ist aktuell rein synthetisch (zwei Sinustöne) -- ein echter, lizenzfreier
+  Beat-Loop würde "moderner" wirken, wurde aber bewusst weggelassen (Lizenzfragen).
+- Detail-Crop-Heuristik ist eine einfache Kontrast-Metrik, kein echtes Bildverständnis --
+  reicht für "nicht die leere Sektion erwischen", könnte aber z.B. um Gesichtserkennung
+  oder Logo-/Button-Erkennung erweitert werden.
+- Hook-/CTA-Text ist aktuell branchenunabhängig; ließe sich aus Meta-Title/Description
+  der Seite (bereits in `meta["title"]` vorhanden) automatisch zuspitzen.
