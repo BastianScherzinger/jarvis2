@@ -101,7 +101,10 @@ def main() -> None:
     print()
     print(f"  {CY}[>]{R}  Pruefe Abhaengigkeiten...")
     import install
-    install.run()
+    # interactive=False: update.py laeuft unbeaufsichtigt — alle Modell-/Key-Abfragen nehmen
+    # sofort ihren Default, statt an input() zu blockieren (frueher haengte das Update dort und
+    # der Kunde musste Strg+C druecken). Am Skriptende beendet os._exit(0) dann sauber.
+    install.run(interactive=False)
 
     # ── Alte Webseiten-Ordner vom Desktop aufraeumen ───────────────
     # Fasst verstreute Alt-Ordner (Desktop/web_*, vor der Tagesordner-Struktur) nach

@@ -166,8 +166,22 @@ def _start_discord():
         import discord_bot
         if discord_bot.enabled():
             discord_bot.start()
-    except Exception:
-        pass
+        elif discord_bot.wants_discord():
+            # Token gesetzt, aber Bot läuft NICHT — früher still verschluckt, dadurch war auf
+            # dem Ziel-PC nicht zu sehen, WARUM. Jetzt Klartext-Grund ins Log (häufigster Fall:
+            # discord.py unter neuer Python-Version nicht ladbar → discord_bot repariert das
+            # beim Import automatisch, hier bliebe nur ein echter Rest-Fehler übrig).
+            try:
+                import logger
+                logger.warn("Discord", f"Bot NICHT gestartet: {discord_bot.disabled_reason()}")
+            except Exception:
+                pass
+    except Exception as e:
+        try:
+            import logger
+            logger.warn("Discord", f"Start fehlgeschlagen: {type(e).__name__}: {str(e)[:160]}")
+        except Exception:
+            pass
 _startup_t.Thread(target=_start_discord, daemon=True).start()
 
 

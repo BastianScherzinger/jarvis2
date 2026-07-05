@@ -28,12 +28,62 @@ from datetime import datetime, time as dtime
 import logger
 import review_queue as rq
 
-try:
-    import discord
-    from discord.ext import tasks
-    _HAS_DISCORD = True
-except Exception:                                    # discord.py nicht installiert
-    _HAS_DISCORD = False
+def _import_discord():
+    """Importiert discord + discord.ext.tasks und REPARIERT bekannte Fehlschläge automatisch.
+
+    Häufigster „Bot läuft auf dem Ziel-PC nicht, obwohl .env identisch"-Fall: eine neuere
+    Python-Version (3.13+) hat das stdlib-Modul `audioop` entfernt → eine ältere discord.py
+    crasht beim Import (`ModuleNotFoundError: audioop`). Der Bot fiel dann STILL aus
+    (`_HAS_DISCORD=False`), ohne dass irgendwo stand, warum. Fix: den echten Fehler behalten,
+    und wenn Discord per .env gewollt ist (Token gesetzt), einmalig `audioop-lts` +
+    `discord.py>=2.5` nachinstallieren und erneut importieren — noch im selben Prozess, sodass
+    der Bot ohne Neustart hochkommt. Gibt (discord, tasks, fehlertext) zurück."""
+    import importlib
+    import importlib.util
+    try:
+        import discord
+        from discord.ext import tasks
+        return discord, tasks, ""
+    except Exception as e:
+        first_err = f"{type(e).__name__}: {e}"
+    # Reparatur nur, wenn der Bot überhaupt gewollt ist — sonst bewusst aus, nichts installieren.
+    if not os.environ.get("DISCORD_BOT_TOKEN", "").strip():
+        return None, None, first_err
+    import sys
+    import subprocess
+    pkgs = []
+    if sys.version_info >= (3, 13) and (
+            "audioop" in first_err or importlib.util.find_spec("audioop") is None):
+        pkgs.append("audioop-lts")
+    pkgs.append("discord.py>=2.5.0")
+    try:
+        logger.warn("Discord", f"discord.py nicht ladbar ({first_err}) — repariere automatisch: "
+                               f"{', '.join(pkgs)}")
+    except Exception:
+        pass
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", *pkgs],
+                       timeout=300, capture_output=True)
+    except Exception as e:
+        return None, None, f"{first_err} / Auto-Install fehlgeschlagen: {type(e).__name__}"
+    # Modul-Caches leeren, damit der zweite Import die frisch installierte Version sieht.
+    for _m in [m for m in sys.modules if m == "discord" or m.startswith("discord.") or m == "audioop"]:
+        sys.modules.pop(_m, None)
+    importlib.invalidate_caches()
+    try:
+        import discord
+        from discord.ext import tasks
+        try:
+            logger.success("Discord", "discord.py automatisch repariert + geladen.")
+        except Exception:
+            pass
+        return discord, tasks, ""
+    except Exception as e:
+        return None, None, f"{type(e).__name__}: {e} (auch nach Auto-Install)"
+
+
+discord, tasks, _IMPORT_ERR = _import_discord()
+_HAS_DISCORD = discord is not None
 
 _loop: "asyncio.AbstractEventLoop | None" = None
 _bot = None
@@ -102,6 +152,25 @@ def _send_hours_label() -> str:
 def enabled() -> bool:
     """True nur, wenn discord.py vorhanden UND Token + Kanal konfiguriert sind."""
     return _HAS_DISCORD and bool(_token()) and _channel_id() > 0
+
+
+def wants_discord() -> bool:
+    """True, wenn der User Discord per .env aktivieren WOLLTE (Token gesetzt). Dann ist ein
+    nicht laufender Bot ein echtes Problem, das laut gemeldet werden soll — statt still
+    zu schweigen (wie bisher, was das Debuggen auf dem Ziel-PC unmöglich machte)."""
+    return bool(_token())
+
+
+def disabled_reason() -> str:
+    """Klartext, WARUM der Bot nicht läuft (leer = alles ok). Für Startup-Log + /api/discord."""
+    if not _HAS_DISCORD:
+        return f"discord.py nicht ladbar ({_IMPORT_ERR or 'nicht installiert'}) — "\
+               "Fix: pip install -U \"discord.py>=2.5.0\" audioop-lts"
+    if not _token():
+        return "DISCORD_BOT_TOKEN fehlt in .env"
+    if _channel_id() <= 0:
+        return "DISCORD_CHANNEL_ID fehlt oder ungültig in .env"
+    return ""
 
 
 def auto_send() -> bool:
@@ -179,6 +248,7 @@ def status() -> dict:
         "channel": _channel_id(), "send_hour": _send_hour(), "send_hours": _send_hours(),
         "needed": int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1"),
         "auto_send": auto_send(),
+        "wants": wants_discord(), "reason": disabled_reason(), "import_err": _IMPORT_ERR,
         "reviews": rq.stats(),
     }
 

@@ -26,6 +26,21 @@ GY = "\033[90m"
 
 HERE   = Path(__file__).parent
 _QUIET = False   # wird von run(quiet=True) gesetzt
+_INTERACTIVE = True   # wird von run(interactive=False) gesetzt (update.py läuft unbeaufsichtigt)
+
+
+def _ask(prompt: str, default: str = "") -> str:
+    """Interaktive Abfrage — im Non-Interaktiv-Modus (update.py / Kunde) gibt sie SOFORT den
+    Default zurück, ohne zu blockieren. Behebt den Hänger, bei dem `python update.py` an einer
+    Tastatur-Abfrage stehenblieb und der Kunde Strg+C drücken musste. `input()` wirft in einer
+    normalen Konsole KEIN EOFError (blockiert nur) — darum reicht der bisherige try/except nicht,
+    es braucht dieses explizite Non-Interaktiv-Flag."""
+    if not _INTERACTIVE:
+        return default
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        return default
 
 
 def _pip(*args) -> bool:
@@ -101,9 +116,12 @@ def _header() -> None:
     print()
 
 
-def run(quiet: bool = False) -> bool:
-    global _QUIET
+def run(quiet: bool = False, interactive: bool = True) -> bool:
+    global _QUIET, _INTERACTIVE
     _QUIET = quiet
+    # update.py läuft unbeaufsichtigt → interactive=False: alle Abfragen nehmen sofort ihren
+    # Default, nichts blockiert, das Skript kann sauber durchlaufen und beenden.
+    _INTERACTIVE = interactive
 
     _header()
     all_ok = True
@@ -335,10 +353,9 @@ def run(quiet: bool = False) -> bool:
             if _auto_key:
                 print(f"  {CY}Empfehlung:{R} {B}{_recommended_model}{R}  {GY}(Enter = uebernehmen){R}")
             keys = "/".join(["0"] + list(MODELS.keys()))
-            try:
-                choice = input(f"  {CY}Auswahl ({keys}) [Enter = empfohlen]:{R} ").strip()
-            except (EOFError, KeyboardInterrupt):
-                choice = _auto_key or "0"
+            # Non-interaktiv (update.py): Default "0" = überspringen — KEIN unbeaufsichtigter
+            # Multi-GB-`ollama pull` (Timeout bis 1 h!), der das Update scheinbar „hängen" ließe.
+            choice = _ask(f"  {CY}Auswahl ({keys}) [Enter = empfohlen]:{R} ", "0")
             if choice == "" and _auto_key:
                 choice = _auto_key
 
@@ -494,14 +511,22 @@ def run(quiet: bool = False) -> bool:
     _dc_lib     = _can_import("discord")
 
     if _dc_token and _dc_channel:
+        # Unter Python 3.13+ zusätzlich audioop-lts (stdlib-audioop wurde entfernt → sonst
+        # crasht discord.py beim Import und der Bot fällt STILL aus). Pakete werden auch dann
+        # (re)installiert, wenn `import discord` zwar geht, aber eine zu alte Version ist —
+        # >=2.5.0 ist die erste 3.13-taugliche Reihe.
+        _dc_pkgs = ["discord.py>=2.5.0"]
+        if sys.version_info >= (3, 13):
+            _dc_pkgs.insert(0, "audioop-lts")
         if _dc_lib:
             _ok("Discord Bot", "konfiguriert + discord.py ✓ — Bot startet mit der App")
         else:
             _warn("Discord Bot", "Token/Kanal gesetzt — installiere discord.py ...")
-            if _pip("discord.py>=2.4.0"):
-                _ok("discord.py", "installiert")
+            if _pip("-U", *_dc_pkgs):
+                _ok("discord.py", "installiert" + (" + audioop-lts (Python 3.13+)"
+                                                   if sys.version_info >= (3, 13) else ""))
             else:
-                _warn("discord.py", "manuell: pip install \"discord.py>=2.4.0\"")
+                _warn("discord.py", f"manuell: pip install -U {' '.join(_dc_pkgs)}")
     else:
         _warn("Discord Bot", "deaktiviert — DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID in .env eintragen")
 
@@ -574,10 +599,9 @@ def run(quiet: bool = False) -> bool:
 
     if not _diffusers_ok:
         print(f"  {GY}diffusers + torch nicht installiert  (~3-5 GB Pakete){R}")
-        try:
-            _media_install = input(f"  {CY}Jetzt installieren? [j/N]:{R} ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            _media_install = "n"
+        # Non-interaktiv (update.py): Default "n" — der ~3-5 GB Media-Stack wird nicht
+        # unbeaufsichtigt gezogen; nachrüstbar über `python install.py`.
+        _media_install = _ask(f"  {CY}Jetzt installieren? [j/N]:{R} ", "n").lower()
         if _media_install in ("j", "ja", "y", "yes"):
             _installing("torch + torchvision + diffusers + transformers + accelerate")
             # Auf NVIDIA-GPU den CUDA-Build von torch installieren
@@ -647,10 +671,9 @@ def run(quiet: bool = False) -> bool:
                 _marker = f"  {GR}← empfohlen{R}" if m["key"] == _img_rec else ""
                 print(f"  [{k}]  {B}{m['name']:<28}{R}  {GY}{m['size']}, {m['vram']} GB VRAM — {m['desc']}{R}{_marker}")
             print(f"  [0]  Kein Bildmodell")
-            try:
-                _ic = input(f"  {CY}Bildmodell (0-3) [Enter = {_img_rec}]:{R} ").strip()
-            except (EOFError, KeyboardInterrupt):
-                _ic = ""
+            # Non-interaktiv: Default "" → unten auf das empfohlene Modell aufgelöst (schreibt
+            # nur die .env-Zeile, Download erst beim ersten „Bild generieren" — blockiert nicht).
+            _ic = _ask(f"  {CY}Bildmodell (0-3) [Enter = {_img_rec}]:{R} ", "")
             if _ic == "":
                 _ic = next((k for k, v in _IMG_MODELS.items() if v["key"] == _img_rec), "0")
             if _ic in _IMG_MODELS:
@@ -671,10 +694,7 @@ def run(quiet: bool = False) -> bool:
             for k, m in _VID_MODELS.items():
                 print(f"  [{k}]  {B}{m['name']:<28}{R}  {GY}{m['size']}, {m['vram']} GB VRAM — {m['desc']}{R}")
             print(f"  [0]  Kein lokales Videomodell  {GY}(Higgsfield-API reicht){R}")
-            try:
-                _vc = input(f"  {CY}Videomodell (0/1) [Enter = überspringen]:{R} ").strip()
-            except (EOFError, KeyboardInterrupt):
-                _vc = "0"
+            _vc = _ask(f"  {CY}Videomodell (0/1) [Enter = überspringen]:{R} ", "0")
             if _vc in _VID_MODELS:
                 _chosen_vid = _VID_MODELS[_vc]
                 with open(HERE / ".env", "a", encoding="utf-8") as _ef:
@@ -698,10 +718,7 @@ def run(quiet: bool = False) -> bool:
     else:
         print(f"  {GY}https://cloud.higgsfield.ai/api-keys  — 10 Credits/Tag gratis{R}")
         print(f"  {GY}Modelle: dop-lite (3 Credits), dop-preview (6), dop-turbo (9){R}")
-        try:
-            _hf_input = input(f"  {CY}Higgsfield API-Key (Enter = überspringen):{R} ").strip()
-        except (EOFError, KeyboardInterrupt):
-            _hf_input = ""
+        _hf_input = _ask(f"  {CY}Higgsfield API-Key (Enter = überspringen):{R} ", "")
         if _hf_input and len(_hf_input) > 8:
             with open(HERE / ".env", "a", encoding="utf-8") as _ef:
                 _ef.write(f"\nHIGGSFIELD_API_KEY={_hf_input}\n")

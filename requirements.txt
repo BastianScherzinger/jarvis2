@@ -14,7 +14,12 @@ Pillow>=10.0.0
 numpy>=1.24.0
 pyttsx3>=2.90
 waitress>=3.0.0
-discord.py>=2.4.0
+# discord.py>=2.5.0: aeltere Versionen crashen unter Python 3.13+ beim Import, weil das
+# stdlib-Modul `audioop` dort entfernt wurde -> discord_bot faellt dann STILL aus (Bot
+# laeuft nicht, obwohl .env korrekt ist). Ab 2.5 nutzt discord.py das PyPI-Backport
+# `audioop-lts`; darum unter 3.13+ zusaetzlich pinnen.
+discord.py>=2.5.0
+audioop-lts>=0.2.1; python_version >= "3.13"
 beautifulsoup4>=4.12.0
 # ── LeadForge / leadpackages (Datenpakete-Modul) ──────────────────────────────
 scrapling>=0.4.9
