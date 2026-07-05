@@ -419,20 +419,26 @@
     </div>
   </div>
 
-  <!-- VIZ 1: Force-Graph -->
+  <!-- VIZ 1: Live-System-Pipeline (Scraper → JARVIS → Claude → Versand) -->
   <div class="viz-section">
-    <div class="viz-title">Lead-Netzwerk
-      <span class="viz-sub">Obsidian-Stil · Zoom/Pan/Drag · Klick = Details · Auto-Refresh 3s</span>
+    <div class="viz-title">System-Pipeline · Live
+      <span class="viz-sub">Scraper → JARVIS → Claude → Versand · jede Bubble ist ein echtes Ereignis in Echtzeit</span>
     </div>
-    <div class="graph-wrap" id="graph-wrap">
-      <svg id="graph-svg"></svg>
-      <div class="graph-tooltip" id="graph-tooltip" style="display:none"></div>
-      <!-- Legende -->
-      <div class="graph-legend" id="graph-legend"></div>
-      <!-- Refresh-Indikator -->
-      <div class="graph-refresh-ind" id="graph-refresh-ind">● LIVE</div>
+    <div class="pipeline-wrap" id="pipeline-wrap">
+      <canvas id="pipeline-canvas"></canvas>
+      <div class="pipeline-hud"    id="pipeline-hud"></div>
+      <div class="pipeline-legend" id="pipeline-legend"></div>
+      <div class="pipeline-live"   id="pipeline-live"><span class="pl-dot"></span>LIVE</div>
+      <!-- Echte Live-Logs aller Module (logger._buffer via /api/logs) -->
+      <div class="pipeline-logbox">
+        <div class="pipeline-log-hd"><span class="pl-dot"></span>LIVE-LOG · alle Module</div>
+        <div class="pipeline-log" id="pipeline-log"></div>
+      </div>
     </div>
   </div>
+
+  <!-- Tooltip (Seiten-Ebene; auch vom Balken-Diagramm genutzt) -->
+  <div class="graph-tooltip" id="graph-tooltip" style="display:none"></div>
 
   <!-- VIZ 2: Balken-Diagramm (umschaltbar) -->
   <div class="viz-section">
@@ -949,6 +955,7 @@
 <script src="/static/js/app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="/static/js/graph.js"></script>
+<script src="/static/js/pipeline.js"></script>
 <script src="/static/js/globe.js"></script>
 <script src="/static/js/ranking.js"></script>
 <script src="/static/js/websites.js"></script>
@@ -1061,6 +1068,26 @@
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></div><div class="feat-tx"><b>Cloud-Sync</b><span>Leads & Seiten über Supabase über mehrere PCs hinweg</span></div></div>
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="feat-tx"><b>Rechtssicher</b><span>Impressum, Ein-Klick-Abmeldung & Opt-out in jeder Mail</span></div></div>
       <div class="feat-card"><div class="feat-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div><div class="feat-tx"><b>E-Mail-Zustellbarkeitsprüfung</b><span>DNS/MX-Check vor jedem Versand — keine Bounces mehr an tote Adressen</span></div></div>
+    </div>
+
+    <!-- ══ LIVE-PIPELINE-VORSCHAU (Echtzeit) ══ -->
+    <div class="home-pipe-preview" id="home-pipe-preview" onclick="showPage('graph')"
+         title="Zur vollen Live-Pipeline im Graph-Tab">
+      <div class="hpp-head">
+        <span class="hpp-title">Live-System-Pipeline</span>
+        <span class="hpp-live-count"></span>
+        <span class="hpp-live"><span class="pl-dot"></span>ECHTZEIT</span>
+      </div>
+      <div class="hpp-body">
+        <div class="pipeline-wrap hpp-canvas-wrap" id="home-pipeline-wrap">
+          <canvas id="home-pipeline-canvas"></canvas>
+        </div>
+        <div class="hpp-logbox">
+          <div class="hpp-log-hd">Live-Log</div>
+          <div class="hpp-log" id="home-pipeline-log"></div>
+        </div>
+      </div>
+      <div class="hpp-foot">Scraper → JARVIS → Claude → Versand · klicken für die volle Ansicht mit Konsole</div>
     </div>
 
     <!-- ══ PIPELINE (dynamisch) ══ -->

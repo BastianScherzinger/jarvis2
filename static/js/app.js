@@ -124,13 +124,16 @@ function _connectSSE(){
   _sse.onmessage = e => {
     try{
       const msg = JSON.parse(e.data);
-      if(msg.type==='lead')       { _onLead(msg.data); _applyStats(msg.stats); }
+      if(msg.type==='lead')       { _onLead(msg.data); _applyStats(msg.stats);
+                                    if(typeof pipelineOnEvent==='function') pipelineOnEvent('lead', msg.data); }
       if(msg.type==='verified')   { _onVerified(msg.data); _applyStats(msg.stats); }
       if(msg.type==='stats')      { _applyStats(msg.stats); }
       if(msg.type==='init_stats') { _applyStats(msg.stats); }
       if(msg.type==='activity')   { _onActivity(msg.msg); }
       if(msg.type==='error')      { _onErr(msg.msg); }
       if(msg.type==='evaluated'){
+        // Live-Pipeline: KI-Bewertung fertig → Bubble Roboter ▶ Claude
+        if(typeof pipelineOnEvent==='function') pipelineOnEvent('evaluated', msg.data);
         // Ranking und Graph sofort aktualisieren (debounced — 600ms)
         clearTimeout(_evalRankTimer);
         _evalRankTimer = setTimeout(() => {
@@ -720,7 +723,7 @@ function showPage(name){
   if(name === 'video-studio' && typeof initVideoStudio === 'function') initVideoStudio();
   if(name === 'ad-video' && typeof initAdVideo === 'function') initAdVideo();
   if(name === 'leadpackages' && typeof initLeadpackages === 'function') initLeadpackages();
-  if(name === 'home')  loadHome();
+  if(name === 'home'){ loadHome(); if(typeof initPipelinePreview === 'function') initPipelinePreview(); }
   // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log + Top-25-Rangliste) nur, solange sichtbar
   if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); _stopMsRankPoll(); }
   if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll(); }

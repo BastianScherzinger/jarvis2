@@ -378,6 +378,11 @@ function _stopAutoRefresh() {
 
 // ── Öffentliche API ───────────────────────────────────────────────────────
 async function initGraph() {
+  // Live-System-Pipeline (VIZ 1) — idempotent, nimmt bei jedem Tab-Besuch die RAF/Poll
+  // wieder auf. Muss VOR dem _gInitDone-Early-Return stehen, sonst startet sie beim
+  // erneuten Öffnen des Tabs nicht neu.
+  if (typeof initPipeline === 'function') initPipeline();
+
   if (_gInitDone) {
     // Beim erneuten Tab-Wechsel: nur refresh
     await refreshGraph();

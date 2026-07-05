@@ -278,14 +278,24 @@ def _clip_zoom(img_path: Path, out_path: Path, duration: float, zoom_to: float =
 
 
 def _clip_scroll(full_path: Path, out_path: Path, duration: float) -> None:
+    # Vertikaler Scroll-Pan ueber die Gesamtseite. Frueher via crop=...:eval=frame -- diese
+    # eval-Option kennen aeltere/minimale imageio-ffmpeg-Builds nicht ("Option not found"),
+    # weshalb der Clip fehlschlug. zoompan (Ken-Burns) ist in praktisch jedem Build vorhanden
+    # (dasselbe Filter nutzt _clip_zoom erfolgreich) und pant genauso zuverlaessig.
     from PIL import Image
     fw, fh = Image.open(full_path).size
-    max_offset = max(0, fh - H)
+    scaled_h = max(H, round(fh * W / fw))          # auf Breite W skalieren, Hoehe mitziehen
+    max_offset = max(0, scaled_h - H)
     if max_offset <= 0:
         _clip_zoom(full_path, out_path, duration, zoom_to=1.08)
         return
-    y_expr = f"min({max_offset}*t/{duration},{max_offset})"
-    vf = f"crop=w={W}:h={H}:x=0:y='{y_expr}':eval=frame,format=yuv420p"
+    frames = max(2, round(duration * FPS))
+    # y wandert linear 0 -> max_offset ueber die Cliplaenge; on = bisher gerenderte Ausgabe-
+    # Frames. Komma in min() durch einfache Quotes geschuetzt (wie z-Ausdruck in _clip_zoom).
+    y_expr = f"'min({max_offset}*on/{frames - 1},{max_offset})'"
+    vf = (f"scale={W}:{scaled_h},"
+          f"zoompan=z=1:x=0:y={y_expr}:d=1:s={W}x{H}:fps={FPS},"
+          f"format=yuv420p")
     _run_ffmpeg(["-loop", "1", "-i", str(full_path),
                  "-vf", vf, "-r", str(FPS), "-t", str(duration),
                  "-c:v", "libx264", "-crf", "18",
