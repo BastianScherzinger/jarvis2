@@ -1,29 +1,33 @@
 'use strict';
 /* ════════════════════════════════════════════════════════════════════════════
-   JARVIS LeadHunter — LIVE-SYSTEM-PIPELINE  (v3, Mehrfach-Instanz)
+   JARVIS LeadHunter — LIVE-SYSTEM-PIPELINE  (v4, Mehrfach-Instanz, Stationen-Kette)
    Ein 2D-Canvas-Hologramm des kompletten Lead-Flusses in Echtzeit:
 
-     [ Internet-Scraper × N ] ─▶ [ JARVIS2-Roboter ] ─▶ [ Claude ] ─▶ [ Gmail ]
+     [ Internet-Scraper × N ]
+              └─▶ SAMMELN ─▶ BEWERTEN ─▶ WEBSEITE ─▶ MAKEOVER ─▶ FREIGABE ─▶ VERSAND
 
-   • BUBBLES = echte Ereignisse:
-       SSE `lead`      → Scraper ▶ Roboter   (grün „Lead")       — Rohlead gefunden
-       SSE `evaluated` → Roboter ▶ Claude     (cyan „bewertet")   — KI-Bewertung fertig
-       Δ Website live  → Claude ▶ Gmail        (gold „Website")    — Seite gebaut & online
-       Δ Mail versandt → Claude ▶ Gmail        (violett „Mail")    — Angebot raus
-   • ECHTE LOGS: die Live-Log-Konsole zieht den kompletten Ringpuffer ALLER Module
-     (`/api/logs` → logger._buffer) und färbt jede Zeile nach Level. Jeder neue
-     Log-Eintrag lässt ausserdem den zugehörigen Pipeline-Knoten aufleuchten
-     (Scraper/Roboter/Claude/Gmail), Fehler blitzen rot — so sieht man wirklich,
-     welcher Code-Block gerade arbeitet.
+   • JEDER ECHTE LOG wird zu einem PUNKT in der Pipeline:
+       Die Live-Log-Konsole zieht den kompletten Ringpuffer ALLER Module
+       (`/api/logs` → logger._buffer). Jede neue Log-Zeile wird nach ihrem Worker/Level
+       der richtigen Station zugeordnet und wandert als Bubble durch das Segment DAVOR —
+       die Bubble-FARBE = Log-Level (cyan INFO, grün Erfolg, orange Scrape, violett
+       Bewertung, gold Warnung, rot FEHLER). Der Ziel-Knoten leuchtet bei Ankunft auf,
+       Fehler blitzen rot. So sieht man 1:1, welcher Code-Block gerade arbeitet.
+   • Zusätzlich getippte SSE-Ereignisse (heller, mit Label):
+       SSE `lead`      → Scraper ▶ SAMMELN   (grün „Lead")
+       SSE `evaluated` → SAMMELN ▶ BEWERTEN   (cyan „bewertet")
+       Δ Website live  → BEWERTEN ▶ WEBSEITE   (gold „Website")
+       Δ Mail versandt → FREIGABE ▶ VERSAND    (violett „Angebot")
 
-   Zwei Instanzen teilen dieselben Poller/Daten:
+   Drei Instanzen teilen dieselben Poller/Daten:
      initPipeline()         — grosse Ansicht im Graph-Tab (#pipeline-canvas + #pipeline-log)
      initPipelinePreview()  — Live-Mini-Vorschau auf der Startseite (#home-pipeline-canvas)
+     initPipelineStatus()   — Popup-Mini-Vorschau auf „Mein Status" (#status-pipeline-canvas)
 
    Iron-Man-HUD (style.css-Tokens): Cyan #00d4ff, Grün #00e87a, additives Glühen.
-   Performance: jede Instanz pausiert ihr Rendering, wenn ihre .page nicht aktiv ist;
-   Poller fetchen nur, wenn mindestens eine Instanz sichtbar ist. prefers-reduced-motion
-   dämpft die Bewegung.
+   Performance: jede Instanz pausiert ihr Rendering, wenn ihre .page nicht aktiv (oder das
+   Popup geschlossen) ist; Poller fetchen nur, wenn mindestens eine Instanz sichtbar ist.
+   prefers-reduced-motion dämpft die Bewegung.
    ════════════════════════════════════════════════════════════════════════════ */
 
 const _PL_REDUCED = (typeof window !== 'undefined' && window.matchMedia)
@@ -47,13 +51,17 @@ const _PL_LOG_SCRAPER = [
   ['golocal', 'Golocal'], ['11880', 'Elfacht'], ['herold', 'HeroldAT'],
 ];
 
-const _PL_BUBBLE = {
-  lead:    { color: '#00e87a', label: 'Lead',     seg: 's2r' },
-  eval:    { color: '#00d4ff', label: 'bewertet', seg: 'r2c' },
-  website: { color: '#ffc93d', label: 'Website',  seg: 'c2g' },
-  mail:    { color: '#9b5de5', label: 'Mail',     seg: 'c2g' },
-};
-const _PL_SEG_DUR = { s2r: 1.15, r2c: 1.0, c2g: 1.15 };
+// Die Stationen der Kette (nach der Scraper-Spalte). Reihenfolge = Fluss links→rechts.
+const _PL_STAGES = [
+  { key: 'collect',  label: 'SAMMELN',  sub: 'Rohleads',     color: '#00e87a', icon: 'robot',  lc: '#7fe9b6' },
+  { key: 'eval',     label: 'BEWERTEN', sub: 'KI-Scoring',   color: '#00d4ff', icon: 'claude', lc: '#e79a80' },
+  { key: 'build',    label: 'WEBSEITE', sub: 'Bau',          color: '#c58bff', icon: 'build',  lc: '#c9a0ff' },
+  { key: 'makeover', label: 'MAKEOVER', sub: 'Feinschliff',  color: '#ff9d3d', icon: 'spark',  lc: '#ffb877' },
+  { key: 'wait',     label: 'FREIGABE', sub: 'Warten',       color: '#ffc93d', icon: 'clock',  lc: '#ffd873' },
+  { key: 'send',     label: 'VERSAND',  sub: 'Angebot raus', color: '#9b5de5', icon: 'mail',   lc: '#c19bf0' },
+];
+
+const _PL_SEG_DUR_BASE = 1.0;           // Sekunden pro Segment (× Instanz-Faktor)
 const _PL_LV_COLOR = {
   INFO: '#00d4ff', SUCCESS: '#00e87a', WARN: '#ffc93d', ERROR: '#ff3b4e',
   DEBUG: '#6684a8', EVAL: '#c58bff', SCRAPE: '#ff9d3d',
@@ -73,7 +81,9 @@ const _PL_INST = [];
 function _plAnyVisible() { return _PL_INST.some(_plVisible); }
 function _plVisible(P) {
   const pg = P.wrap.closest ? P.wrap.closest('.page') : null;
-  return !!pg && pg.classList.contains('active') && !document.hidden;
+  if (!pg || !pg.classList.contains('active') || document.hidden) return false;
+  if (P.opts && typeof P.opts.gate === 'function' && !P.opts.gate()) return false;
+  return true;
 }
 
 function _plStartPollers() {
@@ -101,8 +111,8 @@ async function _plPollStatus() {
     if (hs) {
       _D.stats.live = hs.live || 0; _D.stats.sent = hs.sent || 0; _D.stats.building = hs.building || 0;
       if (_D.prev.live >= 0) {
-        _plBurst('website', Math.min(8, Math.max(0, _D.stats.live - _D.prev.live)));
-        _plBurst('mail',    Math.min(8, Math.max(0, _D.stats.sent - _D.prev.sent)));
+        _plBurstStage(2, '#ffc93d', 'Website', Math.min(8, Math.max(0, _D.stats.live - _D.prev.live)));
+        _plBurstStage(5, '#9b5de5', 'Angebot', Math.min(8, Math.max(0, _D.stats.sent - _D.prev.sent)));
       }
       _D.prev.live = _D.stats.live; _D.prev.sent = _D.stats.sent;
     }
@@ -118,9 +128,9 @@ async function _plPollLogs() {
     const d = await fetch(u).then(r => r.json()).catch(() => null);
     if (!d || !d.logs || !d.logs.length) return;
     const fresh = _D.logLastTs.length > 0;
-    d.logs.forEach(e => {
+    d.logs.forEach((e, i) => {
       _D.logs.push(e);
-      if (fresh) _plReactToLog(e);        // nur echte Neuzugänge lösen Effekte aus
+      if (fresh) _plReactToLog(e, i);      // nur echte Neuzugänge werden zu Punkten
     });
     if (_D.logs.length > 300) _D.logs.splice(0, _D.logs.length - 300);
     _D.logLastTs = d.last_ts || _D.logLastTs;
@@ -128,39 +138,42 @@ async function _plPollLogs() {
   } catch (e) { /* still weiter */ }
 }
 
-function _plBurst(type, n) {
+// Getippte Sammel-Bursts (Δ live/sent) — leicht gestaffelt.
+function _plBurstStage(stageIdx, color, label, n) {
   if (n <= 0) return;
   for (let i = 0; i < n; i++) {
-    setTimeout(() => _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawn(P, type); }), i * 260);
+    setTimeout(() => _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, stageIdx, color, label); }), i * 240);
   }
 }
 
-// ── Log-Klassifikation → welcher Knoten reagiert ─────────────────────────────
+// ── Log-Klassifikation → welche Station reagiert ─────────────────────────────
+// Rückgabe: { stageIdx, scraperIdx? } oder null.
 function _plClassifyLog(e) {
   const w = (e.worker || '').toLowerCase(), lv = e.level || '';
-  for (const [kw, nm] of _PL_LOG_SCRAPER) if (w.includes(kw)) return { stage: 'scraper', scraper: nm };
-  if (lv === 'SCRAPE') return { stage: 'scraper', scraper: null };
-  if (lv === 'EVAL' || /eval|bewert|score|analyst|social|ollama/.test(w)) return { stage: 'eval' };
-  if (/autobuild|makeover|builder|website|railway|deploy|hero|github/.test(w)) return { stage: 'build' };
-  if (/mailer|offer|discord|inbox|versand|smtp|mail/.test(w)) return { stage: 'mail' };
-  if (/leadcollector|collector|controller/.test(w)) return { stage: 'lead' };
-  return { stage: null };
+  for (const [kw, nm] of _PL_LOG_SCRAPER) if (w.includes(kw)) {
+    return { stageIdx: 0, scraperIdx: _D.scrapers.findIndex(s => s.name === nm) };
+  }
+  if (lv === 'SCRAPE') return { stageIdx: 0, scraperIdx: -1 };
+  if (/makeover|overnight/.test(w))                         return { stageIdx: 3 };
+  if (/discord|freigab|vote|approval|gate/.test(w))         return { stageIdx: 4 };
+  if (/mailer|offer|versand|smtp|inbox|outreach/.test(w))   return { stageIdx: 5 };
+  if (w.includes('mail'))                                   return { stageIdx: 5 };
+  if (/autobuild|auto_build|builder|website|railway|deploy|hero|github|build/.test(w)) return { stageIdx: 2 };
+  if (lv === 'EVAL' || /eval|bewert|score|analyst|social|ollama/.test(w)) return { stageIdx: 1 };
+  if (/leadcollector|collector|controller|scrape/.test(w))  return { stageIdx: 0, scraperIdx: -1 };
+  return null;
 }
 
-function _plReactToLog(e) {
-  const c = _plClassifyLog(e);
+function _plReactToLog(e, order) {
+  const c = _plClassifyLog(e); if (!c) return;
   const err = e.level === 'ERROR';
-  _PL_INST.forEach(P => {
-    if (!_plVisible(P)) return;
-    const hit = (node) => { if (!node) return; node.pulse = 1; if (err) node.err = 1; };
-    if (c.stage === 'scraper') {
-      const idx = c.scraper ? _D.scrapers.findIndex(s => s.name === c.scraper) : -1;
-      if (idx >= 0 && P.scr[idx]) hit(P.scr[idx]); else hit(P.robot);
-    } else if (c.stage === 'eval') { hit(P.robot); hit(P.claude); }
-    else if (c.stage === 'build')  { hit(P.claude); }
-    else if (c.stage === 'mail')   { hit(P.gmail); }
-    else if (c.stage === 'lead')   { hit(P.robot); }
-  });
+  const color = err ? '#ff3b4e'
+              : (_PL_LV_COLOR[e.level] || (_PL_STAGES[c.stageIdx] || {}).color || '#00d4ff');
+  // Mehrere Logs pro Poll leicht versetzen, damit sie als Kette laufen statt zu klumpen.
+  const delay = Math.min(900, (order || 0) * 70);
+  setTimeout(() => {
+    _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, c.stageIdx, color, '', c.scraperIdx, err); });
+  }, delay);
 }
 
 // ── Instanz erzeugen ─────────────────────────────────────────────────────────
@@ -170,10 +183,8 @@ function _plCreate(wrap, cv, opts) {
     mini: !!(opts && opts.mini), logEl: (opts && opts.logEl) || null,
     W: 0, H: 0, dpr: 1, t: 0, last: performance.now(), raf: 0,
     scr: _D.scrapers.map(() => ({ x: 0, y: 0, cx: 0, cy: 0, pulse: 0, err: 0 })),
-    robot:  { x: 0, y: 0, pulse: 0, err: 0 },
-    claude: { x: 0, y: 0, pulse: 0, err: 0 },
-    gmail:  { x: 0, y: 0, pulse: 0, err: 0 },
-    bubbles: [], seg: { s2r: 0, r2c: 0, c2g: 0 },
+    st: _PL_STAGES.map(() => ({ x: 0, y: 0, pulse: 0, err: 0 })),
+    bubbles: [], energy: {},
   };
   _PL_INST.push(P);
   const ro = () => _plResize(P);
@@ -199,60 +210,57 @@ function _plResize(P) {
 
 function _plLayout(P) {
   const W = P.W, H = P.H, cy = H * 0.5;
-  const flowW = P.mini ? W : W * 0.67;     // grosse Ansicht: rechts Platz für die Log-Konsole
-  const rx = flowW * 0.44, cx = flowW * 0.70, gx = flowW * 0.92;
-  P.robot.x = rx; P.robot.y = cy;
-  P.claude.x = cx; P.claude.y = cy;
-  P.gmail.x = gx; P.gmail.y = cy;
-  const sx = flowW * 0.13, n = P.scr.length;
-  const top = P.mini ? H * 0.14 : H * 0.11, bot = P.mini ? H * 0.86 : H * 0.82;
+  const flowW = P.mini ? W : W * 0.70;      // grosse Ansicht: rechts Platz für die Log-Konsole
+  const n = P.st.length;
+  const x0 = flowW * 0.205, x1 = flowW * 0.955;
+  P.st.forEach((nd, i) => { nd.x = x0 + (x1 - x0) * (i / (n - 1)); nd.y = cy; });
+  const sx = flowW * 0.055, m = P.scr.length;
+  const top = P.mini ? H * 0.15 : H * 0.10, bot = P.mini ? H * 0.85 : H * 0.86;
   const span = bot - top;
   P.scr.forEach((s, i) => {
-    s.x = sx; s.y = n > 1 ? top + span * (i / (n - 1)) : cy;
-    s.cx = s.x * 0.30 + rx * 0.70; s.cy = s.y * 0.45 + cy * 0.55;
+    s.x = sx; s.y = m > 1 ? top + span * (i / (m - 1)) : cy;
+    s.cx = s.x * 0.35 + P.st[0].x * 0.65; s.cy = s.y * 0.5 + cy * 0.5;
   });
-  P.nodeR = P.mini ? Math.max(7, Math.min(13, H * 0.05))  : Math.max(15, Math.min(24, W * 0.021));
-  P.hubR  = P.mini ? Math.max(12, Math.min(20, H * 0.085)) : Math.max(26, Math.min(40, W * 0.034));
+  P.nodeR = P.mini ? Math.max(6, Math.min(11, H * 0.045)) : Math.max(11, Math.min(18, W * 0.016));
+  P.hubR  = P.mini ? Math.max(9, Math.min(15, H * 0.062)) : Math.max(15, Math.min(24, W * 0.020));
 }
 
-// ── Bubble spawnen ───────────────────────────────────────────────────────────
-function _plSpawn(P, type, scraperIdx) {
-  const def = _PL_BUBBLE[type]; if (!def) return;
-  let from, to, cx, cy;
-  if (def.seg === 's2r') {
-    let idx = (typeof scraperIdx === 'number') ? scraperIdx : Math.floor(Math.random() * P.scr.length);
+// ── Bubble spawnen (auf dem Segment VOR stageIdx) ────────────────────────────
+function _plSpawnStage(P, stageIdx, color, label, scraperIdx, err) {
+  const stage = _PL_STAGES[stageIdx]; if (!stage) return;
+  color = color || stage.color;
+  let from, to, cx, cy, seg;
+  if (stageIdx === 0) {
+    let idx = (typeof scraperIdx === 'number' && scraperIdx >= 0)
+      ? scraperIdx : Math.floor(Math.random() * P.scr.length);
     const s = P.scr[idx]; if (!s) return;
-    s.pulse = 1;
-    from = { x: s.x, y: s.y }; to = { x: P.robot.x, y: P.robot.y }; cx = s.cx; cy = s.cy;
-  } else if (def.seg === 'r2c') {
-    P.robot.pulse = 1;
-    from = { x: P.robot.x, y: P.robot.y }; to = { x: P.claude.x, y: P.claude.y };
-    cx = (from.x + to.x) / 2; cy = from.y - P.H * 0.04;
+    s.pulse = Math.max(s.pulse, 0.7);
+    from = { x: s.x, y: s.y }; to = { x: P.st[0].x, y: P.st[0].y };
+    cx = s.cx; cy = s.cy; seg = 'f' + idx;
   } else {
-    P.claude.pulse = 1;
-    from = { x: P.claude.x, y: P.claude.y }; to = { x: P.gmail.x, y: P.gmail.y };
-    cx = (from.x + to.x) / 2; cy = from.y - P.H * 0.04;
+    const a = P.st[stageIdx - 1], b = P.st[stageIdx];
+    a.pulse = Math.max(a.pulse, 0.5);
+    from = { x: a.x, y: a.y }; to = { x: b.x, y: b.y };
+    cx = (a.x + b.x) / 2; cy = a.y - P.H * (P.mini ? 0.10 : 0.06); seg = 'c' + (stageIdx - 1);
   }
+  P.energy[seg] = 1;
   P.bubbles.push({
-    type, seg: def.seg, color: def.color, label: def.label, from, to, cx, cy,
-    t: 0, dur: _PL_SEG_DUR[def.seg] * (0.9 + Math.random() * 0.2),
-    r: (def.seg === 's2r' ? 5.5 : 6.5) * (P.mini ? 0.62 : 1),
+    seg, stageIdx, color, label: label || '', err: !!err, from, to, cx, cy,
+    t: 0, dur: _PL_SEG_DUR_BASE * (P.mini ? 0.8 : 1.0) * (0.85 + Math.random() * 0.3),
+    r: (P.mini ? 4.2 : 6) * (label ? 1.1 : 0.92),
   });
-  if (P.bubbles.length > 140) P.bubbles.splice(0, P.bubbles.length - 140);
+  if (P.bubbles.length > 180) P.bubbles.splice(0, P.bubbles.length - 180);
 }
 
 // Öffentlicher Hook aus app.js (_connectSSE) — an ALLE sichtbaren Instanzen
 function pipelineOnEvent(kind, data) {
-  _PL_INST.forEach(P => {
-    if (!_plVisible(P)) return;
-    if (kind === 'lead') {
-      const idx = _plScraperIdxFor(data && data.finder);
-      _plSpawn(P, 'lead', idx);
-      if (idx >= 0) _D.scrapers[idx].count++;
-    } else if (kind === 'evaluated') {
-      _plSpawn(P, 'eval');
-    }
-  });
+  if (kind === 'lead') {
+    const idx = _plScraperIdxFor(data && data.finder);
+    if (idx >= 0) _D.scrapers[idx].count++;
+    _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, 0, '#00e87a', 'Lead', idx); });
+  } else if (kind === 'evaluated') {
+    _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, 1, '#00d4ff', 'bewertet'); });
+  }
 }
 
 function _plScraperIdxFor(finder) {
@@ -266,23 +274,33 @@ function _plScraperIdxFor(finder) {
 }
 
 // ── HUD + Konsole + Legende ──────────────────────────────────────────────────
+function _plMiniCountEl(P) {
+  const card = P.wrap.closest ? P.wrap.closest('.home-pipe-preview, .status-pipe-pop') : null;
+  return card ? card.querySelector('.hpp-live-count') : null;
+}
+
 function _plRenderHud(P) {
-  if (P.mini) { const l = P.wrap.parentElement && P.wrap.parentElement.querySelector('.hpp-live-count');
-    if (l) l.textContent = `${_D.stats.active}/${_D.scrapers.length} aktiv · ${_D.stats.live} live`; return; }
+  if (P.mini) {
+    const l = _plMiniCountEl(P);
+    if (l) l.textContent = `${_D.stats.active}/${_D.scrapers.length} aktiv · ${_D.stats.live} live · ${_D.stats.sent} raus`;
+    return;
+  }
   const el = document.getElementById('pipeline-hud'); if (!el) return;
   const s = _D.stats;
   const dot = (c) => `<span class="ph-dot" style="background:${c};box-shadow:0 0 7px ${c}"></span>`;
   el.innerHTML =
     `<span class="ph-chip">${dot(s.running ? '#00e87a' : '#ff3b4e')}Scraper <b>${s.active}/${_D.scrapers.length}</b></span>` +
     `<span class="ph-chip">${dot('#00e87a')}Leads <b>${(s.total).toLocaleString('de-DE')}</b></span>` +
+    (s.building ? `<span class="ph-chip">${dot('#c58bff')}im Bau <b>${s.building}</b></span>` : '') +
     `<span class="ph-chip">${dot('#ffc93d')}Websites live <b>${s.live}</b></span>` +
-    (s.building ? `<span class="ph-chip">${dot('#00d4ff')}im Bau <b>${s.building}</b></span>` : '') +
-    `<span class="ph-chip">${dot('#9b5de5')}Mails raus <b>${s.sent}</b></span>`;
+    `<span class="ph-chip">${dot('#9b5de5')}Angebote raus <b>${s.sent}</b></span>`;
   const lg = document.getElementById('pipeline-legend');
   if (lg && !lg.dataset.done) {
     const item = (c, t) => `<span class="plg"><span class="plg-dot" style="background:${c};box-shadow:0 0 7px ${c}"></span>${t}</span>`;
-    lg.innerHTML = item('#00e87a', 'Lead') + item('#00d4ff', 'bewertet') +
-                   item('#ffc93d', 'Website') + item('#9b5de5', 'Angebot');
+    lg.innerHTML =
+      `<span class="plg-hd">Punkte = echte Logs:</span>` +
+      item('#00d4ff', 'Info') + item('#00e87a', 'Erfolg') + item('#ff9d3d', 'Scrape') +
+      item('#c58bff', 'Bewertung') + item('#ffc93d', 'Warnung') + item('#ff3b4e', 'Fehler');
     lg.dataset.done = '1';
   }
 }
@@ -292,7 +310,7 @@ function _plEsc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;
 function _plRenderLog(P) {
   const el = P.logEl || (P.mini ? null : document.getElementById('pipeline-log'));
   if (!el) return;
-  const nMax = P.mini ? 6 : 26;
+  const nMax = P.mini ? 7 : 26;
   const lines = _D.logs.slice(-nMax);
   const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;   // Auto-Scroll wenn unten
   el.innerHTML = lines.map(e => {
@@ -322,22 +340,19 @@ function _plUpdate(P, dt) {
   for (let i = P.bubbles.length - 1; i >= 0; i--) {
     const b = P.bubbles[i];
     b.t += dt / b.dur;
-    P.seg[b.seg] = Math.min(1, P.seg[b.seg] + dt * 1.6);
+    P.energy[b.seg] = 1;
     if (b.t >= 1) {
-      if (b.seg === 's2r') P.robot.pulse = 1;
-      else if (b.seg === 'r2c') P.claude.pulse = 1;
-      else P.gmail.pulse = 1;
+      const dest = P.st[b.stageIdx];
+      if (dest) { dest.pulse = 1; if (b.err) dest.err = 1; }
       P.bubbles.splice(i, 1);
     }
   }
   const dec = dt * 1.7, decE = dt * 1.2;
-  [P.robot, P.claude, P.gmail, ...P.scr].forEach(nd => {
+  [...P.st, ...P.scr].forEach(nd => {
     nd.pulse = Math.max(0, nd.pulse - dec);
     nd.err = Math.max(0, (nd.err || 0) - decE);
   });
-  P.seg.s2r = Math.max(0, P.seg.s2r - dt * 0.5);
-  P.seg.r2c = Math.max(0, P.seg.r2c - dt * 0.5);
-  P.seg.c2g = Math.max(0, P.seg.c2g - dt * 0.5);
+  for (const k in P.energy) { P.energy[k] = Math.max(0, P.energy[k] - dt * 0.55); }
 }
 
 function _plPos(b) {
@@ -350,35 +365,38 @@ function _plDraw(P) {
   const ctx = P.ctx, W = P.W, H = P.H;
   ctx.clearRect(0, 0, W, H);
 
+  // Scraper → SAMMELN
   P.scr.forEach((s, i) => {
     const alive = _D.scrapers[i].alive;
-    const energy = P.seg.s2r * (alive ? 1 : 0.35);
-    _plPipe(P, s.x, s.y, P.robot.x, P.robot.y, s.cx, s.cy,
-            alive ? '#00e87a' : '#2a4058', 0.10 + energy * 0.5, P.nodeR * 0.5);
+    const e = P.energy['f' + i] || 0;
+    _plPipe(P, s.x, s.y, P.st[0].x, P.st[0].y, s.cx, s.cy,
+            alive ? '#00e87a' : '#2a4058', 0.09 + e * 0.5 + (alive ? 0.05 : 0), P.nodeR * 0.5);
   });
-  _plPipe(P, P.robot.x, P.robot.y, P.claude.x, P.claude.y,
-          (P.robot.x + P.claude.x) / 2, P.robot.y - H * 0.04, '#00d4ff', 0.16 + P.seg.r2c * 0.5, P.hubR * 0.42);
-  _plPipe(P, P.claude.x, P.claude.y, P.gmail.x, P.gmail.y,
-          (P.claude.x + P.gmail.x) / 2, P.claude.y - H * 0.04, '#9b5de5', 0.16 + P.seg.c2g * 0.5, P.hubR * 0.42);
+  // Stationen-Kette
+  for (let k = 0; k < P.st.length - 1; k++) {
+    const a = P.st[k], b = P.st[k + 1], e = P.energy['c' + k] || 0;
+    _plPipe(P, a.x, a.y, b.x, b.y, (a.x + b.x) / 2, a.y - H * (P.mini ? 0.10 : 0.06),
+            _PL_STAGES[k + 1].color, 0.14 + e * 0.5, P.hubR * 0.4);
+  }
 
+  // Bubbles (additiv)
   ctx.globalCompositeOperation = 'lighter';
   for (const b of P.bubbles) { const p = _plPos(b); _plGlowDot(P, p.x, p.y, b.r, b.color); }
   ctx.globalCompositeOperation = 'source-over';
 
+  // Labels nur für getippte Ereignisse (grosse Ansicht)
   if (!P.mini) {
     ctx.font = '600 9px JetBrains Mono, monospace'; ctx.textAlign = 'center';
     for (const b of P.bubbles) {
-      if (b.t < 0.18 || b.t > 0.9) continue;
+      if (!b.label || b.t < 0.18 || b.t > 0.9) continue;
       const p = _plPos(b);
-      ctx.globalAlpha = 0.7; ctx.fillStyle = b.color;
+      ctx.globalAlpha = 0.75; ctx.fillStyle = b.color;
       ctx.fillText(b.label, p.x, p.y - b.r - 5); ctx.globalAlpha = 1;
     }
   }
 
   P.scr.forEach((s, i) => _plDrawScraper(P, s, _D.scrapers[i]));
-  _plDrawRobot(P, P.robot);
-  _plDrawClaude(P, P.claude);
-  _plDrawGmail(P, P.gmail);
+  P.st.forEach((nd, i) => _plDrawStation(P, nd, _PL_STAGES[i]));
 }
 
 function _plPipe(P, x0, y0, x1, y1, cx, cy, color, alpha, width) {
@@ -416,7 +434,6 @@ function _plPulseRing(P, node, r, color) {
 }
 
 function _plNodeLabel(P, x, y, text, color, sub) {
-  if (P.mini && !text) return;
   const ctx = P.ctx; ctx.textAlign = 'center';
   ctx.font = `700 ${P.mini ? 7 : 10}px Orbitron, sans-serif`; ctx.fillStyle = color;
   ctx.fillText(text, x, y);
@@ -454,70 +471,92 @@ function _plDrawScraper(P, s, data) {
     alive ? '#7fe9b6' : '#4a6a86', data.count ? data.count + ' Leads' : '');
 }
 
-function _plDrawRobot(P, node) {
-  const ctx = P.ctx, R = P.hubR;
-  _plPulseRing(P, node, R, '#00d4ff');
+// ── Stationen-Knoten (Basis-Disc + Glühen + Icon) ────────────────────────────
+function _plDrawStation(P, node, stage) {
+  const ctx = P.ctx, R = P.hubR, col = stage.color;
+  _plPulseRing(P, node, R, col);
   const g = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, R * 2.1);
-  g.addColorStop(0, _plAlpha('#00d4ff', 0.28 + node.pulse * 0.25)); g.addColorStop(1, _plAlpha('#00d4ff', 0));
+  g.addColorStop(0, _plAlpha(col, 0.24 + node.pulse * 0.26)); g.addColorStop(1, _plAlpha(col, 0));
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(node.x, node.y, R * 2.1, 0, Math.PI * 2); ctx.fill();
-  ctx.save(); ctx.translate(node.x, node.y);
-  const hw = R * 0.92, hh = R * 0.8, rad = R * 0.18;
-  _plRoundRect(P, -hw, -hh, hw * 2, hh * 2, rad);
-  ctx.fillStyle = 'rgba(8,20,30,.95)'; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = '#00d4ff'; ctx.globalAlpha = 0.95; ctx.stroke(); ctx.globalAlpha = 1;
-  ctx.beginPath(); ctx.moveTo(0, -hh); ctx.lineTo(0, -hh - R * 0.35); ctx.stroke();
-  ctx.beginPath(); ctx.arc(0, -hh - R * 0.35, R * 0.07 + 1.4, 0, Math.PI * 2);
-  ctx.fillStyle = '#00e87a'; ctx.shadowColor = '#00e87a'; ctx.shadowBlur = 8; ctx.fill(); ctx.shadowBlur = 0;
-  const blink = 0.6 + 0.4 * Math.abs(Math.sin(P.t * 1.5));
-  ctx.fillStyle = _plAlpha('#00d4ff', blink);
-  const ew = R * 0.26, eh = R * 0.2, eo = R * 0.34;
-  _plRoundRect(P, -eo - ew / 2, -eh / 2, ew, eh, 3); ctx.fill();
-  _plRoundRect(P, eo - ew / 2, -eh / 2, ew, eh, 3); ctx.fill();
-  ctx.strokeStyle = _plAlpha('#00d4ff', 0.5); ctx.lineWidth = 1;
-  for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * R * 0.1, hh * 0.42); ctx.lineTo(i * R * 0.1, hh * 0.62); ctx.stroke(); }
-  ctx.restore();
-  _plNodeLabel(P, node.x, node.y + R + 15, 'JARVIS2', '#33e0ff', 'Kern');
-}
 
-function _plDrawClaude(P, node) {
-  const ctx = P.ctx, R = P.hubR, CL = '#d97757';
-  _plPulseRing(P, node, R, CL);
-  const g = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, R * 2.1);
-  g.addColorStop(0, _plAlpha(CL, 0.26 + node.pulse * 0.25)); g.addColorStop(1, _plAlpha(CL, 0));
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(node.x, node.y, R * 2.1, 0, Math.PI * 2); ctx.fill();
   ctx.save(); ctx.translate(node.x, node.y);
   ctx.beginPath(); ctx.arc(0, 0, R * 0.92, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(24,14,10,.95)'; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = CL; ctx.globalAlpha = 0.9; ctx.stroke(); ctx.globalAlpha = 1;
-  const rays = 12, rot = _PL_REDUCED ? 0 : P.t * 0.35;
-  ctx.strokeStyle = CL; ctx.lineCap = 'round';
-  for (let i = 0; i < rays; i++) {
-    const a = rot + (i / rays) * Math.PI * 2, inner = R * 0.2, outer = R * (0.62 + 0.12 * (i % 2));
-    ctx.globalAlpha = 0.85; ctx.lineWidth = P.mini ? 1.4 : 2.1;
-    ctx.beginPath(); ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner); ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  ctx.beginPath(); ctx.arc(0, 0, R * 0.17, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffece3'; ctx.shadowColor = CL; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(8,14,22,.9)'; ctx.fill();
+  ctx.lineWidth = 1.6; ctx.strokeStyle = _plAlpha(col, 0.4); ctx.stroke();
+  _plStationIcon(P, stage.icon, R, col);
   ctx.restore();
-  _plNodeLabel(P, node.x, node.y + R + 15, 'CLAUDE', '#e79a80', 'Bewertung + Bau');
+
+  if (!P.mini) _plNodeLabel(P, node.x, node.y + R + 15, stage.label, stage.lc || col, stage.sub);
 }
 
-function _plDrawGmail(P, node) {
-  const ctx = P.ctx, R = P.hubR, EC = '#ffc93d';
-  _plPulseRing(P, node, R, EC);
-  const g = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, R * 2.1);
-  g.addColorStop(0, _plAlpha(EC, 0.24 + node.pulse * 0.28)); g.addColorStop(1, _plAlpha(EC, 0));
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(node.x, node.y, R * 2.1, 0, Math.PI * 2); ctx.fill();
-  ctx.save(); ctx.translate(node.x, node.y);
-  const w = R * 1.25, h = R * 0.86;
-  _plRoundRect(P, -w / 2, -h / 2, w, h, R * 0.14);
-  ctx.fillStyle = 'rgba(26,20,6,.95)'; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = EC; ctx.globalAlpha = 0.95; ctx.stroke();
-  ctx.globalAlpha = 0.9; ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(0, h * 0.12); ctx.lineTo(w / 2, -h / 2); ctx.stroke();
-  ctx.globalAlpha = 1; ctx.restore();
-  _plNodeLabel(P, node.x, node.y + R + 15, 'VERSAND', '#ffd873', 'Gmail');
+function _plStationIcon(P, icon, R, col) {
+  const ctx = P.ctx;
+  if (icon === 'robot') {
+    const hw = R * 0.82, hh = R * 0.7, rad = R * 0.18;
+    _plRoundRect(P, -hw, -hh, hw * 2, hh * 2, rad);
+    ctx.fillStyle = 'rgba(8,20,30,.95)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.globalAlpha = 0.95; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.moveTo(0, -hh); ctx.lineTo(0, -hh - R * 0.3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -hh - R * 0.3, 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = '#00e87a'; ctx.shadowColor = '#00e87a'; ctx.shadowBlur = 8; ctx.fill(); ctx.shadowBlur = 0;
+    const blink = 0.6 + 0.4 * Math.abs(Math.sin(P.t * 1.5));
+    ctx.fillStyle = _plAlpha(col, blink);
+    const ew = R * 0.24, eh = R * 0.18, eo = R * 0.32;
+    _plRoundRect(P, -eo - ew / 2, -eh / 2, ew, eh, 3); ctx.fill();
+    _plRoundRect(P, eo - ew / 2, -eh / 2, ew, eh, 3); ctx.fill();
+    ctx.strokeStyle = _plAlpha(col, 0.5); ctx.lineWidth = 1;
+    for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * R * 0.09, hh * 0.42); ctx.lineTo(i * R * 0.09, hh * 0.6); ctx.stroke(); }
+  } else if (icon === 'claude') {
+    const rays = 12, rot = _PL_REDUCED ? 0 : P.t * 0.35;
+    ctx.strokeStyle = col; ctx.lineCap = 'round';
+    for (let i = 0; i < rays; i++) {
+      const a = rot + (i / rays) * Math.PI * 2, inner = R * 0.18, outer = R * (0.55 + 0.12 * (i % 2));
+      ctx.globalAlpha = 0.85; ctx.lineWidth = P.mini ? 1.2 : 2;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner); ctx.lineTo(Math.cos(a) * outer, Math.sin(a) * outer); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.15, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffece3'; ctx.shadowColor = col; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0;
+  } else if (icon === 'build') {
+    const w = R * 1.12, h = R * 0.82;
+    _plRoundRect(P, -w / 2, -h / 2, w, h, R * 0.14);
+    ctx.fillStyle = 'rgba(18,10,28,.95)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.globalAlpha = 0.9; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = _plAlpha(col, 0.6); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2 + h * 0.3); ctx.lineTo(w / 2, -h / 2 + h * 0.3); ctx.stroke();
+    // </>
+    ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    const bx = R * 0.36, by = h * 0.08, sp = R * 0.2;
+    ctx.beginPath(); ctx.moveTo(-bx * 0.2, by - sp); ctx.lineTo(-bx * 0.55, by); ctx.lineTo(-bx * 0.2, by + sp); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx * 0.2, by - sp); ctx.lineTo(bx * 0.55, by); ctx.lineTo(bx * 0.2, by + sp); ctx.stroke();
+  } else if (icon === 'spark') {
+    ctx.strokeStyle = col; ctx.lineCap = 'round';
+    ctx.save(); ctx.rotate(_PL_REDUCED ? 0 : P.t * 0.6);
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; ctx.globalAlpha = 0.9; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * R * 0.6, Math.sin(a) * R * 0.6); ctx.stroke(); }
+    ctx.rotate(Math.PI / 4);
+    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * R * 0.34, Math.sin(a) * R * 0.34); ctx.stroke(); }
+    ctx.restore(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff'; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fill(); ctx.shadowBlur = 0;
+  } else if (icon === 'clock') {
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.6, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -R * 0.34); ctx.stroke();
+    const a = (_PL_REDUCED ? 0 : P.t * 0.9) - Math.PI / 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * R * 0.46, Math.sin(a) * R * 0.46); ctx.stroke();
+    ctx.globalAlpha = 1;
+  } else if (icon === 'mail') {
+    const w = R * 1.22, h = R * 0.84;
+    _plRoundRect(P, -w / 2, -h / 2, w, h, R * 0.14);
+    ctx.fillStyle = 'rgba(22,16,30,.95)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.globalAlpha = 0.95; ctx.stroke();
+    ctx.globalAlpha = 0.9; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(0, h * 0.12); ctx.lineTo(w / 2, -h / 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────────
@@ -546,5 +585,14 @@ function initPipelinePreview() {
   const cv   = document.getElementById('home-pipeline-canvas');
   if (!wrap || !cv) return;
   if (!wrap._plInst) { wrap._plInst = _plCreate(wrap, cv, { mini: true, logEl: document.getElementById('home-pipeline-log') }); }
+  else { wrap._plInst.last = performance.now(); _plResize(wrap._plInst); _plPollStatus(); _plPollLogs(); }
+}
+
+function initPipelineStatus() {
+  const wrap = document.getElementById('status-pipeline-wrap');
+  const cv   = document.getElementById('status-pipeline-canvas');
+  if (!wrap || !cv) return;
+  const gate = () => { const p = document.getElementById('status-pipe-pop'); return !!p && p.classList.contains('show'); };
+  if (!wrap._plInst) { wrap._plInst = _plCreate(wrap, cv, { mini: true, gate, logEl: document.getElementById('status-pipeline-log') }); }
   else { wrap._plInst.last = performance.now(); _plResize(wrap._plInst); _plPollStatus(); _plPollLogs(); }
 }

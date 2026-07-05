@@ -227,6 +227,25 @@
     <div class="ms-log-entries" id="ms-log-entries"></div>
   </div>
 
+  <!-- ══ LIVE-PIPELINE-POPUP (steigt nach 10s auf) ══ -->
+  <div class="status-pipe-pop" id="status-pipe-pop">
+    <div class="spp-head">
+      <span class="spp-title"><span class="pl-dot"></span>Live-System-Pipeline</span>
+      <span class="hpp-live-count spp-count"></span>
+      <button class="spp-open" onclick="event.stopPropagation();showPage('graph')">Volle Ansicht</button>
+      <button class="spp-close" onclick="_closeStatusPipePop()" title="Schließen">✕</button>
+    </div>
+    <div class="spp-body">
+      <div class="pipeline-wrap spp-canvas-wrap" id="status-pipeline-wrap">
+        <canvas id="status-pipeline-canvas"></canvas>
+      </div>
+      <div class="spp-logbox">
+        <div class="spp-log-hd">Live-Log · alle Module</div>
+        <div class="hpp-log spp-log" id="status-pipeline-log"></div>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ══════════════════════════ BILDER-SEITE ═════════════════════════════════ -->
@@ -422,7 +441,7 @@
   <!-- VIZ 1: Live-System-Pipeline (Scraper → JARVIS → Claude → Versand) -->
   <div class="viz-section">
     <div class="viz-title">System-Pipeline · Live
-      <span class="viz-sub">Scraper → JARVIS → Claude → Versand · jede Bubble ist ein echtes Ereignis in Echtzeit</span>
+      <span class="viz-sub">Scraper → Sammeln → Bewerten → Webseite → Makeover → Freigabe → Versand · jeder Punkt ist eine echte Log-Zeile, die durch die Stationen wandert (Farbe = Log-Level)</span>
     </div>
     <div class="pipeline-wrap" id="pipeline-wrap">
       <canvas id="pipeline-canvas"></canvas>
@@ -1087,7 +1106,7 @@
           <div class="hpp-log" id="home-pipeline-log"></div>
         </div>
       </div>
-      <div class="hpp-foot">Scraper → JARVIS → Claude → Versand · klicken für die volle Ansicht mit Konsole</div>
+      <div class="hpp-foot">Sammeln → Bewerten → Webseite → Makeover → Freigabe → Versand · jeder Punkt ist eine echte Log-Zeile · klicken für die volle Ansicht</div>
     </div>
 
     <!-- ══ PIPELINE (dynamisch) ══ -->

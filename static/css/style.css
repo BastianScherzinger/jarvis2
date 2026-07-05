@@ -941,6 +941,7 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
 }
 .pipeline-legend .plg{ display:inline-flex; align-items:center; gap:6px; }
 .pipeline-legend .plg-dot{ width:9px; height:9px; border-radius:50%; }
+.pipeline-legend .plg-hd{ color:var(--tx3); font-family:var(--fm); letter-spacing:.02em; }
 .pipeline-live{
   position:absolute; right:14px; top:12px; display:flex; align-items:center; gap:7px;
   font-family:var(--fh); font-size:11px; letter-spacing:.18em; color:var(--g);
@@ -956,7 +957,7 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
 
 /* Live-Log-Konsole (echte Logs aller Module, rechts angedockt) */
 .pipeline-logbox{
-  position:absolute; right:12px; top:46px; bottom:44px; width:31%; min-width:230px;
+  position:absolute; right:12px; top:46px; bottom:44px; width:28%; min-width:230px;
   display:flex; flex-direction:column; border-radius:10px; overflow:hidden;
   background:rgba(6,10,17,.72); border:1px solid var(--bdr2); backdrop-filter:blur(8px);
 }
@@ -1006,6 +1007,55 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
 .hpp-log{ flex:1; overflow:hidden; padding:5px 9px; font-family:var(--fm); font-size:10px; line-height:1.5; }
 .hpp-foot{ padding:6px 16px 12px; font-size:10.5px; color:var(--tx3); }
 @media (max-width:820px){ .hpp-body{ flex-direction:column; } .hpp-canvas-wrap{ height:180px; } .hpp-logbox{ min-height:110px; } }
+
+/* „Mein Status": Live-Pipeline-Popup — fährt nach 10 s von unten auf */
+.status-pipe-pop{
+  position:fixed; left:50%; bottom:20px; z-index:8000;
+  width:min(960px, 94vw);
+  transform:translate(-50%, 145%); opacity:0; pointer-events:none;
+  transition:transform .5s cubic-bezier(.16,.84,.34,1), opacity .4s ease;
+  border-radius:16px; overflow:hidden;
+  border:1px solid rgba(0,212,255,.32);
+  background:
+    radial-gradient(120% 90% at 18% 30%, rgba(0,212,255,.08) 0%, rgba(0,0,0,0) 55%),
+    radial-gradient(110% 90% at 85% 60%, rgba(155,93,229,.08) 0%, rgba(0,0,0,0) 55%),
+    linear-gradient(180deg, rgba(9,14,23,.97) 0%, rgba(6,9,15,.98) 100%);
+  box-shadow:0 18px 60px rgba(0,0,0,.6), 0 0 40px rgba(0,140,190,.12);
+  backdrop-filter:blur(16px);
+}
+.status-pipe-pop.show{ transform:translate(-50%, 0); opacity:1; pointer-events:auto; }
+.spp-head{ display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--bdr); }
+.spp-title{ display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--fh); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--c); }
+.spp-title .pl-dot{ width:8px; height:8px; border-radius:50%; background:var(--g);
+  box-shadow:0 0 10px var(--g); animation:pl-blink 1.6s ease-in-out infinite; }
+.spp-count{ font-family:var(--fm); font-size:10.5px; color:var(--tx2); }
+.spp-open{ margin-left:auto; font-family:var(--fh); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--c); background:rgba(0,212,255,.08); border:1px solid rgba(0,212,255,.35);
+  padding:5px 12px; border-radius:20px; cursor:pointer; transition:background .15s, border-color .15s; }
+.spp-open:hover{ background:rgba(0,212,255,.16); border-color:rgba(0,212,255,.6); }
+.spp-close{ width:26px; height:26px; border-radius:50%; cursor:pointer;
+  color:var(--tx2); background:rgba(255,255,255,.04); border:1px solid var(--bdr2);
+  font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center;
+  transition:background .15s, color .15s; }
+.spp-close:hover{ background:rgba(255,59,78,.14); color:#ff6b7c; border-color:rgba(255,59,78,.4); }
+.spp-body{ display:flex; gap:12px; padding:12px 14px 14px; align-items:stretch; }
+.spp-canvas-wrap{ flex:1.9; height:230px; min-height:230px; border-radius:12px; }
+.spp-logbox{ flex:1; min-width:200px; display:flex; flex-direction:column;
+  border-radius:10px; overflow:hidden; background:rgba(6,10,17,.6); border:1px solid var(--bdr); }
+.spp-log-hd{ padding:6px 10px; font-family:var(--fh); font-size:9px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--c); border-bottom:1px solid var(--bdr); background:rgba(0,212,255,.05); }
+.spp-log{ flex:1; }
+@media (max-width:720px){
+  .status-pipe-pop{ width:96vw; bottom:10px; }
+  .spp-body{ flex-direction:column; }
+  .spp-canvas-wrap{ height:180px; min-height:180px; }
+  .spp-logbox{ min-height:110px; }
+}
+@media (prefers-reduced-motion: reduce){
+  .status-pipe-pop{ transition:opacity .3s ease; }
+  .spp-title .pl-dot{ animation:none; }
+}
 
 /* 3D-Globus (Lead-Standorte) */
 .globe-wrap{

@@ -725,9 +725,26 @@ function showPage(name){
   if(name === 'leadpackages' && typeof initLeadpackages === 'function') initLeadpackages();
   if(name === 'home'){ loadHome(); if(typeof initPipelinePreview === 'function') initPipelinePreview(); }
   // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log + Top-25-Rangliste) nur, solange sichtbar
-  if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); _stopMsRankPoll(); }
-  if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll(); }
+  if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); _stopMsRankPoll(); _cancelStatusPipePop(); }
+  if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll(); _scheduleStatusPipePop(); }
 }
+
+// ── Live-Pipeline-Popup auf „Mein Status" (steigt nach 10 s auf) ─────────────
+let _statusPopTimer = null, _statusPopShown = false;
+function _scheduleStatusPipePop(){
+  if(_statusPopShown){ if(typeof initPipelineStatus === 'function') initPipelineStatus(); return; }
+  if(_statusPopTimer) return;
+  _statusPopTimer = setTimeout(() => {
+    _statusPopTimer = null;
+    const el = document.getElementById('status-pipe-pop');
+    const pg = document.querySelector('.page[data-page="leads"]');
+    if(!el || !pg || !pg.classList.contains('active')) return;   // Seite verlassen → nicht aufpoppen
+    el.classList.add('show'); _statusPopShown = true;
+    if(typeof initPipelineStatus === 'function') initPipelineStatus();
+  }, 10000);
+}
+function _cancelStatusPipePop(){ if(_statusPopTimer){ clearTimeout(_statusPopTimer); _statusPopTimer = null; } }
+function _closeStatusPipePop(){ const el = document.getElementById('status-pipe-pop'); if(el) el.classList.remove('show'); }
 
 function _initPageFromHash(){
   const h = (location.hash || '').slice(1);
