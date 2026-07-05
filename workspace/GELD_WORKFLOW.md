@@ -81,10 +81,13 @@ aber als skalierbares Nebengeschäft plausibel, sobald Schritt 6 (Zustellbarkeit
 - **Jetzt:** `offer_mail` baut designte Mail mit Live-Link; freigegebene Seiten gehen
   `DISCORD_SEND_HOUR` (12 Uhr) automatisch raus; Trockenlauf-Schalter `JARVIS_EMAIL_ENABLED`
   schützt vor versehentlichem Versand.
+- **Update (verifiziert 05.07.2026):** `offer_mail.build` nennt in der Erstkontakt-Mail
+  inzwischen **keinen Festpreis mehr** (nur "sehr fairer Preis") — der frühere hardcodierte
+  350-€-Text ist bereits weg. Die feste Tier-Logik (`pricing.py`, 300/450/600 €) greift erst
+  in der Antwort auf eine konkrete Preisfrage (`reply_templates.price_inquiry`), nicht im
+  Erstkontakt. Diese Zeile war veraltet und wurde korrigiert.
 - **Noch:** SMTP einrichten + scharf schalten; **Zustellbarkeit** (eigene Domain, SPF/DKIM/DMARC,
-  Aufwärmen, Spam vermeiden); **Recht** (UWG/DSGVO, Abmelde-Link, Impressum); **Preis dynamisch**
-  statt fix 350 € (aktuell hardcodiert in `offer_mail.build` — sollte an `erwartungswert_euro`
-  des Leads koppeln).
+  Aufwärmen, Spam vermeiden); **Recht** (UWG/DSGVO, Abmelde-Link, Impressum).
 
 ### 7 · Antwort → Abschluss & Zahlung — ❌ Offen (bewusst manuell)
 - **Jetzt:** Antworten kommen ins Postfach; Abschluss/Rechnung/Übergabe manuell.
@@ -101,7 +104,9 @@ aber als skalierbares Nebengeschäft plausibel, sobald Schritt 6 (Zustellbarkeit
 ## Prioritäten — damit echtes Geld rauskommt
 1. **E-Mail-Zustellung & Recht lösen** (Schritt 6) — eigene Versand-Domain + SPF/DKIM/DMARC,
    langsames Aufwärmen, Abmelde-Link, UWG/DSGVO-Rahmen. **Ohne das kein Umsatz.**
-2. **Angebotspreis = bewerteter Tier** statt fix 350 € (`offer_mail`).
+2. **Angebotspreis = bewerteter Tier** statt Pauschale — bereits umgesetzt: `offer_mail`
+   nennt im Erstkontakt keinen Festpreis mehr, `reply_templates`/`pricing.py` liefern die
+   Tier-Spanne (300/450/600 €) erst bei konkreter Preisfrage.
 3. **Volumen hochfahren** — Auto-Builder dauerhaft, Qualität stichprobenartig prüfen.
 4. **Demos abbauen**, die nach X Tagen nicht konvertieren (Hosting-Kosten).
 5. **Conversion messen** — Antworten/Abschlüsse pro 100 Mails sichtbar machen.

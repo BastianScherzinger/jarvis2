@@ -243,7 +243,6 @@ def get_stats() -> dict:
         avg_pot    = c.execute("SELECT AVG(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
         sum_pot    = c.execute("SELECT SUM(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
         mit_bild   = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE bilder_vorhanden=1").fetchone()[0]
-        ohne_web_e = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE has_website=0").fetchone()[0]
         br_rows = c.execute(
             "SELECT branche, COUNT(*) AS n FROM evaluated_leads "
             "GROUP BY branche ORDER BY n DESC LIMIT 15"
@@ -263,7 +262,7 @@ def get_stats() -> dict:
         "avg_potenzial":    round(avg_pot),
         "summe_potenzial":  round(sum_pot),
         "mit_bildern":      mit_bild,
-        "ohne_website_echt": ohne_web_e,
+        "ohne_website_echt": ohne_web,   # identische Kennzahl wie "ohne_website" (zwei Verbraucher-Namen)
         "top_branchen":     {r["branche"]: r["n"] for r in br_rows if r["branche"]},
         "top_bundeslaender": {r["bundesland"]: r["n"] for r in bl_rows if r["bundesland"]},
     }

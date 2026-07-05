@@ -5,7 +5,7 @@ Ablauf:
   1. Der Auto-Builder baut + verbessert eine Webseite und ruft `submit_for_review(...)`.
   2. Der Bot postet sie in den Discord-Kanal (Link + Details) mit zwei Buttons:
      👍 (Daumen hoch) / 👎 (Daumen runter).
-  3. Erreichen die 👍 die Schwelle (DISCORD_APPROVALS_NEEDED, Default 2) ohne ein
+  3. Erreichen die 👍 die Schwelle (DISCORD_APPROVALS_NEEDED, Default 1) ohne ein
      einziges 👎-Veto, gilt die Seite als FREIGEGEBEN.
   4. Täglich um DISCORD_SEND_HOUR (Default 12 Uhr) gehen alle freigegebenen Seiten an
      die ECHTE Kundenadresse (umgeht bewusst JARVIS_EMAIL_REDIRECT — das Voting ist

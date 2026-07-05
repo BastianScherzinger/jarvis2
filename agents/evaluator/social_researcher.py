@@ -1,5 +1,15 @@
 """Agent 2 — Web-Recherche: Social Media, Firmengröße, Kontext."""
+import os
+
 from scrapers._http import ddg_search
+
+
+def _second_search_enabled() -> bool:
+    """Fix 5 aus workspace/LEAD_COLLECTOR_UND_AUDIT.md: die zweite DDG-Suche nach
+    Bildern verletzt das dokumentierte "keine 2. Suche"-Design (Such-Budget/Block-
+    Risiko) — deshalb hinter ein Flag gelegt, Default AUS."""
+    return os.environ.get("JARVIS_SOCIAL_SECOND_SEARCH", "0").strip().lower() in (
+        "1", "true", "yes", "on")
 
 # Alle relevanten Social-/Bild-Plattformen
 SOCIAL_DOMAINS = {
@@ -71,8 +81,9 @@ def research(lead: dict, hits: list[dict] | None = None) -> dict:
         if snippet:
             snippets.append(snippet)
 
-    # Zweite gezielte Suche nach Bildern/visueller Präsenz wenn noch keine Bilder
-    if not any(k in social for k in _BILD_SOCIAL):
+    # Zweite gezielte Suche nach Bildern/visueller Präsenz wenn noch keine Bilder —
+    # nur wenn explizit aktiviert (Default AUS, siehe _second_search_enabled).
+    if _second_search_enabled() and not any(k in social for k in _BILD_SOCIAL):
         img_hits = ddg_search(f'"{name}" {branche} {stadt} bilder fotos')
         for hit in img_hits[:6]:
             url = hit.get("url", "")

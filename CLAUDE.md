@@ -105,81 +105,73 @@ und das JARVIS-System spezialisiert.
 
 ## 5. Was JARVIS ist — Technische Architektur
 
-JARVIS ist ein **Python-Flask-Webanwendungs-Dashboard** mit einem **Claude API CEO-Agenten** als Kern.
+> **Korrigiert 05.07.2026** — dieser Abschnitt beschrieb bis dahin unverändert die Architektur
+> eines älteren Schwesterprojekts (Arbeitsverzeichnis `C:\Users\basti\Desktop\jarvis\`, ohne
+> die „2"). Die tatsächliche jarvis2-Architektur ist anders (siehe unten) — insbesondere ist
+> `agents/ceo.py` + `agents/team.py` + `agents/tools.py` **NICHT** der Live-Chat-Agent des
+> Dashboards, sondern ein separates, nie automatisch gestartetes CLI-Tool (`python main.py`).
+> Details siehe Abschnitt 10.
 
-**Start:** `python start.py` → install.py → app.py (Flask Port 5000)
+JARVIS ist ein **Python-Flask-Webanwendungs-Dashboard** ("JARVIS LeadHunter") — ein
+B2B-Lead-Generator mit Scraping, KI-Bewertung, automatischem Webseitenbau/Deploy und einem
+werkzeugfähigen Claude-Chat-Tab. Vollständige Tiefenanalyse: `JARVIS2_ANALYSE.md` im Projekt-Root.
 
-**Arbeitsverzeichnis:** `C:\Users\basti\Desktop\jarvis\`
+**Start:** `python start.py` (Hardware-Check + Deps + Browser-Öffnen) → `app.py` (Flask, Port 5000,
+Default Werkzeug-Dev-Server; `JARVIS_SERVER=1`/`JARVIS_PROD=1` schaltet auf `waitress` um).
+`install.py` ist ein separater, umfassenderer Installer (git pull, Ollama, Media-KI-Stack,
+MCP-Keys) — wird nicht automatisch von `start.py` aufgerufen.
 
-### Dateistruktur
+**Arbeitsverzeichnis:** `C:\Users\basti\Desktop\jarvis2\`
 
-```
-jarvis/
-│
-├── start.py              — Launcher: startet install.py, dann Flask
-├── install.py            — Auto-Installer: git pull, pip, Playwright, .env-Check, Ollama-Check
-├── app.py                — Flask-Server Port 5000, SSE-Streaming, alle API-Routes
-├── config.py             — .env laden (ANTHROPIC_KEY und andere Variablen)
-├── tts.py                — Text-to-Speech: edge-tts (Conrad Neural) + pyttsx3 Fallback
-├── voice_agent.py        — Spracherkennung: faster-whisper lokal + Google-Fallback
-├── jarvis_log.py         — Farbige Console-Logs (ANSI) für alle Ereignisse
-│
-├── agents/
-│   ├── ceo.py            — JARVIS selbst: CEO-Agent, Haupt-Orchestrator, Tool-Use Loop
-│   ├── tools.py          — 19 Tools: PC, Browser (Playwright), Ollama, Agent-Delegation
-│   ├── team.py           — 10 Spezial-Agenten mit vollen System-Prompts
-│   ├── orchestrator.py   — Team-Pipelines: full_review, debug_session, new_feature
-│   └── base_agent.py     — Agent-Basisklasse: Claude API Wrapper mit History
-│
-├── templates/
-│   └── index.html        — Iron Man HUD Dashboard (3-Spalten-Layout)
-│
-├── static/
-│   ├── css/style.css     — Vollständiges Iron Man Styling + Glassmorphismus
-│   ├── js/
-│   │   ├── app.js        — Frontend-Logik: Chat, Voice, SSE-Stream, Token-Display
-│   │   ├── brain.js      — Three.js: Knowledge Sphere + Hologramm-Hintergrund
-│   │   └── vault.js      — Obsidian-Vault-Integration
-│   └── img/
-│       ├── bg_jarvis.png — Iron Man Labor Hintergrundbild
-│       └── logojarvis.png — Arc Reactor Logo
-│
-├── obsidian_brain/       — Wissens-Journal: wächst mit jedem Tool-Call automatisch
-│
-└── workspace/
-    ├── tasks/            — Markdown-Dateien der laufenden Agenten-Aufgaben
-    └── results/          — Markdown-Dateien der Agenten-Ergebnisse
-```
-
-### Wie eine Anfrage durch das System fließt
+### Dateistruktur (Auszug — die wichtigsten Einstiegspunkte)
 
 ```
-User (Browser/Voice)
-  ↓ POST /api/chat  (oder GET /api/voice/transcribe)
+jarvis2/
+│
+├── start.py              — Launcher: Hardware-Check, Deps sicherstellen, app.py starten
+├── install.py            — umfassender Installer (git pull, pip, Ollama, MCP, Media-KI-Stack)
+├── app.py                — Flask-Server Port 5000, SSE-Streaming, >100 Routen (siehe unten)
+├── config.py              — .env laden (ANTHROPIC_KEY und andere Variablen)
+├── claude_chat.py         — ECHTER Dashboard-Chat-Agent (Tab "Claude" + globales Chat-Popup)
+├── agent_tools.py         — die 34 Tool-Definitionen des Dashboard-Chat-Agenten
+├── lead_collector.py      — stündlicher, selbstständiger Lead-Sammel-Scheduler
+├── scrapers/controller.py — startet die 6(+1) parallelen Scraper-Worker + Evaluator
+├── agents/evaluator/      — 3-Agenten-Bewertungs-Pipeline (web_analyst/social_researcher/score_writer)
+├── website_builder.py     — automatischer Webseitenbau (Django-Landingpage) + Deploy
+├── overnight_makeover.py  — Claude-Makeover-Engine (Feinschliff bereits gebauter Seiten)
+├── auto_builder.py        — Night-Builder-Orchestrator (Tageslimit, Live-Watch, Exhaustion-Handling)
+├── discord_bot.py         — Freigabe-Voting + 12-Uhr-Versand
+├── offer_mail.py/mailer.py — Angebots-Mail-Text + SMTP-Versand
+├── media_engine.py        — Bild/Video-KI (lokal Diffusers + Higgsfield/OpenAI Cloud)
+├── website_ad_video.py    — Werbevideo-Tab: Website-URL → 9:16-TikTok-Ad (Playwright+ffmpeg)
+├── agents/                — SEPARATES CLI-Tool (`python main.py`), NICHT im Web-Dashboard verdrahtet
+│   ├── ceo.py, team.py, tools.py, orchestrator.py, base_agent.py  (siehe Abschnitt 10)
+│
+├── templates/index.html  — Dashboard (Sidebar-Navigation, 11 Tabs, Iron-Man-HUD-Styling)
+├── static/js/app.js       — Tab-Routing, Chat, Voice, SSE-Stream (+ weitere JS je Tab)
+├── static/css/style.css   — Iron-Man-HUD-Design-System (Tokens, Glassmorphismus)
+│
+├── obsidian_brain/        — Wissens-Journal: wächst mit jedem Tool-Call automatisch
+└── data/                  — SQLite-DBs (leads_raw.db, leads_evaluated.db, websites.db) + State-JSONs
+```
+
+### Wie eine Chat-Anfrage durch das System fließt (Dashboard-Tab "Claude")
+
+```
+User (Browser/Voice, Tab "Claude" ODER globales Chat-Popup auf jeder Seite)
+  ↓ POST /api/claude/chat
 app.py (Flask)
-  ↓ jarvis.stream(message)
-ceo.py — JarvisCEO.stream()
-  ↓ anthropic.messages.stream() mit Tool-Definitions
-  ↓ [Tool-Use Loop bis Antwort fertig]
-    ├── Tool-Call → tools.py execute_tool() → Ergebnis (in Thread + SSE-Keepalive)
-    ├── Tool-Call → team.py delegate_to_agent() → Spezialist antwortet
+  ↓ claude_chat.stream_chat(messages, think, search)
+  ↓ anthropic.messages.stream() mit den 34 Tool-Definitionen aus agent_tools.py
+  ↓ [Tool-Use Loop bis Antwort fertig, max. JARVIS_CLAUDE_MAX_ROUNDS Runden]
+    ├── Tool-Call → agent_tools.py Ausführung (Browser/Maps/Medien/Leads/build_website/…)
     └── Text-Stream → SSE Events → Frontend
-  ↓ TTS: tts.py speak() → edge-tts → Audio
-  ↓ Brain: obsidian_brain/*.md wächst mit Ollama-Zusammenfassung
-Frontend (app.js)
-  ↓ SSE stream empfangen → Nachrichten rendern → Audio abspielen
+Frontend (claude.js / chatdock.js)
+  ↓ SSE stream empfangen → Nachrichten rendern
 ```
 
-### Wie der CEO-Agent (ceo.py) funktioniert
-
-Der CEO-Agent (`JarvisCEO`) ist das Herzstück:
-- Hält die **Gesprächs-History** (alle Messages der Session, automatisch getrimmt bei >40 Runden)
-- Sendet an Claude API mit `messages.stream()` und allen **19 Tool-Definitionen**
-- Läuft in einem **while-True-Loop** bis keine Tool-Calls mehr kommen
-- Jeder Tool-Call: Tool in **Thread** ausführen + SSE-Keepalive alle 2s → Verbindung bleibt offen
-- Trackt **Token-Usage** (`_usage`: input, output, requests, last_ctx)
-- Fehlerbehandlung: 400 BadRequest (History leeren), 429 RateLimit (retry mit Backoff → Ollama)
-- Ollama-Fallback bei: APIConnectionError, AuthenticationError, RateLimit erschöpft, Verbindungsfehler
+Das ist ein **einzelner, werkzeugfähiger Agent** — keine Team-Delegation an Spezialisten (das
+`agents/team.py`-System aus Abschnitt 10 läuft nur separat über `python main.py`, nicht hier).
 
 ---
 
@@ -187,13 +179,12 @@ Der CEO-Agent (`JarvisCEO`) ist das Herzstück:
 
 Das JARVIS-Dashboard hat folgende UI-Features die Sir direkt per Sprache oder Chat steuern kann:
 
-### Satelliten-Ansicht
-- Im rechten Panel, wo das Arc-Reactor-Logo ist
-- Leaflet.js + ESRI World Imagery Satellitenkarten (kein API-Key nötig — komplett kostenlos)
-- Stadtsuche via Nominatim (OpenStreetMap Geocoding, ebenfalls kostenlos)
-- **Aktivierung**: Sir sagt "Satellit an" / "Satelliten-Ansicht" / "zeig die Karte" → Frontend aktiviert automatisch
-- **Deaktivierung**: "Satellit aus" / "Logo zurück"
-- Wenn Sir fragt ob du einen Satellit hast: Antwort "Ja, Sir — Satelliten-Ansicht ist verfügbar." und nenne das Schlüsselwort "Satellit"
+> **Korrektur 05.07.2026:** Eine frühere Version dieses Abschnitts beschrieb hier eine
+> "Satelliten-Ansicht" (Leaflet.js/Nominatim) — die existiert in jarvis2 **nicht** (weder im
+> Frontend noch im Backend verifizierbar, vermutlich aus dem älteren Schwesterprojekt
+> übernommen). Der reale Standort-/Karten-Ersatz ist der **Graph-Tab** (3D-Globus via
+> `globe.js`, Three.js, adressgenaue Lead-Pins) — siehe `JARVIS2_ANALYSE.md`. Nie behaupten,
+> eine Satelliten-Ansicht zu haben.
 
 ### Neural Core (Wissenssphäre)
 - Three.js 3D-Sphere links oben im Dashboard
@@ -373,7 +364,19 @@ JARVIS merkt sich jeden Fehler und verhindert Wiederholungen:
 
 ## 10. Die 10 Spezial-Agenten — Team-Dokumentation
 
-JARVIS delegiert an Spezialisten wenn eine Aufgabe deren Expertise erfordert. **Niemals für einfache Aufgaben delegieren** — nur wenn das Fach-Wissen wirklich gebraucht wird.
+> **Korrektur 05.07.2026 (verifiziert):** Dieses Team (`agents/team.py`, `agents/ceo.py`,
+> `agents/orchestrator.py`) ist **NICHT** in den laufenden Flask-Dashboard-Chat verdrahtet.
+> `app.py` importiert davon nur `agents.outreach` — nichts sonst. Der Live-Chat-Agent des
+> Dashboards (Tab "Claude") ist `claude_chat.py` + `agent_tools.py` (34 Tools, siehe
+> Abschnitt 11) — ein einzelner Agent ohne Team-Delegation. Dieses 10-Agenten-Team ist nur
+> über das separate, interaktive CLI-Menü `python main.py` erreichbar (nie von `start.py`
+> automatisch gestartet, kein Web-Zugriff). Die folgende Dokumentation beschreibt also ein
+> eigenständiges Werkzeug, nicht das, was im Dashboard tatsächlich antwortet — als Referenz
+> belassen, falls `main.py` je genutzt wird, aber **nicht** als Anleitung für das Dashboard-
+> Chatverhalten verwenden.
+
+JARVIS delegiert an Spezialisten wenn eine Aufgabe deren Expertise erfordert (nur im
+`main.py`-CLI-Kontext relevant). **Niemals für einfache Aufgaben delegieren** — nur wenn das Fach-Wissen wirklich gebraucht wird.
 
 ---
 
@@ -550,7 +553,28 @@ JARVIS delegiert an Spezialisten wenn eine Aufgabe deren Expertise erfordert. **
 
 ---
 
-## 11. Werkzeuge — 19 Tools in tools.py
+## 11. Werkzeuge — Dashboard-Chat (34 Tools in agent_tools.py) + CLI-Team (19 Tools in agents/tools.py)
+
+### Die ECHTEN Dashboard-Tools (`agent_tools.py`, genutzt von `claude_chat.py`, Tab "Claude")
+
+| Kategorie | Tools |
+|---|---|
+| Maps | `maps_search`, `maps_geocode`, `maps_place_details`, `maps_directions` |
+| Browser (Playwright) | `browser_open`, `browser_click`, `browser_type`, `browser_scroll`, `browser_read`, `browser_links`, `browser_back`, `browser_screenshot` |
+| Medien | `generate_image`, `generate_video`, `media_job_status` |
+| Leads (eigene DB) | `leads_top`, `leads_search`, `leads_update` (schreibt!), `leads_conversion_stats`, `enrich_business` |
+| Eigener Shop (Sonderfall) | `shop_skill`, `shop_new`, `shop_list`, `shop_read`, `shop_write`, `shop_git` — NUR für einen ausdrücklich gewünschten From-Scratch-Shop, NICHT für normale Lead-Webseiten |
+| Webseiten-Bau/Deploy | `build_website` (Standardweg — baut+deployt eine Lead-Webseite komplett automatisch), `build_website_status`, `deploy_check`, `list_built_websites`, `deploy_built_website`, `deploy_built_websites`, `improve_built_website` |
+| Steuerung | `auto_builder` (start/stop/status) |
+
+`build_website` ist der Standardweg für "bau dem Lead/Kunden X eine Webseite" — kopiert die
+Landing-Vorlage, baut Texte/Design/Hero, legt GitHub-Repo an, deployt auf Railway, alles in
+einem Tool-Call. Details/Prompt-Volltext: `claude_chat.py`.
+
+### Das separate CLI-Team-Tool (`agents/tools.py`, NUR über `python main.py`)
+
+Dieses Werkzeug-Set ist **nicht** im Web-Dashboard verfügbar (siehe Korrekturhinweis in
+Abschnitt 10). Dokumentiert als Referenz für den Fall, dass `main.py` genutzt wird:
 
 ### PC-Tools
 

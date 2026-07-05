@@ -1,5 +1,6 @@
 """
-Scraper-Controller — 6 unabhängige Worker laufen parallel.
+Scraper-Controller — 6 unabhängige DE+AT-Worker laufen parallel, plus ein 7. Worker
+(herold.at) nur für Österreich, wenn AT-Combos vorhanden sind.
 Vollständig lokal: Scraper + lokale KI (Ollama) finden und bewerten alle Leads.
 """
 import json
@@ -208,7 +209,9 @@ def start() -> None:
     _active = True
     _persist_running(True)
 
-    logger.info("Controller", f"Starte {7} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
+    logger.info("Controller", "Starte Scraper-Worker (Maps, GelbeSeit, DasOertliche, Elfacht, "
+                "Golocal, AI + herold.at bei AT-Combos) + Evaluator | "
+                f"Combos: {get_combo_count():,}")
 
     # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks
     # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
