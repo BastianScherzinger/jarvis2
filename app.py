@@ -51,7 +51,7 @@ if (os.environ.get("JARVIS_QUIET_ACCESS_LOG", "1") or "1").strip().lower() not i
         # Dashboard-Poll-Endpunkte
         "/api/websites/grouped", "/api/auto-build/status", "/api/status", "/api/top",
         "/api/activity/recent", "/api/home/stats", "/api/mystatus", "/api/logs",
-        "/api/limit/status", "/api/costs", "/api/media/", "/api/evaluated/", "/api/graph/",
+        "/api/limit/status", "/api/usage", "/api/media/", "/api/evaluated/", "/api/graph/",
         "/api/inbox/replies", "/api/claude/status", "/api/verifier/model",
     )
     _OK_CODES = ('" 200 ', '" 204 ', '" 304 ')
@@ -1994,68 +1994,30 @@ def api_mystatus():
     return jsonify(out)
 
 
-# ── Kosten-Tab ────────────────────────────────────────────────────────────────
+# ── Verbrauch (Extra-Nutzung + Higgsfield) — schlankes Badge auf jeder Seite ──
 
-@app.route("/api/costs/today")
-def api_costs_today():
-    """Kostenzusammenfassung für heute + Pro-Site-Aufschlüsselung."""
+@app.route("/api/usage/summary")
+def api_usage_summary():
+    """Monatliche Extra-Nutzung (Claude: nur echte, bezahlte Extra-Tokens — die reguläre
+    Abo-Session ist gratis) + Higgsfield-Verbrauch. Persistiert über data/costs.json,
+    übersteht jeden Neustart und "resettet" sich automatisch zum Monatswechsel (siehe
+    cost_tracker.extra_usage_month()). Speist das globale Verbrauchs-Badge im Topbar."""
     try:
         import cost_tracker
-        summary   = cost_tracker.today_summary()
-        per_site  = cost_tracker.per_site_costs(20)
-        events    = cost_tracker.recent_events(40)
-        try:
-            import claude_limit
-            budget = claude_limit.status()
-            fix    = claude_limit.costs()
-        except Exception:
-            budget, fix = {}, {}
-        return jsonify({"ok": True, "summary": summary, "per_site": per_site,
-                        "events": events, "claude_budget": budget, "fix_costs": fix})
+        extra = cost_tracker.extra_usage_month()
+        hf    = cost_tracker.higgsfield_month()
+        paid  = cost_tracker.paid_tokens_detected()
+        return jsonify({"ok": True, "extra_usage": extra, "higgsfield": hf,
+                        "paid_active": bool(paid.get("paid")),
+                        "paid_reason": paid.get("reason", "")})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "summary": {}, "per_site": [],
-                        "events": [], "claude_budget": {}, "fix_costs": {}})
-
-
-@app.route("/api/costs/history")
-def api_costs_history():
-    """Kosten der letzten 14 Tage als Zeitreihe für Chart.js."""
-    try:
-        import cost_tracker
-        days = int(request.args.get("days", 14))
-        return jsonify({"ok": True, "history": cost_tracker.history(days)})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "history": []})
-
-
-@app.route("/api/costs/export")
-def api_costs_export():
-    """Kostenhistorie als CSV-Datei zum Download (Semikolon-getrennt für Excel-DE)."""
-    import csv
-    import io
-    import cost_tracker
-    try:
-        days = max(1, min(365, int(request.args.get("days", 30))))
-    except ValueError:
-        days = 30
-    rows = cost_tracker.history(days)
-    buf = io.StringIO()
-    w   = csv.writer(buf, delimiter=";")
-    w.writerow(["Datum", "Gesamt_EUR", "API_EUR", "Strom_EUR", "Higgsfield_EUR",
-                "Tokens_Ein", "Tokens_Aus", "HF_Credits", "Seiten_gebaut", "Leads_bewertet"])
-    for r in rows:
-        w.writerow([r["date"], r["total_eur"], r["api_eur"], r["power_eur"], r["hf_eur"],
-                    r["tokens_in"], r["tokens_out"], r["hf_credits"], r["sites"], r["leads"]])
-    return Response(
-        "﻿" + buf.getvalue(),   # BOM → Umlaute korrekt in Excel
-        mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="jarvis_kosten_{days}d.csv"'},
-    )
+        return jsonify({"ok": False, "error": str(e), "extra_usage": {}, "higgsfield": {},
+                        "paid_active": False, "paid_reason": ""})
 
 
 @app.route("/api/activity/recent")
 def api_activity_recent():
-    """Letzte Aktivitäten für den Live-Feed (Home + Kosten)."""
+    """Letzte Aktivitäten für den Live-Feed (Home)."""
     try:
         limit = int(request.args.get("limit", 60))
         acts  = _logger.get_activities(limit)

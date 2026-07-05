@@ -285,6 +285,61 @@ def paid_boost_active() -> bool:
     return val
 
 
+# ── Monatliche Extra-Nutzung (Claude Pro: Tokens sind gratis bis zum Abo-Limit;
+# NUR wenn Anthropic-"Extra usage" greift, fließt echtes Geld) + Higgsfield ─────
+#
+# track_api()/track_message() bucht NUR dann ein "api"-Event, wenn tatsächlich über einen
+# echten Anthropic-API-Key abgerechnete Tokens anfallen (siehe paid_tokens_detected() oben:
+# reguläre `claude`-CLI-Läufe über die Pro-Abo-Session laufen NIE durch track_api()). Die
+# Summe aller "api"-Events des laufenden Kalendermonats IST daher exakt die reale Extra-
+# Nutzung in EUR — kein neuer Heuristik-Layer nötig. Persistiert automatisch über
+# data/costs.json (Tage werden nie gelöscht) und "resettet" sich jeden Monat von selbst,
+# weil nur Tage mit passendem Monats-Präfix gezählt werden — überlebt jeden Neustart bis
+# zum Monatswechsel, ganz ohne eigene State-Datei.
+
+def _month_key(d: str | None = None) -> str:
+    return (d or _today())[:7]                      # "YYYY-MM"
+
+
+def _events_for_month(month: str | None = None) -> list:
+    month = month or _month_key()
+    with _lock:
+        data = _load()
+    out: list = []
+    for day_key, day in data.items():
+        if day_key[:7] == month:
+            out.extend(day.get("events", []))
+    return out
+
+
+def extra_usage_month(month: str | None = None) -> dict:
+    """Echte Anthropic-Extra-Nutzung (nur `type=='api'`-Events, KEINE OpenAI-Bilder/Compute/
+    Higgsfield) des laufenden Kalendermonats. {month, eur, tokens_in, tokens_out}."""
+    month = month or _month_key()
+    eur = 0.0
+    tokens_in = tokens_out = 0
+    for ev in _events_for_month(month):
+        if ev.get("type") == "api":
+            eur        += float(ev.get("eur", 0.0) or 0.0)
+            tokens_in  += int(ev.get("in", 0) or 0)
+            tokens_out += int(ev.get("out", 0) or 0)
+    return {"month": month, "eur": round(eur, 4),
+            "tokens_in": tokens_in, "tokens_out": tokens_out}
+
+
+def higgsfield_month(month: str | None = None) -> dict:
+    """Higgsfield-Nutzung (Credits + geschätzte EUR) des laufenden Kalendermonats —
+    dieselben persistierten Tages-Events wie extra_usage_month(), nur `type=='higgsfield'`."""
+    month = month or _month_key()
+    credits = 0
+    eur = 0.0
+    for ev in _events_for_month(month):
+        if ev.get("type") == "higgsfield":
+            credits += int(ev.get("credits", 0) or 0)
+            eur     += float(ev.get("eur", 0.0) or 0.0)
+    return {"month": month, "credits": credits, "eur": round(eur, 4)}
+
+
 def history(days: int = 14) -> list:
     """Letzte N Tage als Liste [{date, total_eur, api_eur, ...}]."""
     with _lock:

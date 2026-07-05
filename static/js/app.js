@@ -609,6 +609,7 @@ function _initSidebar(){
   _initSidebar();
   _autoPoll();
   _limitPoll();
+  _usagePoll();
   // 'leads' (Mein Status) ist die statische Default-Seite — ohne passenden URL-Hash
   // ruft _initPageFromHash() showPage() nie auf, darum hier zusätzlich absichern.
   const _activePage = document.querySelector('.page.active');
@@ -695,7 +696,7 @@ function _applyCustomBg(){
 // ════════════════════════════════════════════════════════════════════════════
 //  PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════════════════════
-const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'leadpackages', 'costs'];
+const _PAGES = ['home', 'leads', 'media', 'graph', 'ranking', 'websites', 'custom', 'claude', 'video-studio', 'leadpackages'];
 
 function showPage(name){
   if(!_PAGES.includes(name)) name = 'leads';
@@ -718,10 +719,7 @@ function showPage(name){
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
   if(name === 'video-studio' && typeof initVideoStudio === 'function') initVideoStudio();
   if(name === 'leadpackages' && typeof initLeadpackages === 'function') initLeadpackages();
-  // Stop costs polling when leaving that tab
-  if(name !== 'costs') _stopCostsPoll();
   if(name === 'home')  loadHome();
-  if(name === 'costs') { loadCosts(); _startCostsPoll(); }
   // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log + Top-25-Rangliste) nur, solange sichtbar
   if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); _stopMsRankPoll(); }
   if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll(); }
@@ -1910,84 +1908,9 @@ function _renderHomeActivity(acts) {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   KOSTEN TAB
+   VERBRAUCH — Badge im Topbar (Extra-Nutzung Claude + Higgsfield), auf JEDER
+   Seite sichtbar. Ersetzt die frühere eigene Kosten-Seite.
    ════════════════════════════════════════════════════════════════════════════ */
-
-let _costsChart       = null;
-let _costsActFilter   = '';
-let _costsActPollId   = null;
-let _costsAllActs     = [];
-let _costsRange       = 14;
-
-async function loadCosts() {
-  try {
-    const [todayRes, histRes, actRes] = await Promise.all([
-      fetch('/api/costs/today').then(r => r.json()),
-      fetch('/api/costs/history?days=' + _costsRange).then(r => r.json()),
-      fetch('/api/activity/recent?limit=80').then(r => r.json()),
-    ]);
-    _renderCostsSummary(todayRes.summary || {});
-    _renderClaudeBudget(todayRes.claude_budget || {}, todayRes.fix_costs || {});
-    _renderCostsChart(histRes.history || []);
-    _renderCostsSiteList(todayRes.per_site || []);
-    _costsAllActs = actRes.activities || [];
-    _renderCostsActLog(_costsAllActs, _costsActFilter);
-  } catch(e) {
-    console.warn('[Costs] Ladefehler:', e);
-  }
-}
-
-function _renderClaudeBudget(b, fix) {
-  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
-  const pct  = Math.max(0, Math.min(100, b.percent || 0));
-  const fill = document.getElementById('bdg-fill');
-  if (fill) {
-    fill.style.width = pct + '%';
-    // grün < 80, gelb 80–94, rot ≥95 (gleich voll)
-    fill.style.background = pct >= 95 ? 'linear-gradient(90deg,#ff6b3d,#ff3b4e)'
-      : (pct >= 80 ? 'linear-gradient(90deg,#ffc93d,#ff9d3d)' : 'linear-gradient(90deg,#00e87a,#00c853)');
-  }
-  set('bdg-pct', pct + ' %');
-  const st = document.getElementById('bdg-state');
-  if (st) {
-    if (b.limited) {
-      st.textContent = b.minutes_to_retry > 0
-        ? `Limit voll · nächster Versuch in ~${b.minutes_to_retry} Min` : 'Limit voll · Versuch läuft';
-      st.className = 'budget-state limit';
-    } else if (b.near_limit) {
-      st.textContent = 'Fast voll — gleich erreicht';
-      st.className = 'budget-state near';
-    } else {
-      st.textContent = 'Verfügbar';
-      st.className = 'budget-state ok';
-    }
-  }
-  const learn = (b.events_count > 0)
-    ? `aus ${b.events_count} Limit${b.events_count>1?'s':''} gelernt · ~${_fmt_k(b.learned_limit)} Token/Fenster`
-    : 'noch keine Limit-Daten — lernt beim ersten Limit';
-  set('bdg-learn', learn);
-  if (fix && fix.fix_month != null) {
-    set('bdg-fix-month', _fmt_eur(fix.fix_month));
-    set('bdg-fix-day',   _fmt_eur(fix.fix_day));
-    set('bdg-claude-m',  Math.round(fix.claude_month) + ' €');
-    set('bdg-hf-m',      Math.round(fix.hf_month) + ' €');
-  }
-}
-
-// Zeitraum des Verlaufs-Charts umschalten (14 / 30 / 90 Tage)
-function setCostRange(btn, days) {
-  _costsRange = days;
-  document.querySelectorAll('.cst-rng[data-days]').forEach(b =>
-    b.classList.toggle('active', parseInt(b.dataset.days, 10) === days));
-  const lbl = document.getElementById('cst-range-label');
-  if (lbl) lbl.textContent = days;
-  loadCosts();
-}
-
-// Kostenhistorie als CSV herunterladen (aktueller Zeitraum)
-function exportCosts() {
-  window.location.href = '/api/costs/export?days=' + _costsRange;
-}
 
 function _fmt_eur(v) {
   return (parseFloat(v) || 0).toLocaleString('de-DE', {minimumFractionDigits:2,maximumFractionDigits:4}) + ' €';
@@ -1997,144 +1920,61 @@ function _fmt_k(v) {
   return n >= 1000 ? (n/1000).toFixed(1) + ' k' : String(n);
 }
 
-function _renderCostsSummary(s) {
-  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
-  set('cst-total',  _fmt_eur(s.total_eur  || 0));
-  set('cst-api',    _fmt_eur(s.api_eur    || 0));
-  set('cst-tokens', _fmt_k((s.tokens_in||0) + (s.tokens_out||0)));
-  set('cst-hf',     _fmt_eur(s.hf_eur     || 0));
-  set('cst-power',  _fmt_eur(s.power_eur  || 0));
-}
+const _MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli',
+                      'August','September','Oktober','November','Dezember'];
 
-function _renderCostsChart(history) {
-  const ctx = document.getElementById('costs-chart');
-  if (!ctx) return;
-  if (!window.Chart) return;
-  const labels = history.map(h => {
-    const d = new Date(h.date);
-    return d.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
-  });
-  const apiData   = history.map(h => parseFloat(h.api_eur)   || 0);
-  const powerData = history.map(h => parseFloat(h.power_eur) || 0);
-  const hfData    = history.map(h => parseFloat(h.hf_eur)    || 0);
-
-  if (_costsChart) { _costsChart.destroy(); _costsChart = null; }
-  _costsChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Claude API',
-          data: apiData, backgroundColor: 'rgba(0,232,122,.55)', borderColor: 'rgba(0,232,122,.8)',
-          borderWidth: 1, borderRadius: 4,
-        },
-        {
-          label: 'Higgsfield',
-          data: hfData, backgroundColor: 'rgba(180,120,255,.45)', borderColor: 'rgba(180,120,255,.7)',
-          borderWidth: 1, borderRadius: 4,
-        },
-        {
-          label: 'Strom',
-          data: powerData, backgroundColor: 'rgba(255,59,78,.35)', borderColor: 'rgba(255,59,78,.6)',
-          borderWidth: 1, borderRadius: 4,
-        },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: '#c4d4e4', font: { size: 11 }, boxWidth: 12 } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)} €`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          stacked: true,
-          ticks:  { color: '#7a9ab5', font: { size: 10 } },
-          grid:   { color: 'rgba(255,255,255,.04)' },
-        },
-        y: {
-          stacked: true, beginAtZero: true,
-          ticks:  { color: '#7a9ab5', font: { size: 10 },
-                    callback: v => v.toFixed(3) + ' €' },
-          grid:   { color: 'rgba(255,255,255,.06)' },
-        },
-      },
-    },
-  });
-}
-
-function _renderCostsSiteList(sites) {
-  const el = document.getElementById('costs-site-list');
-  if (!el) return;
-  if (!sites.length) {
-    el.innerHTML = '<div class="costs-site-empty">Heute noch keine Kosten erfasst.</div>';
-    return;
+async function loadUsageBadge() {
+  try {
+    const r = await (await fetch('/api/usage/summary')).json();
+    _renderUsageBadge(r.extra_usage || {}, r.higgsfield || {}, !!r.paid_active);
+  } catch(e) {
+    console.warn('[Usage] Ladefehler:', e);
   }
-  const max = Math.max(...sites.map(s => s.total_eur), 0.0001);
-  el.innerHTML = sites.map(s => {
-    const pct = Math.round((s.total_eur / max) * 100);
-    return `<div class="csite-row">
-      <span class="csite-name" title="${_e(s.name)}">${_e(s.name)}</span>
-      ${s.tokens ? `<span class="csite-tokens">${_fmt_k(s.tokens)} Tok</span>` : ''}
-      <div class="csite-bar-wrap"><div class="csite-bar" style="width:${pct}%"></div></div>
-      <span class="csite-eur">${_fmt_eur(s.total_eur)}</span>
-    </div>`;
-  }).join('');
 }
 
-function _renderCostsActLog(acts, filter) {
-  const el = document.getElementById('costs-actlog-body');
-  if (!el) return;
-  let filtered = [...acts].reverse();
-  if (filter) filtered = filtered.filter(a => a.cat === filter);
-  if (!filtered.length) {
-    el.innerHTML = '<div class="costs-actlog-empty">Keine Einträge für diesen Filter.</div>';
-    return;
+function _renderUsageBadge(extra, hf, paidActive) {
+  const eur = parseFloat(extra.eur || 0);
+  const hasExtra = paidActive && eur >= 0.01;   // < 1 Cent gilt als "inklusive" (Rundungsrauschen)
+
+  const txt = document.getElementById('usage-badge-txt');
+  if (txt) txt.textContent = hasExtra ? _fmt_eur(eur) : 'Inklusive';
+  const badge = document.getElementById('usage-badge');
+  if (badge) badge.classList.toggle('extra', hasExtra);
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('up-extra', _fmt_eur(eur));
+  set('up-extra-sub', hasExtra
+    ? `${_fmt_k((extra.tokens_in||0) + (extra.tokens_out||0))} Tokens über das Abo-Limit hinaus abgerechnet.`
+    : 'Abo-Session ist inklusive, keine Zusatzkosten.');
+  set('up-hf', `${hf.credits || 0} Credits` + (hf.eur ? ` · ${_fmt_eur(hf.eur)}` : ''));
+
+  const month = extra.month || hf.month || '';
+  if (month) {
+    const [y, m] = month.split('-');
+    set('up-month', `${_MONTH_NAMES[parseInt(m, 10) - 1] || month} ${y}`);
   }
-  el.innerHTML = filtered.map(a =>
-    `<div class="clog-row" data-cat="${_e(a.cat||'info')}">
-      <span class="clog-icon">${_e(a.icon||'⚡')}</span>
-      <div class="clog-main">
-        <div class="clog-action">${_e(a.action)}</div>
-        ${a.detail ? `<div class="clog-detail">${_e(a.detail)}</div>` : ''}
-      </div>
-      <div class="clog-right">
-        <span class="clog-agent">${_e(a.agent)}</span>
-        <span class="clog-ts">${_e(a.ts)}</span>
-      </div>
-    </div>`
-  ).join('');
 }
 
-function setCostFilter(btn, cat) {
-  _costsActFilter = cat;
-  document.querySelectorAll('.caf-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
-  _renderCostsActLog(_costsAllActs, cat);
+function toggleUsagePopover(ev) {
+  if (ev) ev.stopPropagation();
+  const pop = document.getElementById('usage-popover');
+  if (!pop) return;
+  const show = !pop.classList.contains('show');
+  pop.classList.toggle('show', show);
+  if (show) loadUsageBadge();
 }
+document.addEventListener('click', (ev) => {
+  const pop   = document.getElementById('usage-popover');
+  const badge = document.getElementById('usage-badge');
+  if (!pop || !pop.classList.contains('show')) return;
+  if (!pop.contains(ev.target) && ev.target !== badge && !(badge && badge.contains(ev.target))) {
+    pop.classList.remove('show');
+  }
+});
 
-function _startCostsPoll() {
-  if (_costsActPollId) clearInterval(_costsActPollId);
-  _costsActPollId = setInterval(async () => {
-    try {
-      const [actRes, todayRes] = await Promise.all([
-        fetch('/api/activity/recent?limit=80').then(r => r.json()),
-        fetch('/api/costs/today').then(r => r.json()),
-      ]);
-      _costsAllActs = actRes.activities || [];
-      _renderCostsActLog(_costsAllActs, _costsActFilter);
-      _renderCostsSummary(todayRes.summary || {});
-      _renderCostsSiteList(todayRes.per_site || []);
-    } catch(_) {}
-  }, 4000);
-}
-
-function _stopCostsPoll() {
-  if (_costsActPollId) { clearInterval(_costsActPollId); _costsActPollId = null; }
+function _usagePoll() {
+  loadUsageBadge();
+  setTimeout(_usagePoll, 60000);   // 60s reicht — Verbrauch ändert sich nicht sekündlich
 }
 
 
