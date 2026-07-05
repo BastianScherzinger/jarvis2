@@ -73,10 +73,12 @@ const _D = {
   stats: { total: 0, live: 0, sent: 0, building: 0, active: 0, running: false },
   prev:  { live: -1, sent: -1 },
   logs:  [],            // {ts, level, worker, msg}
+  errors: _PL_STAGES.map(() => []),   // pro Station: [{ts, worker, msg, level}]  (rote Blase + Panel)
   logLastTs: '',
   started: false, pollTimer: null, logTimer: null,
 };
 const _PL_INST = [];
+let _plErrPanelIdx = -1;
 
 function _plAnyVisible() { return _PL_INST.some(_plVisible); }
 function _plVisible(P) {
@@ -130,12 +132,24 @@ async function _plPollLogs() {
     const fresh = _D.logLastTs.length > 0;
     d.logs.forEach((e, i) => {
       _D.logs.push(e);
-      if (fresh) _plReactToLog(e, i);      // nur echte Neuzugänge werden zu Punkten
+      if (e.level === 'ERROR') _plRecordError(e);   // rote Blase zählt auch Alt-Fehler
+      if (fresh) _plReactToLog(e, i);               // nur echte Neuzugänge werden zu Punkten
     });
     if (_D.logs.length > 300) _D.logs.splice(0, _D.logs.length - 300);
     _D.logLastTs = d.last_ts || _D.logLastTs;
     _PL_INST.forEach(_plRenderLog);
+    _PL_INST.forEach(_plSyncBadges);
+    _plRefreshErrPanel();
   } catch (e) { /* still weiter */ }
+}
+
+// Fehler einer Station zuordnen und für Blase/Panel speichern.
+function _plRecordError(e) {
+  const c = _plClassifyLog(e);
+  const idx = (c && typeof c.stageIdx === 'number') ? c.stageIdx : 0;
+  if (!_D.errors[idx]) _D.errors[idx] = [];
+  _D.errors[idx].push({ ts: e.ts || '', worker: e.worker || '', msg: e.msg || '', level: e.level || 'ERROR' });
+  if (_D.errors[idx].length > 200) _D.errors[idx].splice(0, _D.errors[idx].length - 200);
 }
 
 // Getippte Sammel-Bursts (Δ live/sent) — leicht gestaffelt.
@@ -184,8 +198,12 @@ function _plCreate(wrap, cv, opts) {
     W: 0, H: 0, dpr: 1, t: 0, last: performance.now(), raf: 0,
     scr: _D.scrapers.map(() => ({ x: 0, y: 0, cx: 0, cy: 0, pulse: 0, err: 0 })),
     st: _PL_STAGES.map(() => ({ x: 0, y: 0, pulse: 0, err: 0 })),
-    bubbles: [], energy: {},
+    bubbles: [], energy: {}, badges: _PL_STAGES.map(() => null), badgeLayer: null,
   };
+  // Overlay-Ebene für klickbare Fehler-Blasen (HTML über dem Canvas)
+  P.badgeLayer = document.createElement('div');
+  P.badgeLayer.className = 'pl-badge-layer';
+  wrap.appendChild(P.badgeLayer);
   _PL_INST.push(P);
   const ro = () => _plResize(P);
   _plResize(P);
@@ -206,6 +224,32 @@ function _plResize(P) {
   P.cv.style.width = r.width + 'px'; P.cv.style.height = r.height + 'px';
   P.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   _plLayout(P);
+  _plSyncBadges(P);
+}
+
+// ── Fehler-Blasen (HTML-Overlay über den Stationen) ──────────────────────────
+function _plSyncBadges(P) {
+  if (!P.badgeLayer) return;
+  P.st.forEach((nd, i) => {
+    const n = (_D.errors[i] || []).length;
+    let b = P.badges[i];
+    if (n > 0 && !b) {
+      b = document.createElement('button');
+      b.className = 'pl-errbadge' + (P.mini ? ' mini' : '');
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); ev.preventDefault(); _plOpenErrPanel(i); });
+      P.badgeLayer.appendChild(b); P.badges[i] = b;
+    }
+    if (!b) return;
+    if (n > 0) {
+      b.style.display = 'flex';
+      b.textContent = n > 99 ? '99+' : String(n);
+      b.title = `${n} Fehler in ${_PL_STAGES[i].label} — klicken zum Ansehen & Kopieren`;
+      b.style.left = nd.x + 'px';
+      b.style.top  = (nd.y - P.hubR - (P.mini ? 9 : 15)) + 'px';
+    } else {
+      b.style.display = 'none';
+    }
+  });
 }
 
 function _plLayout(P) {
@@ -396,7 +440,7 @@ function _plDraw(P) {
   }
 
   P.scr.forEach((s, i) => _plDrawScraper(P, s, _D.scrapers[i]));
-  P.st.forEach((nd, i) => _plDrawStation(P, nd, _PL_STAGES[i]));
+  P.st.forEach((nd, i) => _plDrawStation(P, nd, _PL_STAGES[i], i));
 }
 
 function _plPipe(P, x0, y0, x1, y1, cx, cy, color, alpha, width) {
@@ -472,21 +516,31 @@ function _plDrawScraper(P, s, data) {
 }
 
 // ── Stationen-Knoten (Basis-Disc + Glühen + Icon) ────────────────────────────
-function _plDrawStation(P, node, stage) {
-  const ctx = P.ctx, R = P.hubR, col = stage.color;
+function _plDrawStation(P, node, stage, idx) {
+  const ctx = P.ctx, R = P.hubR;
+  const nErr = (_D.errors[idx] || []).length;
+  const hasErr = nErr > 0;
+  const col = hasErr ? '#ff3b4e' : stage.color;   // Fehler → Symbol wird rot
   _plPulseRing(P, node, R, col);
+  if (hasErr) {   // zusätzlicher, dauerhaft pulsierender roter Alarm-Ring
+    const pr = 0.5 + 0.5 * Math.sin(P.t * 3.2);
+    ctx.beginPath(); ctx.arc(node.x, node.y, R * (1.18 + pr * 0.18), 0, Math.PI * 2);
+    ctx.strokeStyle = _plAlpha('#ff3b4e', 0.35 + pr * 0.4); ctx.lineWidth = 2; ctx.stroke();
+  }
+  const glowBoost = hasErr ? 0.32 : 0;
   const g = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, R * 2.1);
-  g.addColorStop(0, _plAlpha(col, 0.24 + node.pulse * 0.26)); g.addColorStop(1, _plAlpha(col, 0));
+  g.addColorStop(0, _plAlpha(col, 0.24 + node.pulse * 0.26 + glowBoost)); g.addColorStop(1, _plAlpha(col, 0));
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(node.x, node.y, R * 2.1, 0, Math.PI * 2); ctx.fill();
 
   ctx.save(); ctx.translate(node.x, node.y);
   ctx.beginPath(); ctx.arc(0, 0, R * 0.92, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(8,14,22,.9)'; ctx.fill();
-  ctx.lineWidth = 1.6; ctx.strokeStyle = _plAlpha(col, 0.4); ctx.stroke();
+  ctx.fillStyle = hasErr ? 'rgba(26,8,11,.92)' : 'rgba(8,14,22,.9)'; ctx.fill();
+  ctx.lineWidth = 1.6; ctx.strokeStyle = _plAlpha(col, hasErr ? 0.7 : 0.4); ctx.stroke();
   _plStationIcon(P, stage.icon, R, col);
   ctx.restore();
 
-  if (!P.mini) _plNodeLabel(P, node.x, node.y + R + 15, stage.label, stage.lc || col, stage.sub);
+  if (!P.mini) _plNodeLabel(P, node.x, node.y + R + 15, stage.label,
+    hasErr ? '#ff6b7c' : (stage.lc || col), hasErr ? nErr + ' Fehler' : stage.sub);
 }
 
 function _plStationIcon(P, icon, R, col) {
@@ -569,6 +623,65 @@ function _plAlpha(hex, a) {
   const h = hex.replace('#', '');
   const n = parseInt(h.length === 3 ? h.replace(/(.)/g, '$1$1') : h, 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// ── Fehler-Panel (scroll- + kopierbar) ───────────────────────────────────────
+function _plOpenErrPanel(idx) {
+  _plErrPanelIdx = idx;
+  const p = document.getElementById('pl-errpanel'); if (!p) return;
+  _plRenderErrPanel();
+  p.classList.add('show');
+  const list = document.getElementById('pl-errlist'); if (list) list.scrollTop = list.scrollHeight;
+}
+function _plCloseErrPanel() {
+  const p = document.getElementById('pl-errpanel'); if (p) p.classList.remove('show');
+  _plErrPanelIdx = -1;
+}
+function _plRenderErrPanel() {
+  if (_plErrPanelIdx < 0) return;
+  const idx = _plErrPanelIdx, stage = _PL_STAGES[idx], errs = _D.errors[idx] || [];
+  const t = document.getElementById('ple-title');
+  if (t) t.textContent = `Fehler · ${stage ? stage.label : ''} (${errs.length})`;
+  const list = document.getElementById('pl-errlist'); if (!list) return;
+  const stick = list.scrollTop + list.clientHeight >= list.scrollHeight - 20;
+  list.innerHTML = errs.length
+    ? errs.map(e =>
+        `<div class="ple-row"><div class="ple-meta">` +
+        `<span class="ple-ts">${_plEsc(e.ts)}</span>` +
+        `<span class="ple-wk">${_plEsc(e.worker)}</span></div>` +
+        `<div class="ple-msg">${_plEsc(e.msg)}</div></div>`).join('')
+    : '<div class="ple-empty">Keine Fehler in dieser Station.</div>';
+  if (stick) list.scrollTop = list.scrollHeight;
+}
+function _plRefreshErrPanel() {
+  const p = document.getElementById('pl-errpanel');
+  if (p && p.classList.contains('show')) _plRenderErrPanel();
+}
+function _plCopyErrors() {
+  if (_plErrPanelIdx < 0) return;
+  const errs = _D.errors[_plErrPanelIdx] || [];
+  const text = errs.map(e => `[${e.ts}] ${e.worker}: ${e.msg}`).join('\n');
+  _plCopyText(text);
+  const btn = document.getElementById('ple-copy');
+  if (btn) { const o = btn.textContent; btn.textContent = 'Kopiert ✓'; setTimeout(() => { btn.textContent = o; }, 1400); }
+}
+function _plClearErrors() {
+  if (_plErrPanelIdx < 0) return;
+  _D.errors[_plErrPanelIdx] = [];
+  _plRenderErrPanel();
+  _PL_INST.forEach(_plSyncBadges);
+}
+function _plCopyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => _plCopyFallback(text));
+  } else { _plCopyFallback(text); }
+}
+function _plCopyFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* egal */ }
+  document.body.removeChild(ta);
 }
 
 // ── Öffentliche Einstiegspunkte ──────────────────────────────────────────────

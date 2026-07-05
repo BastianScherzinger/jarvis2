@@ -1259,6 +1259,17 @@
     </button>
   </div>
 </div>
+<!-- ══ FEHLER-PANEL der Live-Pipeline (scroll- + kopierbar) ══ -->
+<div class="pl-errpanel" id="pl-errpanel">
+  <div class="ple-head">
+    <span class="ple-title" id="ple-title">Fehler</span>
+    <button class="ple-btn" id="ple-copy" onclick="_plCopyErrors()">Alle kopieren</button>
+    <button class="ple-btn ghost" onclick="_plClearErrors()">Leeren</button>
+    <button class="ple-close" onclick="_plCloseErrPanel()" aria-label="Schließen">✕</button>
+  </div>
+  <div class="ple-list" id="pl-errlist"></div>
+  <div class="ple-foot">Text markieren zum einzelnen Kopieren · „Alle kopieren" legt alles in die Zwischenablage</div>
+</div>
 <script src="/static/js/chatdock.js"></script>
 </body>
 </html>
