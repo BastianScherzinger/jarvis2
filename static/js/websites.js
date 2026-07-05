@@ -58,6 +58,11 @@ function _wsBadge(w){
 }
 
 // ── Initialisierung & Timer ───────────────────────────────────────────────────
+// Die komplette Fortschrittsansicht (Tages-Ordner + Karten) läuft doppelt: einmal im
+// eigenen "Webseiten"-Tab (Namespace 'ws', Container #ws-list) und einmal kompakter
+// eingebettet in "Mein Status" (Namespace 'msws', Container #ms-ws-list) — dieselben
+// Daten (_wsDays/_wsData), aber eigene DOM-IDs pro Namespace (sonst doppelte IDs, da
+// beide Container gleichzeitig im DOM stehen, nur eine Seite ist per CSS sichtbar).
 
 function initWebsites(){ loadWebsites(); _wsEnsureTimer(); }
 function refreshWebsites(){ loadWebsites(true); }
@@ -71,11 +76,17 @@ async function wsManualReload(){
   }
 }
 
+function _wsAnyTargetVisible(){
+  const ws = document.querySelector('.websites-page');
+  if(ws && ws.classList.contains('active')) return true;
+  const ms = document.querySelector('.page[data-page="leads"]');
+  return !!(ms && ms.classList.contains('active'));
+}
+
 function _wsEnsureTimer(){
   if(_wsTimer) return;
   _wsTimer = setInterval(() => {
-    const pg = document.querySelector('.websites-page');
-    if(!pg || !pg.classList.contains('active')) return;
+    if(!_wsAnyTargetVisible()) return;
     loadWebsites(true);
   }, 7000);   // gedrosselt: 7 s reicht fürs Nachziehen, spart Log-/Server-Last
 }
@@ -204,12 +215,19 @@ async function archiveAllAndStart(){
 // ── Render: Tages-Ordner ──────────────────────────────────────────────────────
 
 function _renderWebsites(){
-  const list = document.getElementById('ws-list');
-  const cnt  = document.getElementById('ws-count');
-  if(!list) return;
+  _renderWebsitesInto('ws-list', 'ws-count', 'ws');
+  _renderWebsitesInto('ms-ws-list', 'ms-ws-count', 'msws');
+}
+
+function _renderWebsitesInto(listId, countId, ns){
+  const list = document.getElementById(listId);
+  if(!list) return;   // Container aktuell nicht im DOM (z.B. andere Seite) → überspringen
 
   const total = _wsTotal || _wsData.length;
-  if(cnt) cnt.textContent = total + (total === 1 ? ' Seite' : ' Seiten');
+  if(countId){
+    const cnt = document.getElementById(countId);
+    if(cnt) cnt.textContent = total + (total === 1 ? ' Seite' : ' Seiten');
+  }
 
   if(!_wsDays.length){
     list.innerHTML = `<div class="ws-empty">
@@ -220,12 +238,12 @@ function _renderWebsites(){
     return;
   }
 
-  list.innerHTML = _wsDays.map(_wsDayFolder).join('');
+  list.innerHTML = _wsDays.map(day => _wsDayFolder(day, ns)).join('');
 }
 
 // ── Tages-Ordner ─────────────────────────────────────────────────────────────
 
-function _wsDayFolder(day){
+function _wsDayFolder(day, ns='ws'){
   const open     = _wsOpenDays && _wsOpenDays.has(day.date);
   const label    = _wsDayLabel(day.date, day.is_today);
   const count    = day.count  || 0;
@@ -255,31 +273,38 @@ function _wsDayFolder(day){
   const bodyStyle = open ? '' : 'style="display:none"';
   const arrow     = open ? '▾' : '▸';
 
-  return `<div class="ws-day ${open?'open':''}" id="ws-day-${_wse(day.date)}">
-    <div class="ws-day-head" onclick="wsDayToggle('${_wse(day.date)}')">
+  // Nur der 'ws'-Namespace (dedizierter Webseiten-Tab) darf den ganzen Tag löschen —
+  // in Mein Status ist das eine Fortschritts-ANZEIGE, keine Verwaltung, darum dort ohne
+  // Lösch-Knopf (verhindert versehentliches Löschen aus der falschen Ansicht heraus).
+  const delBtn = ns === 'ws'
+    ? `<button class="ws-day-del" title="Ganzen Tag löschen (inkl. Railway)"
+        onclick="event.stopPropagation(); wsDeleteDay('${_wse(day.date)}', ${count})">
+        <svg viewBox="0 0 18 18" width="15" height="15" fill="none"><path d="M3 5h12M7 5V3.5A1.5 1.5 0 018.5 2h1A1.5 1.5 0 0111 3.5V5M5.5 5l.5 9a1.5 1.5 0 001.5 1.4h3a1.5 1.5 0 001.5-1.4l.5-9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>`
+    : '';
+
+  return `<div class="ws-day ${open?'open':''}" id="${ns}-day-${_wse(day.date)}">
+    <div class="ws-day-head" onclick="wsDayToggle('${_wse(day.date)}','${ns}')">
       <span class="ws-day-arrow">${arrow}</span>
       <span class="ws-day-label ${day.is_today?'today':''}">${_wse(label)}</span>
       <span class="ws-day-date-sub">${day.is_today ? _wse(day.date) : ''}</span>
       <div class="ws-day-pills">
         ${progBadge}${extraBadge}${liveBadge}${sentBadge}
       </div>
-      <button class="ws-day-del" title="Ganzen Tag löschen (inkl. Railway)"
-        onclick="event.stopPropagation(); wsDeleteDay('${_wse(day.date)}', ${count})">
-        <svg viewBox="0 0 18 18" width="15" height="15" fill="none"><path d="M3 5h12M7 5V3.5A1.5 1.5 0 018.5 2h1A1.5 1.5 0 0111 3.5V5M5.5 5l.5 9a1.5 1.5 0 001.5 1.4h3a1.5 1.5 0 001.5-1.4l.5-9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      ${delBtn}
       ${bar}
     </div>
     <div class="ws-day-body" ${bodyStyle}>
-      ${(day.sites || []).map(_wsCard).join('')}
+      ${(day.sites || []).map(w => _wsCard(w, ns)).join('')}
     </div>
   </div>`;
 }
 
 // ── Ordner auf-/zuklappen ─────────────────────────────────────────────────────
 
-function wsDayToggle(date){
+function wsDayToggle(date, ns='ws'){
   if(!_wsOpenDays) _wsOpenDays = new Set();
-  const el   = document.getElementById('ws-day-' + date);
+  const el   = document.getElementById(ns + '-day-' + date);
   if(!el) return;
   const body  = el.querySelector('.ws-day-body');
   const arrow = el.querySelector('.ws-day-arrow');
@@ -298,11 +323,11 @@ function wsDayToggle(date){
 
 // ── Karte auf-/zuklappen ──────────────────────────────────────────────────────
 
-function wsCardToggle(id){
+function wsCardToggle(id, ns='ws'){
   const sid    = String(id);
-  const detail = document.getElementById('ws-cd-' + sid);
-  const arrow  = document.getElementById('ws-ca-' + sid);
-  const card   = document.getElementById('ws-c-'  + sid);
+  const detail = document.getElementById(ns + '-cd-' + sid);
+  const arrow  = document.getElementById(ns + '-ca-' + sid);
+  const card   = document.getElementById(ns + '-c-'  + sid);
   if(!detail) return;
   if(_wsCardOpen.has(sid)){
     _wsCardOpen.delete(sid);
@@ -344,7 +369,7 @@ function _wsStages(w){
 
 // ── Website-Karte (kompakte Zeile + aufklappbares Detail) ─────────────────────
 
-function _wsCard(w){
+function _wsCard(w, ns='ws'){
   const st   = _wsBadge(w);
   const meta = [w.branche, w.stadt].filter(Boolean).map(_wse).join(' · ');
   const sid  = String(w.id);
@@ -367,8 +392,8 @@ function _wsCard(w){
     : '';
 
   // ── Zusammenfassungszeile (immer sichtbar) ──────────────────────────────────
-  const summaryRow = `<div class="ws-card-row" onclick="wsCardToggle(${w.id})">
-    <span class="ws-card-arrow" id="ws-ca-${sid}">${open ? '▾' : '▸'}</span>
+  const summaryRow = `<div class="ws-card-row" onclick="wsCardToggle(${w.id},'${ns}')">
+    <span class="ws-card-arrow" id="${ns}-ca-${sid}">${open ? '▾' : '▸'}</span>
     <div class="ws-card-info">
       <span class="ws-card-name">${_wse(w.name || 'Unbenannt')}</span>
       ${meta ? `<span class="ws-card-meta">${meta}</span>` : ''}
@@ -427,7 +452,7 @@ function _wsCard(w){
     <button class="ws-act danger" onclick="event.stopPropagation();wsDelete(${w.id}, ${JSON.stringify(w.name||'')})" title="Löschen">🗑</button>
   </div>`;
 
-  const detailHtml = `<div class="ws-card-detail" id="ws-cd-${sid}" style="${open ? '' : 'display:none'}">
+  const detailHtml = `<div class="ws-card-detail" id="${ns}-cd-${sid}" style="${open ? '' : 'display:none'}">
     ${progHtml}
     ${linkRow}
     ${emailRow}
@@ -435,7 +460,7 @@ function _wsCard(w){
     <div class="ws-foot">${_wse(_wsAgo(w.updated || w.created))}</div>
   </div>`;
 
-  return `<div class="ws-card ${st.cls} ${open ? 'open' : ''}" id="ws-c-${sid}">
+  return `<div class="ws-card ${st.cls} ${open ? 'open' : ''}" id="${ns}-c-${sid}">
     ${summaryRow}
     ${detailHtml}
   </div>`;
@@ -664,6 +689,7 @@ function wsCopy(text, btn){
 
 _wsEnsureTimer();
 document.addEventListener('DOMContentLoaded', () => {
-  const pg = document.querySelector('.websites-page');
-  if(pg && pg.classList.contains('active')) loadWebsites();
+  // 'leads' (Mein Status) ist die Default-Seite beim kalten Laden — dort steckt jetzt
+  // auch die eingebettete Webseiten-Fortschrittsliste, darum hier zusätzlich prüfen.
+  if(_wsAnyTargetVisible()) loadWebsites();
 });

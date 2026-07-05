@@ -151,9 +151,11 @@ function _applyStats(s){
   _setNum('s-warm',  s.warm);
   _setNum('s-cold',  s.cold);
   const pct = s.total ? Math.round(s.no_web/s.total*100) : 0;
-  document.getElementById('s-noweb').textContent = pct+'%';
+  const noWebEl = document.getElementById('s-noweb');
+  if(noWebEl) noWebEl.textContent = pct+'%';
   // Telefon aus Session zählen
-  document.getElementById('s-tel').textContent = _allLeads.filter(l=>l.telefon).length;
+  const telEl = document.getElementById('s-tel');
+  if(telEl) telEl.textContent = _allLeads.filter(l=>l.telefon).length;
   // Source Chart aus DB-Finder-Daten
   _renderChart(s.finders || {});
   // Bundesland-Chart aus DB
@@ -269,35 +271,10 @@ function _addHotCard(lead){
   if(list.querySelectorAll('.hot-card').length>40) list.lastChild?.remove();
 }
 
-// ── Top 10 Opportunities (aus db_evaluated — KI-bewertet) ──────────────────
-async function loadTop(){
-  let top = [];
-  try{ top = (await(await fetch('/api/top')).json()).top || []; }catch{ return; }
-  const el = document.getElementById('top-list');
-  if(!el) return;
-  if(!top.length){ el.innerHTML = '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>'; return; }
-  el.innerHTML = top.map((l,i) => {
-    const sc   = Number(l.score) || 0;
-    const typ  = l.lead_typ || 'Cold';
-    const badge = `<span class="v-badge verified">✓ KI-bewertet</span>`;
-    const hook = l.pitch_hook ? `<div class="tc-hook">${_e(l.pitch_hook)}</div>` : '';
-    const jl   = _jattr(l);
-    return `<div class="top-card ${typ}" onclick='openRankDetail ? openRankDetail(${jl}) : openModal(${jl})'>
-      <div class="tc-rank">${i+1}</div>
-      <div class="tc-body">
-        <div class="tc-top"><span class="tc-name">${_e(l.name)}</span><span class="tc-score ${typ}">${sc}</span></div>
-        <div class="tc-meta">${badge}${l.branche?`<span class="tc-br">${_e(l.branche)}</span>`:''}</div>
-        ${hook}
-      </div>
-    </div>`;
-  }).join('');
-}
-
 function _onVerified(lead){
   if(!lead) return;
   const i = _allLeads.findIndex(l => l.id === lead.id);
   if(i >= 0) _allLeads[i] = Object.assign({}, _allLeads[i], lead);
-  loadTop();
 }
 
 // ── Verifier-Modell ─────────────────────────────────────────────────────────
@@ -645,21 +622,6 @@ function closeModal(){
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function clearFeed(){
-  const feed=document.getElementById('chat-feed');
-  feed.innerHTML=`<div class="empty-state" id="empty-state">
-    <div class="empty-icon">◎</div>
-    <div class="empty-title">Feed geleert</div>
-    <div class="empty-sub">Scraper läuft weiter im Hintergrund</div>
-  </div>`;
-  _allLeads=[];_feedCount=0;_sessionFinder={};
-  if(_running) _sessionStartTs = Date.now();   // Rate (Funde/h) ab jetzt neu zählen
-  document.getElementById('feed-cnt').textContent='0';
-  document.getElementById('hot-list').innerHTML='<div class="hot-empty">Noch keine Hot Leads</div>';
-  document.getElementById('s-tel').textContent='0';
-}
-
 function exportCSV(){ window.location.href='/api/export/csv'; }
 
 // ── Auto-Website-Builder ────────────────────────────────────────────────────
@@ -703,11 +665,9 @@ function _initSidebar(){
     if(d.workers) _updateWorkerMeta(d.workers);
     if(d.running){_running=true;_setUI(true);_connectSSE();}
   }catch{}
-  loadTop();
   loadVerifierModel();
   loadMediaModels();
   _applyCustomBg();
-  setInterval(loadTop, 30000);
   _initPageFromHash();
   _initSidebar();
   _autoPoll();
@@ -717,6 +677,7 @@ function _initSidebar(){
   const _activePage = document.querySelector('.page.active');
   if(!_activePage || _activePage.dataset.page === 'leads'){
     loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll();
+    if(typeof initWebsites === 'function') initWebsites();
   }
 })();
 
@@ -815,7 +776,7 @@ function showPage(name){
   if(name === 'graph' && typeof initGraph === 'function') initGraph();
   if(name === 'graph' && typeof initGlobe === 'function') initGlobe();
   if(name === 'ranking' && typeof initRanking === 'function') initRanking();
-  if(name === 'websites' && typeof initWebsites === 'function') initWebsites();
+  if((name === 'websites' || name === 'leads') && typeof initWebsites === 'function') initWebsites();
   if(name === 'custom' && typeof cbInit === 'function') cbInit();
   if(name === 'claude' && typeof initClaude === 'function') initClaude();
   if(name === 'video-studio' && typeof initVideoStudio === 'function') initVideoStudio();
