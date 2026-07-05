@@ -255,8 +255,21 @@ _STADT_BL: dict[str, str] = {
 
 
 def get_bundesland(stadt: str) -> str:
-    """Gibt das Bundesland einer Stadt zurück, sonst 'Deutschland'."""
-    return _STADT_BL.get(stadt, "Deutschland")
+    """Gibt das Bundesland einer Stadt zurück (DE zuerst, dann AT), sonst 'Deutschland'.
+    AT-Lookup lazy importiert — leadpackages.sources_dach importiert selbst aus diesem
+    Modul (BRANCHEN/HIGH_VALUE), ein Modul-Level-Import hier würde einen Zirkelimport
+    erzeugen. Reuse statt Duplikat: sources_dach.get_region() hat den AT-Lookup bereits."""
+    bl = _STADT_BL.get(stadt)
+    if bl:
+        return bl
+    try:
+        from leadpackages.sources_dach import get_region
+        at_bl = get_region("AT", stadt)
+        if at_bl:
+            return at_bl
+    except Exception:
+        pass
+    return "Deutschland"
 
 
 # Flache Liste aller Städtenamen (dedupliziert, Reihenfolge stabil)

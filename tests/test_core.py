@@ -2298,3 +2298,133 @@ def test_ask_ollama_unerwarteter_fehler_gibt_leer(monkeypatch):
         raise ValueError("kaputtes JSON")
     monkeypatch.setattr(_http.urllib.request, "urlopen", _boom)
     assert _http.ask_ollama("test", model="x") == ""   # kein Crash, leerer Fallback
+
+
+# ── Österreich in der Haupt-Pipeline (Lead-Generierung fertigstellen) ─────────
+def test_get_bundesland_de_und_at():
+    from scrapers.regions import get_bundesland
+    assert get_bundesland("München") == "Bayern"        # Deutschland — Regression
+    assert get_bundesland("Wien") == "Wien"              # Österreich
+    assert get_bundesland("Innsbruck") == "Tirol"
+    assert get_bundesland("Nirgendwo-Stadt-XYZ") == "Deutschland"   # Fallback bleibt
+
+
+def test_telefon_plausibel_oesterreich():
+    from agents.evaluator.web_analyst import _telefon_plausibel
+    assert _telefon_plausibel("+43 1 5058740")           # Wien, Länder-Code
+    assert _telefon_plausibel("0043 512 1234567")        # Innsbruck, 0043-Präfix
+
+
+def test_controller_combo_count_inkl_oesterreich():
+    import scrapers.controller as c
+    from scrapers.regions import ALLE_REGIONEN, BRANCHEN
+    from leadpackages.sources_dach import AT_STAEDTE
+    assert c.get_combo_count() == (len(ALLE_REGIONEN) + len(AT_STAEDTE)) * len(BRANCHEN)
+
+
+# ── E-Mail-Konsolidierung: Local-Part-Blacklist zentral in email_verify ──────
+def test_web_analyst_real_emails_filtert_local_parts():
+    from agents.evaluator.web_analyst import _real_emails
+    html = "Kontakt: noreply@firma.de oder info@firma.de erreichbar."
+    emails = _real_emails(html)
+    assert "info@firma.de" in emails
+    assert not any("noreply" in e for e in emails)
+
+
+def test_contact_finder_teilt_blacklist_mit_email_verify():
+    import contact_finder as cf
+    import email_verify as ev
+    assert cf._BAD_LOCAL is ev.BAD_LOCAL_PARTS       # eine Quelle, kein Duplikat
+
+
+# ── Maps-Enrichment: Pool nie blockierend, wenn (noch) nicht gestartet ────────
+def test_maps_enrichment_enrich_ohne_pool_gibt_none(monkeypatch):
+    from agents.evaluator import maps_enrichment as me
+    monkeypatch.setattr(me, "_started", False)
+    assert me.enrich({"name": "Test", "stadt": "Berlin"}) is None
+
+
+# ── SMTP-RCPT-Zustellbarkeitsprüfung (optional, Default aus) ──────────────────
+def test_email_verify_rcpt_check_default_aus(monkeypatch):
+    import email_verify as ev
+    monkeypatch.delenv("JARVIS_SMTP_RCPT_CHECK", raising=False)
+    assert ev.rcpt_check_enabled() is False
+    monkeypatch.setenv("JARVIS_SMTP_RCPT_CHECK", "1")
+    assert ev.rcpt_check_enabled() is True
+    monkeypatch.setenv("JARVIS_SMTP_RCPT_CHECK", "0")
+    assert ev.rcpt_check_enabled() is False
+
+
+class _FakeSMTP:
+    """Minimaler smtplib.SMTP-Ersatz für probe_mailbox()-Tests — keine echte Verbindung."""
+    _antwort = None   # von den Tests je Fall gesetzt: fn(addr) -> (code, msg)
+
+    def __init__(self, *a, **k):
+        pass
+
+    def connect(self, host, port):
+        pass
+
+    def helo(self, domain):
+        pass
+
+    def mail(self, sender):
+        pass
+
+    def rcpt(self, addr):
+        return type(self)._antwort(addr)
+
+    def quit(self):
+        pass
+
+
+def test_email_verify_probe_mailbox_definitiv_abgelehnt(monkeypatch):
+    import email_verify as ev
+    ev._mailbox_cache.clear()
+    ev._catchall_cache.clear()
+    _FakeSMTP._antwort = lambda addr: (550, b"no such user")   # echte UND Fake-Adresse abgelehnt
+    monkeypatch.setattr(ev.smtplib, "SMTP", _FakeSMTP)
+    assert ev.probe_mailbox("tote-adresse@nicht-existente-firma-xyz.de", timeout=3) is False
+
+
+def test_email_verify_probe_mailbox_catchall_erkannt(monkeypatch):
+    import email_verify as ev
+    ev._mailbox_cache.clear()
+    ev._catchall_cache.clear()
+    _FakeSMTP._antwort = lambda addr: (250, b"ok")   # akzeptiert AUSNAHMSLOS alles -> Catch-All
+    monkeypatch.setattr(ev.smtplib, "SMTP", _FakeSMTP)
+    # Catch-All-Domain: kein falsches Sicherheitsgefühl -> "unklar", nicht "sicher zustellbar"
+    assert ev.probe_mailbox("irgendwas@catchall-domain.de", timeout=3) is None
+
+
+def test_email_verify_probe_mailbox_akzeptiert_ohne_catchall(monkeypatch):
+    import email_verify as ev
+    ev._mailbox_cache.clear()
+    ev._catchall_cache.clear()
+    calls = {"n": 0}
+    def _antwort(addr):
+        calls["n"] += 1
+        if "nichtexistent-" in addr:
+            return (550, b"no such user")    # Zufalls-Testadresse abgelehnt -> kein Catch-All
+        return (250, b"ok")                  # echte Adresse akzeptiert
+    _FakeSMTP._antwort = _antwort
+    monkeypatch.setattr(ev.smtplib, "SMTP", _FakeSMTP)
+    assert ev.probe_mailbox("echt@saubere-domain.de", timeout=3) is True
+    assert calls["n"] == 2                   # echte Adresse + Catch-All-Gegenprobe
+
+
+def test_email_verify_probe_mailbox_haengt_nicht_endlos(monkeypatch):
+    import email_verify as ev
+    import time
+    ev._mailbox_cache.clear()
+
+    def _haengender_konstruktor(*a, **k):
+        time.sleep(10)
+        raise AssertionError("sollte nie ankommen")
+
+    monkeypatch.setattr(ev.smtplib, "SMTP", _haengender_konstruktor)
+    t0 = time.time()
+    r = ev.probe_mailbox("x@haengt-fuer-immer-test.de", timeout=1.5)
+    dt = time.time() - t0
+    assert r is None
+    assert dt < 4         # kehrt nach ~timeout+1s zurück, NICHT nach den vollen 10s

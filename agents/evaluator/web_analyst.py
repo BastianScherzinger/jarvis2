@@ -5,6 +5,7 @@ Findet AKTIV die echte Website (auch wenn der Scraper has_website=0 lieferte),
 analysiert sie technisch, extrahiert E-Mail aus Impressum, prüft Bilder
 unabhängig und protokolliert jeden Schritt.
 """
+import json
 import re
 import datetime
 from urllib.parse import urljoin, urlparse
@@ -52,7 +53,9 @@ def _domain(url: str) -> str:
 
 def _real_emails(html: str) -> list[str]:
     emails = _EMAIL_RE.findall(html or "")
-    return [e for e in emails if not any(b in e.lower() for b in _BAD_DOMAINS)]
+    return [e for e in emails
+            if not any(b in e.lower() for b in _BAD_DOMAINS)
+            and not any(b in e.lower() for b in email_verify.BAD_LOCAL_PARTS)]
 
 
 def _mail_domain(email: str) -> str:
@@ -68,16 +71,21 @@ def _telefon_plausibel(tel: str) -> bool:
     """Plausibilitätsprüfung einer Telefonnummer — zählt die TATSÄCHLICHEN Ziffern statt nur
     (wie bisher) eine Zeichenklasse zu matchen. Verhindert, dass Deko/Platzhalter wie
     '------', '00000' oder ' / ' als 'telefon_verifiziert' zählen und den Sicherheits-Score
-    (20 Punkte) fälschlich anheben. Kalibriert auf deutsche Rufnummern:
-    Länder-/Amtsvorwahl abgezogen bleiben grob 6–13 Teilnehmer-Ziffern."""
+    (20 Punkte) fälschlich anheben. Kalibriert auf deutsche und österreichische
+    Rufnummern (DACH-Pipeline): Länder-/Amtsvorwahl abgezogen bleiben grob
+    6–13 Teilnehmer-Ziffern."""
     t = (tel or "").strip()
     if not t:
         return False
     digits = re.sub(r"\D", "", t)
-    # +49 / 0049 / führende Amts-0 entfernen → reine Teilnehmer-Ziffernzahl
+    # +49/0049 (DE) bzw. +43/0043 (AT) / führende Amts-0 entfernen → reine Teilnehmer-Ziffernzahl
     if digits.startswith("0049"):
         digits = digits[4:]
+    elif digits.startswith("0043"):
+        digits = digits[4:]
     elif digits.startswith("49") and len(digits) >= 11:
+        digits = digits[2:]
+    elif digits.startswith("43") and len(digits) >= 11:
         digits = digits[2:]
     digits = digits.lstrip("0")
     if not (6 <= len(digits) <= 13):
@@ -295,6 +303,29 @@ def analyze(lead: dict) -> dict:
                 web_dom = _domain(url)
                 if web_dom:
                     zustellbar.sort(key=lambda e: 0 if _mail_domain(e) == web_dom else 1)
+                    # Passt mindestens eine Adresse zur Website-Domain, sind Fremd-Domain-
+                    # Adressen (Web-Designer/Portal/Drittanbieter im selben HTML) eher
+                    # Störgeräusch als echte Alternative — raus aus email_alle, damit sie
+                    # nicht als falsche Kontaktoption im Dashboard/Pitch-Text auftauchen.
+                    if any(_mail_domain(e) == web_dom for e in zustellbar):
+                        zustellbar = [e for e in zustellbar if _mail_domain(e) == web_dom]
+
+                # (c) Optionale SMTP-RCPT-Probe (Default AUS, JARVIS_SMTP_RCPT_CHECK): prüft
+                # das konkrete Postfach, nicht nur die Domain. Wie bei der DNS/MX-Prüfung oben
+                # werden nur DEFINITIV abgelehnte Adressen (550/551/553) verworfen — unklare
+                # (Catch-All/Timeout/Greylisting) bleiben best-effort drin. Bleibt am Ende
+                # NICHTS übrig, wird lieber die Ursprungsliste behalten als "keine E-Mail" zu
+                # melden — eine False-Positive-Ablehnung darf einen validen Lead nicht entwerten.
+                if zustellbar and email_verify.rcpt_check_enabled():
+                    ungeprueft = zustellbar
+                    zustellbar = []
+                    for e in ungeprueft:
+                        if email_verify.probe_mailbox(e) is False:
+                            steps.append(f"E-Mail-Postfach abgelehnt (SMTP-RCPT): {e}")
+                            continue
+                        zustellbar.append(e)
+                    if not zustellbar:
+                        zustellbar = ungeprueft
 
                 if zustellbar:
                     result["email_vorhanden"] = 1
@@ -425,6 +456,44 @@ def analyze(lead: dict) -> dict:
         result["bilder_vorhanden"] = 1 if has_bilder else 0
     else:
         result["bilder_vorhanden"] = 1 if maps_fotos else 0
+
+    # ── Schritt 3b: Maps-Enrichment — echte Fotos/Telefon/Adresse für Leads aus JEDER
+    # Quelle, nicht nur dem Maps-Scraper selbst. Additiv: füllt nur Lücken, überschreibt
+    # nie bereits von der eigenen Website gefundene Daten. Best-effort — ein Timeout/
+    # kein Treffer darf die Bewertung nie verzögern oder verschlechtern.
+    if (lead.get("finder") or "").strip() != "maps_playwright" or not result["foto_urls"]:
+        try:
+            from agents.evaluator import maps_enrichment
+            zusatz = maps_enrichment.enrich(lead)
+        except Exception:
+            zusatz = None
+        if zusatz:
+            if not result["foto_urls"] and zusatz.get("foto_urls"):
+                # maps_common liefert foto_urls als JSON-STRING (DB-Speicherformat, siehe
+                # db_raw/lead_key) — hier zu einer echten Liste parsen, sonst würde
+                # list(json_string) den String zeichenweise zerlegen.
+                try:
+                    maps_fotos_liste = json.loads(zusatz["foto_urls"]) \
+                        if isinstance(zusatz["foto_urls"], str) else list(zusatz["foto_urls"])
+                except Exception:
+                    maps_fotos_liste = []
+                if maps_fotos_liste:
+                    result["foto_url"]  = zusatz.get("foto_url", "")
+                    result["foto_urls"] = maps_fotos_liste
+                    result["bilder_vorhanden"] = 1
+                    steps.append("Maps-Enrichment: Fotos ergänzt")
+            if not result["telefon_verifiziert"] and zusatz.get("telefon") \
+                    and _telefon_plausibel(zusatz["telefon"]):
+                lead["telefon"] = zusatz["telefon"]
+                result["telefon_verifiziert"] = 1
+                steps.append("Maps-Enrichment: Telefon ergänzt")
+            if not (lead.get("adresse") or "").strip() and zusatz.get("adresse"):
+                lead["adresse"] = zusatz["adresse"]
+                steps.append("Maps-Enrichment: Adresse ergänzt")
+            if not (lead.get("anz_bewertungen") or 0) and zusatz.get("anz_bewertungen"):
+                lead["anz_bewertungen"] = zusatz["anz_bewertungen"]
+                lead["bewertung"]       = zusatz.get("bewertung", 0.0)
+                steps.append("Maps-Enrichment: Bewertungen ergänzt")
 
     if result["foto_url"]:
         logger.debug("WebAnalyst", f"→ Foto-URL: {result['foto_url']}")

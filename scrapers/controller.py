@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 from scrapers.regions import ALLE_REGIONEN, BRANCHEN, HIGH_VALUE
-from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal
+from scrapers import maps, gelbe_seiten, dasoertliche, elfacht, golocal, herold_worker
+from leadpackages.sources_dach import AT_STAEDTE
 from agents import ai_worker
 from agents.evaluator import pipeline as evaluator_pipeline
 import db_raw
@@ -125,6 +126,8 @@ def _spawn_evaluator() -> None:
     threading.Thread(target=_warmup_model, name="Ollama-Warmup", daemon=True).start()
     db_raw.init_db()
     db_raw.reset_stale()
+    from agents.evaluator import maps_enrichment
+    maps_enrichment.start_pool()
     # Max Threads = CPU-Kerne des PCs (so parallelisiert die Bewertung maximal; die
     # eigentlichen Ollama-Calls bleiben durch JARVIS_OLLAMA_PARALLEL geschützt).
     _default_eval = min(32, max(4, (os.cpu_count() or 4)))
@@ -177,8 +180,8 @@ def reevaluate_all() -> int:
 
 
 def get_combo_count() -> int:
-    """Anzahl aller Stadt×Branche-Kombinationen (Deutschland-weit)."""
-    return len(ALLE_REGIONEN) * len(BRANCHEN)
+    """Anzahl aller Stadt×Branche-Kombinationen (DACH: Deutschland + Österreich)."""
+    return (len(ALLE_REGIONEN) + len(AT_STAEDTE)) * len(BRANCHEN)
 
 
 def set_verifier_model(model: str) -> None:
@@ -205,7 +208,7 @@ def start() -> None:
     _active = True
     _persist_running(True)
 
-    logger.info("Controller", f"Starte {6} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
+    logger.info("Controller", f"Starte {7} Scraper-Worker + Evaluator | Combos: {get_combo_count():,}")
 
     # ~40.000 Combos (1000 Städte × 43 Branchen). Gemischt + in 6 Chunks
     # aufgeteilt — jeder Worker bekommt seinen eigenen Teil, keine Überlappung
@@ -231,23 +234,42 @@ def start() -> None:
         ch.sort(key=_prio)
     c1, c2, c3, c4, c5, c6 = chunks
 
-    # Worker 1: Google Maps (persistenter Browser)
+    # Österreich: eigener Combo-Pool, NUR an Quellen verteilt die AT tatsächlich abdecken
+    # (Maps + AI-Worker sind global, herold.at ist AT-spezifisch). Die 4 DE-Verzeichnis-
+    # Scraper (gelbeseiten.de/dasoertliche.de/11880.com/golocal.de) bekommen weiterhin
+    # AUSSCHLIESSLICH combos_de — für AT-Städte lägen dort nur 0-Treffer-Anfragen vor.
+    combos_at = list(itertools.product(AT_STAEDTE, BRANCHEN))
+    random.shuffle(combos_at)
+    k_at = max(1, len(combos_at) // 3)
+    at_maps, at_ai, at_herold = (
+        combos_at[:k_at], combos_at[k_at:2 * k_at], combos_at[2 * k_at:]
+    )
+    c1 = c1 + at_maps
+    c6 = c6 + at_ai
+    c1.sort(key=_prio)   # AT-Städte fehlen in _stadt_rang → rutschen ans Ende ihrer Branchen-Stufe
+    c6.sort(key=_prio)
+
+    # Worker 1: Google Maps (persistenter Browser) — DE + AT
     _spawn("Maps",         maps.run_continuous,          c1, max_per=20)
 
-    # Worker 2: Gelbe Seiten (versetzt 3s)
+    # Worker 2: Gelbe Seiten (versetzt 3s) — DE
     _spawn("GelbeSeit",    gelbe_seiten.run_continuous,  c2, delay=3,  max_per=20)
 
-    # Worker 3: Das Örtliche (versetzt 6s)
+    # Worker 3: Das Örtliche (versetzt 6s) — DE
     _spawn("DasOertliche", dasoertliche.run_continuous,  c3, delay=6,  max_per=15)
 
-    # Worker 4: 11880 (versetzt 9s)
+    # Worker 4: 11880 (versetzt 9s) — DE
     _spawn("Elfacht",      elfacht.run_continuous,       c4, delay=9,  max_per=20)
 
-    # Worker 5: golocal (versetzt 12s)
+    # Worker 5: golocal (versetzt 12s) — DE
     _spawn("Golocal",      golocal.run_continuous,       c5, delay=12, max_per=20)
 
-    # Worker 6: Lokale KI (Ollama, recherchiert via Websuche, versetzt 15s)
+    # Worker 6: Lokale KI (Ollama, recherchiert via Websuche, versetzt 15s) — DE + AT
     _spawn("AI",           ai_worker.run_continuous,     c6, delay=15, max_per=8)
+
+    # Worker 7: herold.at (österreichisches Branchenverzeichnis, versetzt 18s) — nur AT
+    if at_herold:
+        _spawn("HeroldAT", herold_worker.run_continuous, at_herold, delay=18, max_per=15)
 
     # Der frühere Verifier (auf der entfernten leads.db) ist abgeschafft — das
     # Evaluator-Team (db_evaluated) ist die kanonische Bewertungs-Pipeline.
@@ -275,6 +297,8 @@ def stop() -> None:
     # und noch in DB2 zu landen, bevor der Lead-Collector die Trefferzahl zählt.
     with _eval_lock:
         _evaluator_started = False
+    from agents.evaluator import maps_enrichment
+    maps_enrichment.stop_pool()
 
 
 def stop_scrapers() -> None:
@@ -296,6 +320,8 @@ def stop_evaluator() -> None:
     _stop_event.set()
     with _eval_lock:
         _evaluator_started = False
+    from agents.evaluator import maps_enrichment
+    maps_enrichment.stop_pool()
 
 
 def _on_lead(lead: dict) -> None:

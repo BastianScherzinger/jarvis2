@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import re
 
+from email_verify import BAD_LOCAL_PARTS as _BAD_LOCAL
+
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
-# Adressen, die kein echtes Postfach sind und nie verschickt werden sollen.
-_BAD_LOCAL = ("noreply", "no-reply", "donotreply", "postmaster", "abuse", "example",
-              "sentry", "wordpress", "@sentry", "@example", "@test")
 # Bevorzugte Postfächer (in dieser Reihenfolge) bei mehreren Treffern.
 _PREFER   = ("info@", "kontakt@", "office@", "mail@", "hallo@", "service@", "anfrage@")
 # Kontaktseiten, die zusätzlich zur Startseite nach E-Mails durchsucht werden.

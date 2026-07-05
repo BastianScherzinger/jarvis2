@@ -34,6 +34,13 @@ import socket
 import threading
 from typing import Optional
 
+# Adressen/Fragmente, die kein echtes Betriebs-Postfach sind (Substring-Match gegen die
+# komplette, kleingeschriebene Adresse) — zentrale Quelle für web_analyst.py und
+# contact_finder.py, die beide dieselben Fehlkandidaten (System-/Platzhalter-Adressen)
+# aus gescraptem HTML aussortieren müssen.
+BAD_LOCAL_PARTS = ("noreply", "no-reply", "donotreply", "postmaster", "abuse", "example",
+                   "sentry", "wordpress", "@sentry", "@example", "@test")
+
 # Kurzer Timeout — ein DNS-Lookup ist normalerweise Millisekunden. Bei bis zu 32 parallelen
 # Evaluator-Threads darf ein einzelner hängender Lookup nicht sekundenlang blockieren.
 _TIMEOUT = 3.0
@@ -148,3 +155,126 @@ def is_deliverable(email: str, timeout: float = _TIMEOUT) -> Optional[bool]:
     if not dom:
         return False
     return has_mx(dom, timeout)
+
+
+# ── Optionale zweite Stufe: SMTP-RCPT-Probe (kein DATA/Versand) ────────────────────────
+#
+# is_deliverable()/has_mx() prüft nur, ob die DOMAIN Mail annehmen kann — nicht, ob das
+# konkrete Postfach existiert. Genau das ist die wahrscheinlichste Ursache für "konnte
+# nicht zugestellt werden"-Bounces: Domain lebt, aber eine bestimmte, aus dem Impressum
+# gescrapte Adresse ist tot/falsch. probe_mailbox() prüft das zusätzlich per SMTP
+# (HELO/MAIL FROM/RCPT TO — OHNE DATA, es wird nie tatsächlich etwas verschickt).
+#
+# Bewusst Default AUS (JARVIS_SMTP_RCPT_CHECK): ausgehender Port 25 ist bei den meisten
+# Heim-/Cloud-Anschlüssen geblockt (Anti-Spam-Relay-Schutz der Provider) — dann liefert
+# diese Prüfung nur Timeouts (None) und kostet Zeit ohne Nutzen. Einmal gezielt auf
+# JARVIS_SMTP_RCPT_CHECK=1 setzen und in den Logs beobachten, ob echte Antworten kommen.
+import secrets
+import smtplib
+
+_MAILBOX_TIMEOUT = 5.0
+_mailbox_cache: dict[str, Optional[bool]] = {}
+_mailbox_cache_lock = threading.Lock()
+_catchall_cache: dict[str, bool] = {}
+_catchall_cache_lock = threading.Lock()
+
+
+def rcpt_check_enabled() -> bool:
+    """SMTP-RCPT-Probe aktiv? Default AUS — siehe Modul-Kommentar oben (Port 25 oft geblockt)."""
+    import os
+    return os.environ.get("JARVIS_SMTP_RCPT_CHECK", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _mx_host(domain: str, timeout: float) -> str:
+    """Bestpriorisierter Mailserver-Hostname, sonst die Domain selbst (impliziter A-Record-MX)."""
+    if _HAVE_DNS:
+        try:
+            res = _dnsresolver.Resolver()
+            res.timeout = timeout
+            res.lifetime = timeout
+            answers = res.resolve(domain, "MX")
+            if answers:
+                best = min(answers, key=lambda r: r.preference)
+                return str(best.exchange).rstrip(".")
+        except Exception:
+            pass
+    return domain
+
+
+def _rcpt_probe(domain: str, email: str, timeout: float) -> Optional[bool]:
+    import os
+    host = _mx_host(domain, timeout)
+    helo_domain = (os.environ.get("JARVIS_SMTP_HELO_DOMAIN") or "").strip() or "localhost"
+    sender = f"probe@{helo_domain}"
+    smtp: Optional[smtplib.SMTP] = None
+    try:
+        smtp = smtplib.SMTP(timeout=timeout)
+        smtp.connect(host, 25)
+        smtp.helo(helo_domain)
+        smtp.mail(sender)
+        code, _msg = smtp.rcpt(email)
+
+        # Catch-All-Erkennung: akzeptiert die Domain auch eine garantiert nicht existente
+        # Zufalls-Adresse, ist das RCPT-Ergebnis für die echte Adresse wertlos (jede Adresse
+        # würde "akzeptiert"). Pro Domain gecacht — spart die Zusatz-Probe bei weiteren
+        # Adressen derselben Domain.
+        with _catchall_cache_lock:
+            catchall = _catchall_cache.get(domain)
+        if catchall is None:
+            fake = f"nichtexistent-{secrets.token_hex(6)}@{domain}"
+            code2, _msg2 = smtp.rcpt(fake)
+            catchall = 200 <= code2 < 300
+            with _catchall_cache_lock:
+                _catchall_cache[domain] = catchall
+
+        if catchall:
+            return None                        # Domain nimmt alles an → keine verlässliche Aussage
+        if 200 <= code < 300:
+            return True
+        if 500 <= code < 600:
+            return False                       # definitiv abgelehnt (550/551/553 = Postfach unbekannt)
+        return None                            # 4xx (Greylisting etc.) → unklar, nicht blockieren
+    except (smtplib.SMTPException, OSError):
+        return None
+    except Exception:
+        return None
+    finally:
+        try:
+            if smtp:
+                smtp.quit()
+        except Exception:
+            pass
+
+
+def probe_mailbox(email: str, timeout: float = _MAILBOX_TIMEOUT) -> Optional[bool]:
+    """Zusätzliche SMTP-RCPT-Prüfung EINER konkreten Adresse — nur sinnvoll aufzurufen,
+    wenn is_deliverable()/has_mx() für die Domain bereits True ist (spart Verbindungen zu
+    Domains, die ohnehin schon als tot gelten). Gecacht pro Adresse. Blockiert NIE länger
+    als `timeout` (Daemon-Thread + hartes join-Timeout, analog has_mx())."""
+    e = (email or "").strip().lower()
+    dom = domain_of(e)
+    if not dom:
+        return False
+    with _mailbox_cache_lock:
+        if e in _mailbox_cache:
+            return _mailbox_cache[e]
+
+    box: list[Optional[bool]] = [None]
+    done = threading.Event()
+
+    def _worker() -> None:
+        try:
+            box[0] = _rcpt_probe(dom, e, timeout)
+        except Exception:
+            box[0] = None
+        finally:
+            done.set()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    if not done.wait(timeout + 1.0):
+        return None                            # Probe hängt → unklar, NICHT cachen
+    res = box[0]
+    if res is not None:
+        with _mailbox_cache_lock:
+            _mailbox_cache[e] = res
+    return res
