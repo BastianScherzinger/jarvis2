@@ -25,6 +25,8 @@ try:
 except Exception:
     logger = None
 
+from jsonstate import atomic_write_json
+
 _DATA = Path(os.environ.get("JARVIS_DATA_DIR", "data"))
 _CACHE_PATH = _DATA / "geocode_cache.json"
 
@@ -53,10 +55,7 @@ def _load() -> dict:
 
 def _save(d: dict) -> None:
     try:
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _CACHE_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, _CACHE_PATH)
+        atomic_write_json(_CACHE_PATH, d)
     except Exception:
         pass
 

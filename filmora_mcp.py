@@ -31,6 +31,8 @@ import threading
 import time
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 try:
     import httpx
     _HAS_HTTPX = True
@@ -75,8 +77,7 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     try:
-        _AUTH_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _AUTH_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(_AUTH_PATH, data, indent=2)
     except Exception as e:
         _log("warn", f"Speichern fehlgeschlagen: {type(e).__name__}")
 

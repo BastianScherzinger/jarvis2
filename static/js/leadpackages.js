@@ -5,6 +5,13 @@
 let _lpInitDone = false;
 let _lpBundleSize = null;
 
+// Lead-Stammdaten (Name/Stadt) kommen aus Scraping fremder Webseiten, Käufer/Fehler-
+// Texte aus Formular/Server — vor jedem innerHTML escapen (wie _e in app.js).
+function _lpe(s){
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function initLeadpackages(){
   if(_lpInitDone){ _lpLoadStats(); _lpLoadOrders(); return; }
   _lpInitDone = true;
@@ -40,7 +47,7 @@ function _lpLoadBranchen(){
   fetch('/api/leadpackages/branchen').then(r => r.json()).then(d => {
     const sel = document.getElementById('lp-branche');
     sel.innerHTML = '<option value="">Branche wählen…</option>' +
-      (d.branchen || []).map(b => `<option value="${b}">${b}</option>`).join('');
+      (d.branchen || []).map(b => `<option value="${_lpe(b)}">${_lpe(b)}</option>`).join('');
   }).catch(() => {});
 }
 
@@ -50,7 +57,7 @@ function _lpOnLandChange(){
     .then(r => r.json()).then(d => {
       const sel = document.getElementById('lp-region');
       sel.innerHTML = '<option value="">Alle Regionen</option>' +
-        (d.staedte || []).map(s => `<option value="${s}">${s}</option>`).join('');
+        (d.staedte || []).map(s => `<option value="${_lpe(s)}">${_lpe(s)}</option>`).join('');
     }).catch(() => {});
 }
 
@@ -75,7 +82,7 @@ function _lpLoadPreview(){
     });
     document.getElementById('lp-preview-desc').textContent = d.beschreibung || '';
     document.getElementById('lp-preview-sample').innerHTML = (d.vorschau || []).map(v =>
-      `<div class="lp-sample-row"><b>${v.name || ''}</b><span>${v.stadt || ''} · Score ${v.quality_score ?? 0}</span></div>`
+      `<div class="lp-sample-row"><b>${_lpe(v.name)}</b><span>${_lpe(v.stadt)} · Score ${v.quality_score ?? 0}</span></div>`
     ).join('') || '<div class="lp-sample-row">Keine Vorschau verfügbar.</div>';
     document.getElementById('lp-preview').style.display = 'flex';
     document.getElementById('lp-result').style.display = 'none';
@@ -102,12 +109,12 @@ function _lpPlaceOrder(){
     box.style.display = 'flex';
     if(!ok){
       box.classList.add('lp-error');
-      box.innerHTML = `<span>${d.error || 'Fehler bei der Bestellung.'}</span>`;
+      box.innerHTML = `<span>${_lpe(d.error) || 'Fehler bei der Bestellung.'}</span>`;
       return;
     }
     box.classList.remove('lp-error');
-    box.innerHTML = `<span>${d.geliefert} Datensätze · ${d.preis_euro} €</span>` +
-      `<a href="${d.download_url}" target="_blank">⬇ Herunterladen</a>`;
+    box.innerHTML = `<span>${_lpe(d.geliefert)} Datensätze · ${_lpe(d.preis_euro)} €</span>` +
+      `<a href="${_lpe(d.download_url)}" target="_blank" rel="noopener">⬇ Herunterladen</a>`;
     _lpLoadStats();
     _lpLoadOrders();
   }).catch(() => { btn.classList.remove('loading'); });
@@ -123,11 +130,11 @@ function _lpLoadOrders(){
     }
     wrap.innerHTML = orders.map(o => `
       <div class="lp-order-row">
-        <div class="lp-order-main">${o.branche} · ${o.region || o.land}
-          <small>${o.kaeufer} · ${o.bundle_size} Stk · ${(o.erstellt_am || '').replace('T', ' ')}</small>
+        <div class="lp-order-main">${_lpe(o.branche)} · ${_lpe(o.region || o.land)}
+          <small>${_lpe(o.kaeufer)} · ${_lpe(o.bundle_size)} Stk · ${_lpe((o.erstellt_am || '').replace('T', ' '))}</small>
         </div>
-        <div class="lp-order-price">${o.preis_euro} €</div>
-        <div class="lp-order-status ${o.status}">${o.status}</div>
+        <div class="lp-order-price">${_lpe(o.preis_euro)} €</div>
+        <div class="lp-order-status ${_lpe(o.status)}">${_lpe(o.status)}</div>
       </div>`).join('');
   }).catch(() => {});
 }

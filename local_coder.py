@@ -20,6 +20,8 @@ import json
 import os
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 MODEL_CLAUDE = "claude-opus-4-8"
 _MAX_STEPS   = int(os.environ.get("JARVIS_CODER_STEPS", "14") or "14")
 
@@ -202,7 +204,7 @@ def build_feature(folder: str, branche: str = "", name: str = "") -> dict:
         pass
     feature_backlog.mark_done(content, feat["key"])
     try:
-        cj.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(cj, content, indent=2)
     except Exception:
         pass
     _append_changelog(f, feat["label"], res.get("summary", ""))

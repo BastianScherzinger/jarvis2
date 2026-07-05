@@ -1104,8 +1104,13 @@ def test_server_config(monkeypatch):
     cfg = app.server_config()
     # Seit 05.07.2026 Default AN (waitress) — ohne jedes Flag lief zuvor dauerhaft der
     # Flask-Dev-Server, obwohl JARVIS permanent läuft (Backlog B6, SSE-getestet).
-    assert cfg["host"] == "0.0.0.0" and cfg["port"] == 5000 and cfg["prod"] is True
+    # Host-Default seit 05.07.2026 abends: 127.0.0.1 statt 0.0.0.0 — das Dashboard hat
+    # keine Auth, LAN-Zugriff nur noch per explizitem JARVIS_HOST.
+    assert cfg["host"] == "127.0.0.1" and cfg["port"] == 5000 and cfg["prod"] is True
     assert 8 <= cfg["threads"] <= 32
+    monkeypatch.setenv("JARVIS_HOST", "0.0.0.0")
+    assert app.server_config()["host"] == "0.0.0.0"
+    monkeypatch.delenv("JARVIS_HOST")
     monkeypatch.setenv("JARVIS_PORT", "8080")
     monkeypatch.setenv("JARVIS_THREADS", "16")
     monkeypatch.setenv("JARVIS_SERVER", "1")
@@ -2719,3 +2724,45 @@ def test_herold_worker_pausiert_und_erholt_sich_bei_fehlender_abhaengigkeit(monk
 
     assert any("_error" in e and "pausiert" in e["_error"] for e in events)
     assert calls["scrape"] >= 1   # nach Wiederverfügbarkeit lief das Scraping normal weiter
+
+
+# ── Enterprise-Pass 05.07.2026: jsonstate + Host-Default + Dead-Code-Wache ───
+
+def test_jsonstate_atomic_write(tmp_path):
+    """atomic_write_json: schreibt gültiges JSON, ersetzt Bestand, lässt kein .tmp zurück
+    und legt fehlende Elternordner an."""
+    import json
+    from jsonstate import atomic_write_json
+    p = tmp_path / "sub" / "state.json"
+    atomic_write_json(p, {"a": 1, "ü": "ä"})
+    assert json.loads(p.read_text(encoding="utf-8")) == {"a": 1, "ü": "ä"}
+    # Überschreiben: alter Stand wird komplett ersetzt, .tmp verschwindet.
+    atomic_write_json(p, {"b": 2}, indent=2)
+    assert json.loads(p.read_text(encoding="utf-8")) == {"b": 2}
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_jsonstate_used_by_state_writers():
+    """Die kritischen State-Writer (Kosten, Suppress-Liste, Claude-Budget) schreiben über
+    jsonstate atomar — Regression gegen Rückbau auf direktes write_text."""
+    import inspect
+    import claude_limit, cost_tracker, email_suppress
+    for mod, fn in ((claude_limit, claude_limit._write),
+                    (cost_tracker, cost_tracker._save),
+                    (email_suppress, email_suppress._save)):
+        src = inspect.getsource(fn)
+        assert "atomic_write_json" in src, f"{mod.__name__} schreibt nicht mehr atomar"
+        assert "write_text" not in src, f"{mod.__name__} schreibt wieder direkt"
+
+
+def test_dead_frontend_files_removed():
+    """brain.js/vault.js/pcm-processor.js waren tote Relikte (nirgends geladen, ihre APIs
+    /api/knowledge und /api/vault existieren nicht) — dürfen nur wieder auftauchen, wenn
+    sie auch wirklich in index.html eingebunden sind."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    index = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    for name in ("brain.js", "vault.js", "pcm-processor.js"):
+        f = root / "static" / "js" / name
+        if f.exists():
+            assert name in index, f"{name} existiert, wird aber nirgends geladen (Dead Code)"

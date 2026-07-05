@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import logger
+from jsonstate import atomic_write_json
 
 _BASE  = Path(__file__).parent
 _LATCH = _BASE / "data" / "extra_usage_state.json"
@@ -47,8 +48,7 @@ def _read_state() -> dict:
 
 def _write_state(d: dict) -> None:
     try:
-        _LATCH.parent.mkdir(parents=True, exist_ok=True)
-        _LATCH.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        atomic_write_json(_LATCH, d)
     except Exception:
         pass
 

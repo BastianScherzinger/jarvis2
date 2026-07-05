@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 
 import logger
+from jsonstate import atomic_write_json
 
 _BASE   = Path(__file__).parent
 _LATCH  = _BASE / "data" / "lead_collector_state.json"
@@ -107,9 +108,7 @@ def _last_run() -> float:
 
 def _mark_ran() -> None:
     try:
-        _LATCH.parent.mkdir(parents=True, exist_ok=True)
-        _LATCH.write_text(json.dumps({"last_run": time.time()}, ensure_ascii=False),
-                          encoding="utf-8")
+        atomic_write_json(_LATCH, {"last_run": time.time()})
     except Exception:
         pass
 

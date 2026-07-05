@@ -26,6 +26,8 @@ try:
 except Exception:
     pass
 
+from jsonstate import atomic_write_json
+
 _FILE = Path(__file__).resolve().parent / "data" / "claude_keys.json"
 _lock = threading.Lock()
 
@@ -73,10 +75,7 @@ def _read() -> dict:
 
 def _write(d: dict) -> None:
     try:
-        _FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, _FILE)
+        atomic_write_json(_FILE, d, indent=2)
     except Exception:
         pass
 

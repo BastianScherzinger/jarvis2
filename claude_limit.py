@@ -30,6 +30,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 _FILE = Path(__file__).resolve().parent / "data" / "claude_budget.json"
 
 # ── Konstanten ────────────────────────────────────────────────────────────────
@@ -91,8 +93,7 @@ def _read() -> dict:
 
 def _write(d: dict) -> None:
     try:
-        _FILE.parent.mkdir(parents=True, exist_ok=True)
-        _FILE.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        atomic_write_json(_FILE, d)
     except Exception:
         pass
 

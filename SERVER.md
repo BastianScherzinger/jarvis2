@@ -6,14 +6,14 @@ JARVIS läuft als Flask-App. Für Dauerbetrieb (Server/VPS/Container) den robust
 ## Schnellstart (Produktion)
 ```bash
 pip install -r requirements.txt        # enthält waitress
-python serve.py                        # 0.0.0.0:5000, waitress, mehrere Threads
+python serve.py                        # 127.0.0.1:5000, waitress, mehrere Threads
 ```
 `serve.py` setzt `JARVIS_SERVER=1`, kein Boot-Screen, kein Browser-Autostart.
 
 ## Konfiguration (Environment / .env)
 | Variable          | Default            | Zweck                                   |
 |-------------------|--------------------|-----------------------------------------|
-| `JARVIS_HOST`     | `0.0.0.0`          | Bind-Adresse                            |
+| `JARVIS_HOST`     | `127.0.0.1`        | Bind-Adresse. Das Dashboard hat keine Auth — nur bewusst per `0.0.0.0` ins LAN öffnen (oder besser: Reverse-Proxy mit Auth davor). |
 | `JARVIS_PORT`/`PORT` | `5000`          | Port                                    |
 | `JARVIS_THREADS`  | 2× CPU-Kerne (8–32)| waitress-Worker-Threads                 |
 | `JARVIS_SERVER`/`JARVIS_PROD` | –      | `1` = Produktionsserver (waitress)      |

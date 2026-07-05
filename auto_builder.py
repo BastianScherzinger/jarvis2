@@ -23,6 +23,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import logger
+from jsonstate import atomic_write_json
 
 _BASTIAN = "bastian.scherzinger05@gmail.com"
 _BASE     = Path(__file__).parent
@@ -247,8 +248,7 @@ def _load_log() -> dict:
 
 def _save_log(log: dict) -> None:
     try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _LOG_PATH.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(_LOG_PATH, log, indent=2)
     except Exception:
         pass
 

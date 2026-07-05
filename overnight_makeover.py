@@ -34,6 +34,7 @@ from pathlib import Path
 import claude_coder
 import claude_limit
 import logger
+from jsonstate import atomic_write_json
 
 # Modell für die Stufen — headless-Claude-Alias ('sonnet'/'opus') oder volle ID.
 # Sonnet = starkes Design bei moderaten Kosten; per .env auf 'opus' anhebbar.
@@ -309,13 +310,10 @@ def _read_content(folder: Path) -> dict:
 
 
 def _write_content(folder: Path, content: dict) -> None:
-    """Atomar schreiben: erst in .tmp, dann os.replace — ein Crash mitten im Schreiben kann
-    content.json so nie korrumpieren (Datenverlust-Schutz im Dauerbetrieb)."""
+    """Atomar schreiben (jsonstate) — ein Crash mitten im Schreiben kann content.json so
+    nie korrumpieren (Datenverlust-Schutz im Dauerbetrieb)."""
     try:
-        p = Path(folder) / "content.json"
-        tmp = p.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, p)
+        atomic_write_json(Path(folder) / "content.json", content, indent=2)
     except Exception:
         pass
 

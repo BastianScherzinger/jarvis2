@@ -131,15 +131,17 @@ Playwright+Chromium …). Blockiert den Start **nie**, nur Warnungen.
 
 **Server-Wahl** (`app.py::server_config()`):
 ```python
-host    = JARVIS_HOST (Default "0.0.0.0")
+host    = JARVIS_HOST (Default "127.0.0.1" — das Dashboard hat KEINE Auth; alle Routen
+          inkl. destruktiver wären bei 0.0.0.0 im ganzen LAN offen. LAN-Zugriff nur
+          bewusst per JARVIS_HOST=0.0.0.0.)
 port    = JARVIS_PORT / PORT (Default 5000)
 threads = JARVIS_THREADS (Default min(32, max(8, cpu_count()*2)))
-prod    = JARVIS_SERVER / JARVIS_PROD in ("1","true","yes","on","prod","production")
+prod    = Default True (waitress); nur explizite Aus-Werte ("0","false","no","off",
+          "dev","development") in JARVIS_SERVER/JARVIS_PROD schalten auf den Dev-Server
 ```
 Bei `prod=True` → `waitress.serve(...)`; sonst Flask-Dev-Server (`app.run(debug=False,
-threaded=True)`). **Ohne explizites Flag läuft also standardmäßig der Werkzeug-Dev-Server** —
-für ein dauerhaft lokal laufendes Dashboard unkritisch, aber offiziell nicht produktionsreif
-(siehe Backlog, Punkt B6).
+threaded=True)`). Seit 05.07.2026 ist waitress der Default (Backlog B6, SSE-verifiziert);
+der Werkzeug-Dev-Server ist nur noch der explizite Opt-out für lokale Entwicklung.
 
 Beim Modul-Import initialisiert `app.py` sofort `db_raw.init_db()`, `db_evaluated.init_db()`,
 `db_websites.init_db()`, `leadpackages_db.init_db()` und registriert das
@@ -502,7 +504,9 @@ Endkunden-Self-Service).
 **JS-Module** (`static/js/`): `app.js` (Kern: Routing, Chat, Voice, SSE, Mein-Status-Polling),
 `graph.js`/`globe.js` (D3/Three.js Lead-Visualisierung), `ranking.js`, `websites.js`,
 `claude.js`, `chatdock.js` (globales Popup), `video_studio.js`, `leadpackages.js`,
-`ad_video.js`, `brain.js` (Knowledge-Sphere aus `obsidian_brain/`), `vault.js`.
+`ad_video.js`. (`brain.js`, `vault.js` und `pcm-processor.js` waren tote Relikte des
+Schwesterprojekts — nirgends in `index.html` geladen, ihre APIs `/api/knowledge` und
+`/api/vault` existierten nie in `app.py` — am 05.07.2026 entfernt.)
 
 **Design-System** (`static/css/style.css`, CSS-Custom-Properties): `--bg/--bg2/--bg3/--bg4`
 (dunkle Blautöne), `--c` (Cyan `#00d4ff`, Akzent), `--g/--r/--y/--b/--pu` (Status-Farben),
@@ -572,11 +576,13 @@ Wichtigste Gruppen (vollständige Liste im Repo-Grep, hier nur die Kern-Schalter
 
 ## 16. Testabdeckung
 
-`tests/test_core.py` — Stand nach dem zweiten Durchlauf (Backlog B1–B11): **192 Tests, alle
-grün** (184 vor diesem Durchlauf + 8 neue für B1/B2/B4/B5/B7/B9, inkl. eines echten
-Concurrency-Stresstests mit 16 parallelen Threads und eines Migrations-Tests gegen eine
-simulierte Bestands-DB). Bekannter, seltener Flake: `test_deploy_respects_makeover_gate`
-(Cross-Test-Thread-Kollision, kein echter Bug, isoliert immer grün).
+`tests/test_core.py` — Stand nach dem Enterprise-Pass (Abschnitt 18a): **195 Tests, alle
+grün** (184 vor dem B1–B11-Durchlauf + 8 dafür + 3 neue für den Enterprise-Pass:
+atomares JSON-Schreiben, Regressions-Wache auf die kritischen State-Writer,
+Dead-Code-Wache für nie eingebundene JS-Dateien; der bestehende `test_server_config`
+prüft zusätzlich den neuen 127.0.0.1-Host-Default). Bekannter, seltener Flake:
+`test_deploy_respects_makeover_gate` (Cross-Test-Thread-Kollision, kein echter Bug,
+isoliert immer grün).
 
 ---
 
@@ -722,11 +728,48 @@ eine akzeptierte Produktentscheidung, kein Bug.
 
 ---
 
+## 18a. Enterprise-Pass (05.07.2026, dritter Durchlauf) — systemweiter Qualitäts-Audit
+
+Nach B1–B11 wurde das komplette System erneut nach dem Prioritätenschema
+Security → Datenintegrität → Stabilität → Dead Code auditiert. Ergebnis:
+
+**S1 — Dashboard-Bind-Adresse (Security, hoch).** Der Server band per Default auf
+`0.0.0.0` — bei einem Dashboard **ohne jede Authentifizierung** waren damit alle >100
+Routen (inkl. Löschen/Deploy/Chat mit 34 Tools) im gesamten LAN/WLAN offen. Default jetzt
+`127.0.0.1`; LAN-Zugriff nur noch bewusst per `JARVIS_HOST=0.0.0.0` (`app.py::server_config`,
+`SERVER.md`, `serve.py`).
+
+**S2 — Stored-XSS über Scraper-Daten (Security).** Lead-Namen/Städte stammen von fremden
+Webseiten. Drei Frontend-Stellen injizierten sie ungeescapt in `innerHTML`: Globus-Tooltip
+(`globe.js`), LeadForge-Vorschau/Bestellliste (`leadpackages.js`, komplett ohne Escape-Helfer)
+und Werbevideo-Fehler/Hashtags (`ad_video.js`). Alle drei Dateien escapen jetzt konsequent
+(eigene Helfer `_lpe`/`_ave` nach dem Muster von `_e` in `app.js`).
+
+**D1 — Atomares JSON-Schreiben (Datenintegrität).** 12 Module schrieben State-JSONs
+(Kosten, Claude-Budget, Suppress-Liste, Auth-Tokens, Latches, content.json) direkt in die
+Zieldatei — ein Crash mitten im Write hätte den Zustand vernichtet. Neues Modul
+`jsonstate.py` (`atomic_write_json`: tmp + `os.replace`), alle 16 JSON-State-Writer
+(12 direkte + 4 bereits atomare, jetzt DRY-konsolidiert) laufen darüber.
+
+**P1 — Dead Code + Doku-Drift.** `brain.js` (Wissenssphäre), `vault.js`, `pcm-processor.js`
+waren nie in `index.html` eingebunden; ihre APIs (`/api/knowledge`, `/api/vault`) existieren
+in `app.py` nicht — gelöscht. CLAUDE.md beschrieb den "Neural Core" fälschlich als aktives
+Feature (+ zwei Fehler-Tabellen-Zeilen des Schwesterprojekts) — korrigiert. Zusätzlich war
+die Server-Beschreibung in Abschnitt 5 dieser Datei noch auf dem Vor-B6-Stand — nachgezogen.
+
+**Geprüft und für in Ordnung befunden (keine Änderung nötig):** SQL nur parametrisiert bzw.
+mit internen Spalten-Whitelists; kein `shell=True`/`eval`/`pickle`; alle HTTP-Aufrufe mit
+Timeout; Path-Traversal-Schutz der Asset-Route korrekt; Locking-Disziplin durchgängig
+(40+ dedizierte Locks); Frontend-Poll-Timer werden beim Tab-Wechsel sauber abgeräumt;
+`EmailMessage`-API gegen Header-Injection; keine Mutable-Default-Args; keine TODO-Leichen.
+
+---
+
 ## 19. Datei-Index — wichtigste Module (Schnellreferenz)
 
 ```
 Boot/Infra:        start.py, install.py, startup_check.py, config.py, app.py, hardware.py,
-                   hardware_profile.py, cost_tracker.py, supabase_quota.py
+                   hardware_profile.py, cost_tracker.py, supabase_quota.py, jsonstate.py
 Scraping:          lead_collector.py, scrapers/{controller,maps,maps_common,gelbe_seiten,
                    dasoertliche,elfacht,golocal,herold_worker,website_checker,regions,_http,
                    synonyme}.py, agents/{quality,scorer,ai_worker,outreach,name_clean}.py,

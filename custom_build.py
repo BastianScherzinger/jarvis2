@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 import logger
+from jsonstate import atomic_write_json
 
 _BASE        = Path(__file__).parent
 _UPLOAD_BASE = _BASE / "workspace" / "custom_uploads"
@@ -229,7 +230,7 @@ def improve(job_id: str) -> dict:
             cj_path = Path(folder) / "content.json"
             content = json.loads(cj_path.read_text(encoding="utf-8"))
             content["custom_recipients"] = recipients
-            cj_path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(cj_path, content, indent=2)
         except Exception:
             pass
     ij = website_builder.makeover_existing(folder, name)

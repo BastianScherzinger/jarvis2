@@ -2,7 +2,7 @@
 """
 serve.py — Produktions-Start von JARVIS über den robusten waitress-WSGI-Server.
 
-  python serve.py                     # 0.0.0.0:5000 (oder JARVIS_PORT)
+  python serve.py                     # 127.0.0.1:5000 (oder JARVIS_HOST/JARVIS_PORT)
   JARVIS_PORT=8080 python serve.py    # eigener Port
   JARVIS_THREADS=16 python serve.py   # mehr Worker-Threads
 

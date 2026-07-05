@@ -94,6 +94,12 @@ function _avStartPoll(jobId){
   _avPoll = setInterval(tick, 1500);
 }
 
+// Fehlertexte/Hashtags stammen aus der (fremden) Ziel-Website — vor innerHTML escapen.
+function _ave(s){
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function _avRenderJob(job){
   const card = document.getElementById('av-job-card');
   const text = document.getElementById('av-jc-text');
@@ -103,7 +109,7 @@ function _avRenderJob(job){
   if(job.status === 'error'){
     card.classList.remove('running'); card.classList.add('err');
     spin.style.display = 'none';
-    text.innerHTML = '<span class="jc-x">✕ Fehler:</span> ' + (job.error || 'unbekannt');
+    text.innerHTML = '<span class="jc-x">✕ Fehler:</span> ' + _ave(job.error || 'unbekannt');
   }else if(job.status === 'done'){
     card.classList.remove('running');
     spin.style.display = 'none';
@@ -138,7 +144,7 @@ function _avShowResult(job){
 
   document.getElementById('av-caption').value = job.caption || '';
   document.getElementById('av-hashtags').innerHTML = (job.hashtags || [])
-    .map(h => '<span class="av-tag">' + h + '</span>').join('');
+    .map(h => '<span class="av-tag">' + _ave(h) + '</span>').join('');
 }
 
 function avCopyCaption(){
@@ -162,7 +168,7 @@ async function avLoadGallery(){
     const ads = d.ads || [];
     if(!ads.length){ grid.innerHTML = '<div class="media-empty">Noch keine Werbevideos gebaut.</div>'; return; }
     grid.innerHTML = ads.map(a =>
-      '<div class="media-card"><video src="' + a.url + '" muted preload="metadata" ' +
+      '<div class="media-card"><video src="' + _ave(a.url) + '" muted preload="metadata" ' +
       'onclick="this.paused ? this.play() : this.pause()"></video></div>'
     ).join('');
   }catch(e){ /* still */ }

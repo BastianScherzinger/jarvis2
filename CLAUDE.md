@@ -186,11 +186,12 @@ Das JARVIS-Dashboard hat folgende UI-Features die Sir direkt per Sprache oder Ch
 > `globe.js`, Three.js, adressgenaue Lead-Pins) — siehe `JARVIS2_ANALYSE.md`. Nie behaupten,
 > eine Satelliten-Ansicht zu haben.
 
-### Neural Core (Wissenssphäre)
-- Three.js 3D-Sphere links oben im Dashboard
-- Zeigt alle Dateien aus `obsidian_brain/` als Knoten-Netzwerk
-- Wächst automatisch mit jedem Tool-Call (Ollama schreibt Tagebucheinträge)
-- Stats: FILES / SECTIONS / MEMORY live angezeigt
+> **Korrektur 05.07.2026 (abends):** Auch der hier zuvor beschriebene "Neural Core
+> (Wissenssphäre)" existiert in jarvis2 **nicht** — `brain.js`/`vault.js` waren nie in
+> `index.html` eingebunden, ihre APIs (`/api/knowledge`, `/api/vault`) gab es in `app.py`
+> nie. Die toten Dateien (`brain.js`, `vault.js`, `pcm-processor.js`) wurden entfernt.
+> Das Wissens-Journal `obsidian_brain/` (Backend) existiert weiterhin, hat aber keine
+> eigene Dashboard-Visualisierung. Nie behaupten, eine Wissenssphäre zu haben.
 
 ### KI-Modul-Wähler (Topbar)
 - Dropdown-Button in der oberen Navigation ("KI")
@@ -351,9 +352,10 @@ JARVIS merkt sich jeden Fehler und verhindert Wiederholungen:
 | Browser-Timeout | Playwright nicht installiert | `playwright install chromium` |
 | `local_ai_worker` URLError | Ollama nicht gestartet | Zuerst `/api/tags` prüfen (3s), dann Chat |
 | SSE-Verbindung bricht ab | Tool-Call blockiert zu lang | Thread + Keepalive alle 2s (bereits implementiert) |
-| canvas nicht gerendert | brain-canvas ID falsch / wrap fehlt | ID muss `brain-canvas`, Klasse `brain-wrap` sein |
-| Satellit zeigt "Oops" | Google Maps API-Key fehlt/blockiert | Leaflet.js + ESRI-Tiles (kein Key nötig) |
 | Model Drop zeigt nichts | `model-drop` position:fixed fehlt | z-index:9000 + position:fixed |
+
+*(Zwei frühere Zeilen dieser Tabelle — `brain-canvas` und Satelliten-Ansicht — betrafen
+Features des alten Schwesterprojekts, die es in jarvis2 nie gab; am 05.07.2026 entfernt.)*
 
 ### Nach dem Fix
 1. Testen ob der Fehler wirklich weg ist

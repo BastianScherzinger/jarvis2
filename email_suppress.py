@@ -20,6 +20,8 @@ import threading
 import time
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 _PATH = Path(__file__).parent / "data" / "email_optout.json"
 _lock = threading.Lock()
 
@@ -83,8 +85,7 @@ def _load() -> dict:
 
 def _save(d: dict) -> None:
     try:
-        _PATH.parent.mkdir(parents=True, exist_ok=True)
-        _PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(_PATH, d, indent=2)
     except Exception:
         pass
 

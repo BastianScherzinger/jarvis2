@@ -39,6 +39,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 import logger
+from jsonstate import atomic_write_json
 from scrapers import _http
 
 _BASE   = Path(__file__).resolve().parent
@@ -84,8 +85,7 @@ def _read_store() -> dict:
 
 def _write_store(d: dict) -> None:
     try:
-        _STORE.parent.mkdir(parents=True, exist_ok=True)
-        _STORE.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(_STORE, d, indent=2)
     except Exception:
         pass
 

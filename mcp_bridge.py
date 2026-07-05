@@ -25,6 +25,7 @@ from pathlib import Path
 import logger
 import local_tools
 import feature_backlog
+from jsonstate import atomic_write_json
 
 try:
     import ollama as _ollama
@@ -162,7 +163,7 @@ def build_feature(folder: str, branche: str = "", name: str = "") -> dict:
     try:
         content = json.loads(cj.read_text(encoding="utf-8"))
         feature_backlog.mark_done(content, feat["key"])
-        cj.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(cj, content, indent=2)
     except Exception:
         pass
     try:

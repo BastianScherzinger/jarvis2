@@ -593,11 +593,13 @@ function _globeTip(){
   const hit = g.ray.intersectObjects(objs, false)[0];
   if(hit && !g.dragging){
     const u=hit.object.userData, l=u.info;
+    // Lead-Daten kommen aus Scraping (fremde Webseiten) — vor innerHTML immer escapen.
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     if(u.lead){
-      tip.innerHTML = `<b>${l.name||'?'}</b><br>${l.branche||''}`
-        + `${(l.branche&&l.stadt)?' · ':''}${l.stadt||''}`;
+      tip.innerHTML = `<b>${esc(l.name)||'?'}</b><br>${esc(l.branche)}`
+        + `${(l.branche&&l.stadt)?' · ':''}${esc(l.stadt)}`;
     } else {
-    tip.innerHTML = `<b>${(l.stadt||'?')}</b><br>${l.n} Lead${l.n===1?'':'s'} · `
+    tip.innerHTML = `<b>${esc(l.stadt)||'?'}</b><br>${l.n} Lead${l.n===1?'':'s'} · `
       + `<span style="color:#ff5a4e">${l.hot} Hot</span> · <span style="color:#ffd24d">${l.warm} Warm</span> · <span style="color:#4dc3ff">${l.cold} Cold</span>`;
     }
     const rect=g.cv.getBoundingClientRect();

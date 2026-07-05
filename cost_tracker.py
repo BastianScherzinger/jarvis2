@@ -13,6 +13,8 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 _BASE    = Path(__file__).parent
 _DB_PATH = _BASE / "data" / "costs.json"
 _lock    = threading.Lock()
@@ -58,8 +60,7 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     try:
-        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _DB_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(_DB_PATH, data, indent=2)
     except Exception:
         pass
 

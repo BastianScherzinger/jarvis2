@@ -2123,7 +2123,10 @@ def api_stream():
 
 def server_config() -> dict:
     """Server-Konfiguration aus der Umgebung (.env via config.load_dotenv).
-      JARVIS_HOST   (Default 0.0.0.0)
+      JARVIS_HOST   (Default 127.0.0.1 — das Dashboard hat KEINE Authentifizierung;
+                     alle Routen inkl. destruktiver (Löschen/Deploy/Chat-Tools) wären
+                     bei 0.0.0.0 im gesamten LAN offen. Wer bewusst von einem anderen
+                     Gerät zugreifen will, setzt JARVIS_HOST=0.0.0.0 in der .env.)
       JARVIS_PORT / PORT  (Default 5000)
       JARVIS_THREADS  (Default = 2× CPU-Kerne, 8–32)
       JARVIS_SERVER / JARVIS_PROD  → Produktionsmodus (waitress statt Dev-Server).
@@ -2132,7 +2135,7 @@ def server_config() -> dict:
       gegen die SSE-Streaming-Routen (Claude-Chat) verifiziert: Chunks kommen progressiv an,
       kein Puffern (siehe JARVIS2_ANALYSE.md, Backlog B6). Explizit abschaltbar mit
       JARVIS_SERVER=0 (z.B. für den Werkzeug-Debug-Reloader in der lokalen Entwicklung)."""
-    host = os.environ.get("JARVIS_HOST", "0.0.0.0")
+    host = (os.environ.get("JARVIS_HOST") or "").strip() or "127.0.0.1"
     try:
         port = int(os.environ.get("JARVIS_PORT") or os.environ.get("PORT") or 5000)
     except ValueError:

@@ -17,6 +17,8 @@ import time
 import uuid
 from pathlib import Path
 
+from jsonstate import atomic_write_json
+
 _BASE = Path(__file__).parent
 _PATH = _BASE / "data" / "reviews.json"
 _lock = threading.Lock()
@@ -34,10 +36,7 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     try:
-        _PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(_PATH)
+        atomic_write_json(_PATH, data, indent=2)
     except Exception:
         pass
 
