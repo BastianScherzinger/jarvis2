@@ -51,13 +51,17 @@ def run_continuous(all_combos: list[tuple], on_lead, stop_event, max_per: int = 
                     logger.success("Herold", "curl_cffi jetzt verfügbar — Worker läuft an.")
                     on_lead({"_activity": "herold.at: Abhängigkeit gefunden, läuft jetzt."})
             except ImportError as e:
+                # Das tatsächlich fehlende Modul (z.B. browserforge, curl_cffi) direkt aus dem
+                # ImportError ziehen — vorher war "pip install curl_cffi" fest verdrahtet und
+                # irreführend, wenn in Wahrheit ein anderes transitives scrapling-Modul fehlte.
+                missing = getattr(e, "name", None) or "curl_cffi"
                 if not dep_missing_logged:
                     on_lead({"_error": f"herold.at-Worker pausiert — Abhängigkeit fehlt: {e}. "
-                                       f"Beheben mit: pip install curl_cffi "
+                                       f"Beheben mit: pip install {missing} "
                                        f"(prüft automatisch alle 30 Min erneut)"})
                     logger.error("Herold", f"Abhängigkeit fehlt ({e}) — pausiert, prüft "
                                           f"automatisch alle 30 Min erneut. "
-                                          f"Beheben mit: pip install curl_cffi")
+                                          f"Beheben mit: pip install {missing}")
                     dep_missing_logged = True
                 if stop_event.wait(_DEP_RECHECK_INTERVAL):
                     break

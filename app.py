@@ -1273,8 +1273,8 @@ def api_claude_chat():
     return Response(
         stream_with_context(event_stream()),
         mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
-                 "Connection": "keep-alive"},
+        # KEIN "Connection"-Header (hop-by-hop, PEP 3333) — bricht sonst unter waitress ab.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -2116,7 +2116,9 @@ def api_stream():
         headers={
             "Cache-Control":     "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection":        "keep-alive",
+            # KEIN "Connection"-Header: das ist ein hop-by-hop-Header (PEP 3333) und lässt
+            # waitress bei JEDER SSE-Anfrage mit AssertionError abbrechen. Der WSGI-Server
+            # verwaltet die Verbindung selbst — Keepalive läuft über die 20s-Stats-Events.
         },
     )
 

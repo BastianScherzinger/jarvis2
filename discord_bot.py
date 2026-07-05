@@ -7,9 +7,9 @@ Ablauf:
      👍 (Daumen hoch) / 👎 (Daumen runter).
   3. Erreichen die 👍 die Schwelle (DISCORD_APPROVALS_NEEDED, Default 1) ohne ein
      einziges 👎-Veto, gilt die Seite als FREIGEGEBEN.
-  4. Täglich um DISCORD_SEND_HOUR (Default 12 Uhr) gehen alle freigegebenen Seiten an
-     die ECHTE Kundenadresse (umgeht bewusst JARVIS_EMAIL_REDIRECT — das Voting ist
-     die Sicherung).
+  4. An jedem konfigurierten Versand-Slot (DISCORD_SEND_HOURS, Default 9/12/15/18 Uhr —
+     mehrmals täglich) gehen alle freigegebenen Seiten an die ECHTE Kundenadresse
+     (umgeht bewusst JARVIS_EMAIL_REDIRECT — das Voting ist die Sicherung).
 
 Robust: Ohne installiertes `discord.py` oder ohne DISCORD_BOT_TOKEN ist der Bot ein
 No-op (`enabled()` = False); der Auto-Builder fällt dann auf den alten Weg zurück
@@ -58,11 +58,45 @@ def _owners() -> list:
     return [x.strip() for x in os.environ.get("DISCORD_OWNER_IDS", "").split(",") if x.strip()]
 
 
+def _send_hours() -> list[int]:
+    """Alle Versand-Slots (Stunden 0–23) für den Tagesversand — mehrere erlaubt, damit
+    freigegebene Seiten MEHRMALS täglich rausgehen statt nur einmal um 12 Uhr.
+
+    Priorität:
+      1. DISCORD_SEND_HOURS  — Komma-Liste, z.B. "9,12,15,18"
+      2. DISCORD_SEND_HOUR   — einzelne Stunde (Abwärtskompatibilität)
+      3. Default             — 9, 12, 15, 18 Uhr
+    """
+    raw = (os.environ.get("DISCORD_SEND_HOURS") or "").strip()
+    if not raw and "DISCORD_SEND_HOUR" in os.environ:
+        raw = (os.environ.get("DISCORD_SEND_HOUR") or "").strip()
+    if not raw:
+        raw = "9,12,15,18"
+    hours = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            h = int(part)
+        except ValueError:
+            continue
+        if 0 <= h <= 23:
+            hours.append(h)
+    return sorted(set(hours)) or [12]
+
+
 def _send_hour() -> int:
-    try:
-        return max(0, min(23, int(os.environ.get("DISCORD_SEND_HOUR", "12") or "12")))
-    except ValueError:
-        return 12
+    """Primärer (erster) Versand-Slot — für Anzeige-Zwecke, wo nur eine Stunde passt."""
+    return _send_hours()[0]
+
+
+def _send_hours_label() -> str:
+    """Menschenlesbare Liste aller Versand-Slots, z.B. '9:00, 12:00, 15:00 & 18:00 Uhr'."""
+    hs = _send_hours()
+    if len(hs) == 1:
+        return f"{hs[0]}:00 Uhr"
+    return ", ".join(f"{h}:00" for h in hs[:-1]) + f" & {hs[-1]}:00 Uhr"
 
 
 def enabled() -> bool:
@@ -77,39 +111,72 @@ def auto_send() -> bool:
     return os.environ.get("JARVIS_AUTO_SEND", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 
-# ── Mittags-Report-Latch: Report nur EINMAL pro Tag posten ─────────────────────
-# Verhindert den doppelten 12-Uhr-Report (z.B. wenn die App um 12 Uhr neu startet und der
-# tasks.loop erneut feuert). Persistiert das letzte Report-Datum lokal.
+# ── Versand-Latch: pro Stunden-Slot EINMAL versenden ───────────────────────────
+# Verhindert Doppelversand innerhalb desselben Slots (z.B. wenn die App zur Versandstunde
+# neu startet und Task-Loop + Watchdog beide feuern). Persistiert Datum + bereits erledigte
+# Slots lokal. Früher nur ein Tages-Latch → nur ein Versand pro Tag möglich.
 from pathlib import Path as _Path
 _NOON_STATE = _Path(__file__).parent / "data" / "noon_state.json"
 
 
-def _noon_ran_today() -> bool:
+def _load_noon_state() -> dict:
     try:
         import json as _j
-        from datetime import date as _d
         data = _j.loads(_NOON_STATE.read_text(encoding="utf-8"))
-        return data.get("date") == _d.today().isoformat()
+        return data if isinstance(data, dict) else {}
     except Exception:
+        return {}
+
+
+def _slot_ran(hour: int) -> bool:
+    """True, wenn der Versand-Slot dieser Stunde HEUTE bereits gelaufen ist."""
+    from datetime import date as _d
+    data = _load_noon_state()
+    if data.get("date") != _d.today().isoformat():
         return False
+    return int(hour) in (data.get("hours") or [])
 
 
-def _mark_noon_ran() -> None:
+def _mark_slot_ran(hour: int) -> None:
+    """Markiert den Stunden-Slot als heute erledigt (Datum-Wechsel setzt die Liste zurück)."""
     try:
         import json as _j
         from datetime import date as _d
+        today = _d.today().isoformat()
+        data = _load_noon_state()
+        hours = list(data.get("hours") or []) if data.get("date") == today else []
+        if int(hour) not in hours:
+            hours.append(int(hour))
         _NOON_STATE.parent.mkdir(parents=True, exist_ok=True)
-        _NOON_STATE.write_text(_j.dumps({"date": _d.today().isoformat(),
+        _NOON_STATE.write_text(_j.dumps({"date": today, "hours": sorted(hours),
                                          "ts": __import__("time").time()}, ensure_ascii=False),
                                encoding="utf-8")
     except Exception:
         pass
 
 
+def _due_slots() -> list[int]:
+    """Heute fällige, noch nicht versendete Slots (Versandstunde ≤ jetzt), aufsteigend."""
+    now_h = datetime.now().hour
+    return [h for h in _send_hours() if now_h >= h and not _slot_ran(h)]
+
+
+def _noon_ran_today() -> bool:
+    """Abwärtskompatibel: True, wenn HEUTE mindestens ein Slot versendet wurde."""
+    from datetime import date as _d
+    data = _load_noon_state()
+    return data.get("date") == _d.today().isoformat() and bool(data.get("hours"))
+
+
+def _mark_noon_ran() -> None:
+    """Abwärtskompatibel: markiert den aktuellen Stunden-Slot als erledigt."""
+    _mark_slot_ran(datetime.now().hour)
+
+
 def status() -> dict:
     return {
         "has_lib": _HAS_DISCORD, "enabled": enabled(), "running": _started,
-        "channel": _channel_id(), "send_hour": _send_hour(),
+        "channel": _channel_id(), "send_hour": _send_hour(), "send_hours": _send_hours(),
         "needed": int(os.environ.get("DISCORD_APPROVALS_NEEDED", "1") or "1"),
         "auto_send": auto_send(),
         "reviews": rq.stats(),
@@ -548,18 +615,18 @@ if _HAS_DISCORD:
         auto = auto_send()
         if st == rq.APPROVED:
             if auto:
-                e.set_footer(text=f"✅ Automatisch freigegeben — Versand um {_send_hour()}:00 an den "
+                e.set_footer(text=f"✅ Automatisch freigegeben — Versand um {_send_hours_label()} an den "
                                   "Kunden. 👎 stoppt den Versand.")
             else:
-                e.set_footer(text=f"✅ Freigegeben — Versand heute um {_send_hour()}:00 an den Kunden.")
+                e.set_footer(text=f"✅ Freigegeben — Versand heute um {_send_hours_label()} an den Kunden.")
         elif st == rq.REJECTED:
             e.set_footer(text="❌ Ein 👎 ist ein Veto — diese Seite wird nicht versendet.")
         elif st == rq.SENT:
             e.set_footer(text="📨 Versendet.")
         elif auto:
-            e.set_footer(text=f"⚙️ Auto-Send aktiv — geht um {_send_hour()}:00 automatisch raus. 👎 stoppt sie.")
+            e.set_footer(text=f"⚙️ Auto-Send aktiv — geht um {_send_hours_label()} automatisch raus. 👎 stoppt sie.")
         else:
-            e.set_footer(text=f"👍 {needed}× Daumen hoch (ohne 👎) gibt die Seite frei · Versand um {_send_hour()}:00")
+            e.set_footer(text=f"👍 {needed}× Daumen hoch (ohne 👎) gibt die Seite frei · Versand um {_send_hours_label()}")
         return e
 
     class VoteButton(discord.ui.DynamicItem[discord.ui.Button],
@@ -676,7 +743,7 @@ if _HAS_DISCORD:
             e.add_field(name="🗳️ Offene Reviews",
                         value=str(pending) if pending else "Keine", inline=True)
             foot = ("JARVIS startet automatisch bei 0 Uhr neu · "
-                    + (f"Auto-Send AN — Versand {_send_hour()}:00 ohne Bestätigung"
+                    + (f"Auto-Send AN — Versand {_send_hours_label()} ohne Bestätigung"
                        if auto_send() else "Abstimmung: 1× 👍 = Freigabe"))
             e.set_footer(text=foot)
             await ch.send(embed=e)
@@ -760,7 +827,7 @@ if _HAS_DISCORD:
         ts = _dt.now().strftime("%d.%m.%Y · %H:%M")
         color = 0x2ecc71 if sent else 0x95a5a6
         e = discord.Embed(
-            title=f"📨 {_send_hour()}-Uhr-Versand — {sent} Webseite{'n' if sent != 1 else ''} an Kunden verschickt",
+            title=f"📨 {_dt.now().hour}-Uhr-Versand — {sent} Webseite{'n' if sent != 1 else ''} an Kunden verschickt",
             description=(f"🕐 {ts}\nDiese frisch freigegebenen Webseiten sind heute "
                          f"an die echten Kunden rausgegangen:" if sent
                          else f"🕐 {ts}\nKeine neuen Freigaben zum Versand."),
@@ -782,7 +849,7 @@ if _HAS_DISCORD:
             fl = "\n".join(f"• {f.get('name','?')}: {f.get('info','—')}" for f in fails[:10])
             e.add_field(name=f"⚠️ {len(fails)} offen / übersprungen", value=fl, inline=False)
         foot = ("JARVIS LeadHunter · Auto-Send → Versand automatisch an den Kunden"
-                if auto_send() else "JARVIS LeadHunter · Freigabe per 👍 → Versand 12 Uhr an den Kunden")
+                if auto_send() else f"JARVIS LeadHunter · Freigabe per 👍 → Versand {_send_hours_label()} an den Kunden")
         e.set_footer(text=foot)
         return e
 
@@ -798,22 +865,28 @@ if _HAS_DISCORD:
         except Exception as ex:
             logger.warn("Discord", f"12-Uhr-Report fehlgeschlagen: {type(ex).__name__}")
 
-    @tasks.loop(time=dtime(hour=_send_hour(), minute=0))
+    # Mehrere Versand-Zeitpunkte pro Tag (discord.py tasks.loop akzeptiert eine Liste von
+    # times). Feuert an jedem konfigurierten Slot; welcher gemeint ist, ergibt sich aus der
+    # aktuellen Stunde.
+    _SEND_TIMES = [dtime(hour=h, minute=0) for h in _send_hours()]
+
+    @tasks.loop(time=_SEND_TIMES)
     async def _noon_loop():
-        # Tages-Latch: Report nur EINMAL pro Tag (verhindert Doppel-Post bei Neustart um 12 Uhr).
-        if _noon_ran_today():
-            logger.info("Discord", "12-Uhr-Report heute bereits gepostet — übersprungen.")
+        slot = datetime.now().hour
+        # Slot-Latch: pro Stunde nur EINMAL (verhindert Doppel-Post bei Neustart zur Slot-Zeit).
+        if _slot_ran(slot):
+            logger.info("Discord", f"{slot}-Uhr-Report heute bereits gepostet — übersprungen.")
             return
         # WICHTIG: der ganze Body ist gekapselt. Eine unbehandelte Exception würde sonst
         # die tasks.loop DAUERHAFT stoppen (Grund, warum der Versand früher „nach 2 Tagen"
-        # aufhörte). Latch erst NACH dem Versand — ein Crash darf den Tag nicht verbrennen.
+        # aufhörte). Latch erst NACH dem Versand — ein Crash darf den Slot nicht verbrennen.
         try:
             res = await asyncio.to_thread(send_approved_now)
-            _mark_noon_ran()
+            _mark_slot_ran(slot)
             await _post_noon_report(res)
         except Exception as ex:
             import traceback
-            logger.error("Discord", f"12-Uhr-Versand-Fehler: {type(ex).__name__}: {str(ex)[:160]}")
+            logger.error("Discord", f"{slot}-Uhr-Versand-Fehler: {type(ex).__name__}: {str(ex)[:160]}")
             logger.debug("Discord", "Traceback: "
                          + traceback.format_exc().strip().replace(chr(10), " | ")[-400:])
 
@@ -842,27 +915,31 @@ if _HAS_DISCORD:
     _last_retry_ts = [0.0]
 
     def _noon_watchdog_loop():
-        """Unabhängiger Sicherheits-Auslöser für den Tagesversand: prüft jede Minute, ob die
-        Versandstunde erreicht und heute noch nicht versendet wurde — und stößt den Versand
-        dann an, SELBST wenn der discord.py-Task-Loop gestorben oder der Bot getrennt ist.
-        Der Versand (Mailer) hängt nicht an Discord; der Report wird best-effort nachgereicht.
-        Nach dem Tagesversand holt derselbe Loop periodisch alle noch offenen (ratenlimitierten)
-        Reviews nach — sonst blieben sie bis zum nächsten Tag oder für immer unversendet liegen."""
+        """Unabhängiger Sicherheits-Auslöser für JEDEN Versand-Slot: prüft jede Minute, ob ein
+        konfigurierter Slot erreicht und heute noch nicht versendet wurde — und stößt den Versand
+        dann an, SELBST wenn der discord.py-Task-Loop gestorben oder der Bot getrennt ist. Ein
+        verpasster Slot (z.B. App startet 14:25, Slot 12 und 15 wären fällig) wird beim nächsten
+        Tick nachgeholt. Der Versand (Mailer) hängt nicht an Discord; der Report wird best-effort
+        nachgereicht. Zwischen den Slots holt derselbe Loop periodisch noch offene
+        (ratenlimitierte) Reviews nach — sonst blieben sie bis zum nächsten Slot liegen."""
         import time as _t
         _t.sleep(90)                                  # App-/Bot-Start abwarten
         while True:
             try:
-                if enabled() and datetime.now().hour >= _send_hour() and not _noon_ran_today():
-                    logger.info("Discord", f"{_send_hour()}-Uhr-Versand (Sicherheits-Watchdog) — "
+                due = _due_slots() if enabled() else []
+                if due:
+                    slot = due[-1]                    # jüngster fälliger Slot bestimmt das Log
+                    logger.info("Discord", f"{slot}-Uhr-Versand (Sicherheits-Watchdog) — "
                                            "hole nach (Task-Loop hat nicht ausgelöst).")
                     res = send_approved_now()
-                    _mark_noon_ran()
+                    for h in due:                     # alle fälligen Slots als erledigt markieren
+                        _mark_slot_ran(h)
                     try:
                         if _loop is not None and (res.get("sent") or res.get("total")):
                             asyncio.run_coroutine_threadsafe(_post_noon_report(res), _loop)
                     except Exception:
                         pass
-                elif enabled() and _noon_ran_today():
+                elif enabled():
                     now = _t.time()
                     if now - _last_retry_ts[0] >= _RETRY_INTERVAL and rq.approved_unsent():
                         _last_retry_ts[0] = now

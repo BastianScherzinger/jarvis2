@@ -24,6 +24,10 @@ scrapling>=0.4.9
 # schlug bei JEDER Anfrage mit ModuleNotFoundError fehl). Explizit pinnen, damit es garantiert
 # mitkommt statt sich auf scrapling's eigene Extras zu verlassen.
 curl_cffi>=0.7.0
+# scrapling.fetchers zieht ausserdem browserforge (Browser-Fingerprint-Generierung) nach —
+# fehlte auf einer Zweit-Maschine als "No module named 'browserforge'", wodurch der
+# herold.at-Worker dauerhaft pausierte. Wie curl_cffi explizit pinnen, damit es mitkommt.
+browserforge>=1.2.0
 rapidfuzz>=3.14.0
 openpyxl>=3.1.0
 # Optional (nur fuer die MCP-Bruecke der lokalen KIs): pip install mcp ollama

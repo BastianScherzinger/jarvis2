@@ -794,13 +794,13 @@ def _farewell_if_done() -> None:
         try:
             import discord_bot as _db
             auto = _db.auto_send()
-            hour = _db._send_hour()
+            when = _db._send_hours_label()
         except Exception:
-            auto, hour = False, 12
+            auto, when = False, "12:00 Uhr"
         if auto:
             # Auto-Send: nichts wartet auf 👍 — freigegebene Seiten gehen automatisch raus.
             if appr:
-                status_line.append(f"⚙️ {appr} gehen um {hour}:00 automatisch an die Kunden")
+                status_line.append(f"⚙️ {appr} gehen um {when} automatisch an die Kunden")
         elif pend:
             status_line.append(f"🕓 {pend} warten noch auf deine Freigabe (👍)")
         if status_line:
