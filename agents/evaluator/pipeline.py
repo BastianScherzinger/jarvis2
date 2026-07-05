@@ -37,13 +37,24 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
         raw_id = lead["id"]
         try:
             _t0 = time.time()
-            logger.eval_("Evaluator", f"Prüfe: {lead.get('name')} ({lead.get('stadt')})")
+            _nm = lead.get("name") or "?"
+            logger.eval_("Evaluator", f"Prüfe: {_nm} ({lead.get('stadt')})")
+            # Jeder der 3 Agenten meldet Start UND Ergebnis mit EIGENEM Worker-Namen —
+            # so reagiert im Graph pro Agent eine eigene Station (ANALYSE/RECHERCHE/SCORING)
+            # und wirklich jeder Bewertungs-Schritt wird als Punkt sichtbar.
             # Agent 1: Website TIEF analysieren (findet Website aktiv, EINE Suche)
+            logger.eval_("WebAnalyst", f"→ Website-Analyse: {_nm}")
             web    = analyze(lead)
+            logger.eval_("WebAnalyst",
+                         f"✓ {_nm}: Website {'gefunden' if int(web.get('has_website', 0)) else 'KEINE'}"
+                         f" · Bilder {'ja' if int(web.get('bilder_vorhanden', 0)) else 'nein'}")
             # Agent 2: Social + Firmengröße — nutzt die Treffer von Agent 1 (keine 2. Suche)
+            logger.eval_("SocialRes", f"→ Social-Recherche: {_nm}")
             social = research(lead, web.get("search_hits"))
-            logger.debug("SocialRes", f"Social: {list(social.get('social_media',{}).keys())}")
+            logger.eval_("SocialRes",
+                         f"✓ {_nm}: {', '.join(social.get('social_media', {}).keys()) or 'kein Social'}")
             # Agent 3: differenzierter Score + Ollama-Feinschliff + Pitch
+            logger.eval_("ScoreWriter", f"→ Scoring: {_nm}")
             scored = evaluate(lead, web, social)
 
             # web überschreibt die (oft falschen) Scraper-Werte

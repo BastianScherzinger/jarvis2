@@ -35,6 +35,23 @@ leadpackages_db.init_db()
 leadpackages_routes.register(app)
 
 
+# ── Statische JS/CSS immer revalidieren ───────────────────────────────────────
+# Ohne dies cacht der Browser pipeline.js/style.css hart und zeigt nach einem Update
+# die ALTE Version, bis der Nutzer manuell hart neu lädt (Ctrl+Shift+R). „no-cache"
+# heisst NICHT „nie cachen", sondern „vor Nutzung beim Server rückfragen" — dank ETag
+# kommt ein schlankes 304 zurück, wenn sich nichts geändert hat. So sieht Sir jede
+# Frontend-Änderung sofort nach einem normalen Reload, ohne Performance-Verlust.
+@app.after_request
+def _revalidate_static(resp):
+    try:
+        p = request.path or ""
+        if p.startswith("/static/") and (p.endswith(".js") or p.endswith(".css")):
+            resp.headers["Cache-Control"] = "no-cache"
+    except Exception:
+        pass
+    return resp
+
+
 # ── HTTP-Zugriffslog entrümpeln ───────────────────────────────────────────────
 # Der Flask-Dev-Server (Werkzeug) loggt JEDEN Request. Das Dashboard pollt einige
 # Status-Endpunkte im Sekundentakt → 95 % des Logs sind identische „GET … 200"-Zeilen,
@@ -1930,6 +1947,20 @@ def api_home_stats():
     building = sum(1 for s in sites if s.get("status") in ("queued", "running"))
     errors   = sum(1 for s in sites if s.get("status") == "error")
     sent     = sum(1 for s in sites if s.get("email_sent"))
+    # Versand-Warteschlange (Freigabe-Gate): wie viele Seiten warten auf den nächsten
+    # Sende-Vorgang. pending = noch nicht freigegeben, approved = freigegeben & sendebereit.
+    review = {"pending": 0, "approved": 0, "rejected": 0, "sent": 0}
+    try:
+        import review_queue as _rq
+        _rs = _rq.stats()
+        review = {
+            "pending":  _rs.get("pending", 0),    # wartet auf Freigabe
+            "approved": _rs.get("approved", 0),   # freigegeben, wartet auf Versand
+            "rejected": _rs.get("rejected", 0),
+            "sent":     _rs.get("sent", 0),
+        }
+    except Exception:
+        pass
     # Auto-Builder-Status
     ab = _ab.status()
     # Letzte 6 Seiten für die Home-Kacheln
@@ -1959,6 +1990,10 @@ def api_home_stats():
     return jsonify({
         "total": total, "live": live, "building": building, "errors": errors,
         "sent": sent, "sites": cards, "builder": ab,
+        # Freigabe-/Versand-Warteschlange für die Live-Pipeline (Warteblöcke)
+        "review": review,
+        "freigabe_wartet": review["pending"],     # FREIGABE-Station
+        "versand_bereit":  review["approved"],    # VERSAND-Station
     })
 
 

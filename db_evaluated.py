@@ -262,6 +262,28 @@ def get_stats() -> dict:
         avg_pot    = c.execute("SELECT AVG(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
         sum_pot    = c.execute("SELECT SUM(potenzial_euro) FROM evaluated_leads").fetchone()[0] or 0
         mit_bild   = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE bilder_vorhanden=1").fetchone()[0]
+        # ── ECHTE Zahlen (statt theoretischem Maximal-Potenzial) ──────────────────
+        # Erwartungswert = risiko-gewichtetes „sicheres Geld" pro Lead.
+        sum_ew     = c.execute("SELECT SUM(erwartungswert_euro) FROM evaluated_leads").fetchone()[0] or 0
+        # Realistische, verfolgbare Pipeline: nur Hot/Warm, noch offen (nicht tot/verkauft).
+        sum_ew_akt = c.execute(
+            "SELECT SUM(erwartungswert_euro) FROM evaluated_leads "
+            "WHERE lead_typ IN ('Hot','Warm') AND status NOT IN ('tot','verkauft','archiviert')"
+        ).fetchone()[0] or 0
+        n_ew_akt   = c.execute(
+            "SELECT COUNT(*) FROM evaluated_leads "
+            "WHERE lead_typ IN ('Hot','Warm') AND status NOT IN ('tot','verkauft','archiviert')"
+        ).fetchone()[0]
+        # Realisierter Umsatz: bereits verkaufte Leads (echtes Geld). Bevorzugt den real
+        # eingetragenen Verkaufsbetrag, sonst der Erwartungswert als beste Schätzung.
+        umsatz_verk = c.execute(
+            "SELECT SUM(COALESCE(NULLIF(verkauft_euro,0), erwartungswert_euro)) "
+            "FROM evaluated_leads WHERE status='verkauft'"
+        ).fetchone()[0] or 0
+        # Trichter-Zähler (Vertriebs-Funnel)
+        n_kontaktiert = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE status='kontaktiert'").fetchone()[0]
+        n_termin      = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE status='termin'").fetchone()[0]
+        n_verkauft    = c.execute("SELECT COUNT(*) FROM evaluated_leads WHERE status='verkauft'").fetchone()[0]
         br_rows = c.execute(
             "SELECT branche, COUNT(*) AS n FROM evaluated_leads "
             "GROUP BY branche ORDER BY n DESC LIMIT 15"
@@ -279,7 +301,15 @@ def get_stats() -> dict:
         "ohne_website":     ohne_web,
         "privat_zahler":    privat,
         "avg_potenzial":    round(avg_pot),
-        "summe_potenzial":  round(sum_pot),
+        "summe_potenzial":  round(sum_pot),        # theoretisches Maximum (alle Leads)
+        # ── echte Kennzahlen ──
+        "summe_erwartung":       round(sum_ew),        # Erwartungswert aller Leads
+        "pipeline_realistisch":  round(sum_ew_akt),    # verfolgbare Hot/Warm-Pipeline (offen)
+        "pipeline_leads":        n_ew_akt,             # Anzahl dahinter
+        "umsatz_verkauft":       round(umsatz_verk),   # realisierter Umsatz (verkauft)
+        "n_kontaktiert":         n_kontaktiert,
+        "n_termin":              n_termin,
+        "n_verkauft":            n_verkauft,
         "mit_bildern":      mit_bild,
         "ohne_website_echt": ohne_web,   # identische Kennzahl wie "ohne_website" (zwei Verbraucher-Namen)
         "top_branchen":     {r["branche"]: r["n"] for r in br_rows if r["branche"]},

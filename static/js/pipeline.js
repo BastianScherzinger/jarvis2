@@ -52,14 +52,20 @@ const _PL_LOG_SCRAPER = [
 ];
 
 // Die Stationen der Kette (nach der Scraper-Spalte). Reihenfolge = Fluss links→rechts.
+// Die BEWERTUNG ist ein 3-Agenten-Team (WebAnalyst → SocialRes → ScoreWriter) — jeder
+// Agent ist eine eigene Station, damit man live sieht, welcher Agent gerade arbeitet.
 const _PL_STAGES = [
-  { key: 'collect',  label: 'SAMMELN',  sub: 'Rohleads',     color: '#00e87a', icon: 'robot',  lc: '#7fe9b6' },
-  { key: 'eval',     label: 'BEWERTEN', sub: 'KI-Scoring',   color: '#00d4ff', icon: 'claude', lc: '#e79a80' },
-  { key: 'build',    label: 'WEBSEITE', sub: 'Bau',          color: '#c58bff', icon: 'build',  lc: '#c9a0ff' },
-  { key: 'makeover', label: 'MAKEOVER', sub: 'Feinschliff',  color: '#ff9d3d', icon: 'spark',  lc: '#ffb877' },
-  { key: 'wait',     label: 'FREIGABE', sub: 'Warten',       color: '#ffc93d', icon: 'clock',  lc: '#ffd873' },
-  { key: 'send',     label: 'VERSAND',  sub: 'Angebot raus', color: '#9b5de5', icon: 'mail',   lc: '#c19bf0' },
+  { key: 'collect',    label: 'SAMMELN',   sub: 'Rohleads',      color: '#00e87a', icon: 'robot',  lc: '#7fe9b6', group: 'Sammeln' },
+  { key: 'eval_web',   label: 'ANALYSE',   sub: 'Web-Analyst',   color: '#00d4ff', icon: 'search', lc: '#7fd6ff', group: 'Bewertung · 3 Agenten' },
+  { key: 'eval_social',label: 'RECHERCHE', sub: 'Social-Scout',  color: '#38bdf8', icon: 'social', lc: '#9bd8f5', group: 'Bewertung · 3 Agenten' },
+  { key: 'eval_score', label: 'SCORING',   sub: 'Score-Writer',  color: '#c58bff', icon: 'claude', lc: '#d9b6ff', group: 'Bewertung · 3 Agenten' },
+  { key: 'build',      label: 'WEBSEITE',  sub: 'Bau',           color: '#c58bff', icon: 'build',  lc: '#c9a0ff', group: 'Produktion' },
+  { key: 'makeover',   label: 'MAKEOVER',  sub: 'Feinschliff',   color: '#ff9d3d', icon: 'spark',  lc: '#ffb877', group: 'Produktion' },
+  { key: 'wait',       label: 'FREIGABE',  sub: 'Warten',        color: '#ffc93d', icon: 'clock',  lc: '#ffd873', group: 'Versand', queue: 'freigabe' },
+  { key: 'send',       label: 'VERSAND',   sub: 'Angebot raus',  color: '#9b5de5', icon: 'mail',   lc: '#c19bf0', group: 'Versand', queue: 'versand' },
 ];
+// Station-Index-Konstanten (damit Bursts/Events nicht an Zahlen kleben)
+const _PL_IX = { COLLECT: 0, EVAL_WEB: 1, EVAL_SOCIAL: 2, EVAL_SCORE: 3, BUILD: 4, MAKEOVER: 5, WAIT: 6, SEND: 7 };
 
 const _PL_SEG_DUR_BASE = 1.0;           // Sekunden pro Segment (× Instanz-Faktor)
 const _PL_LV_COLOR = {
@@ -70,7 +76,8 @@ const _PL_LV_COLOR = {
 // ── Geteilte Daten + Poller (instanzübergreifend) ────────────────────────────
 const _D = {
   scrapers: _PL_SCRAPERS.map(n => ({ name: n, alive: false, count: 0 })),
-  stats: { total: 0, live: 0, sent: 0, building: 0, active: 0, running: false },
+  stats: { total: 0, live: 0, sent: 0, building: 0, active: 0, running: false,
+           freigabe: 0, versand: 0 },   // freigabe = wartet auf Freigabe, versand = sendebereit
   prev:  { live: -1, sent: -1 },
   logs:  [],            // {ts, level, worker, msg}
   errors: _PL_STAGES.map(() => []),   // pro Station: [{ts, worker, msg, level}]  (rote Blase + Panel)
@@ -112,9 +119,11 @@ async function _plPollStatus() {
     }
     if (hs) {
       _D.stats.live = hs.live || 0; _D.stats.sent = hs.sent || 0; _D.stats.building = hs.building || 0;
+      _D.stats.freigabe = hs.freigabe_wartet || 0;   // Seiten, die auf Freigabe warten
+      _D.stats.versand  = hs.versand_bereit  || 0;   // freigegeben, wartet auf Versand
       if (_D.prev.live >= 0) {
-        _plBurstStage(2, '#ffc93d', 'Website', Math.min(8, Math.max(0, _D.stats.live - _D.prev.live)));
-        _plBurstStage(5, '#9b5de5', 'Angebot', Math.min(8, Math.max(0, _D.stats.sent - _D.prev.sent)));
+        _plBurstStage(_PL_IX.BUILD, '#ffc93d', 'Website', Math.min(8, Math.max(0, _D.stats.live - _D.prev.live)));
+        _plBurstStage(_PL_IX.SEND,  '#9b5de5', 'Angebot', Math.min(8, Math.max(0, _D.stats.sent - _D.prev.sent)));
       }
       _D.prev.live = _D.stats.live; _D.prev.sent = _D.stats.sent;
     }
@@ -161,27 +170,34 @@ function _plBurstStage(stageIdx, color, label, n) {
 }
 
 // ── Log-Klassifikation → welche Station reagiert ─────────────────────────────
-// Rückgabe: { stageIdx, scraperIdx? } oder null.
+// Rückgabe immer ein Objekt { stageIdx, scraperIdx?, generic? } — NIE null, damit
+// WIRKLICH JEDER Log-Eintrag zu einem Punkt in der Pipeline wird (unbekannte landen
+// als neutraler System-Punkt an der SAMMELN-Station).
 function _plClassifyLog(e) {
   const w = (e.worker || '').toLowerCase(), lv = e.level || '';
   for (const [kw, nm] of _PL_LOG_SCRAPER) if (w.includes(kw)) {
-    return { stageIdx: 0, scraperIdx: _D.scrapers.findIndex(s => s.name === nm) };
+    return { stageIdx: _PL_IX.COLLECT, scraperIdx: _D.scrapers.findIndex(s => s.name === nm) };
   }
-  if (lv === 'SCRAPE') return { stageIdx: 0, scraperIdx: -1 };
-  if (/makeover|overnight/.test(w))                         return { stageIdx: 3 };
-  if (/discord|freigab|vote|approval|gate/.test(w))         return { stageIdx: 4 };
-  if (/mailer|offer|versand|smtp|inbox|outreach/.test(w))   return { stageIdx: 5 };
-  if (w.includes('mail'))                                   return { stageIdx: 5 };
-  if (/autobuild|auto_build|builder|website|railway|deploy|hero|github|build/.test(w)) return { stageIdx: 2 };
-  if (lv === 'EVAL' || /eval|bewert|score|analyst|social|ollama/.test(w)) return { stageIdx: 1 };
-  if (/leadcollector|collector|controller|scrape/.test(w))  return { stageIdx: 0, scraperIdx: -1 };
-  return null;
+  if (lv === 'SCRAPE') return { stageIdx: _PL_IX.COLLECT, scraperIdx: -1 };
+  if (/makeover|overnight/.test(w))                         return { stageIdx: _PL_IX.MAKEOVER };
+  if (/discord|freigab|vote|approval|gate|review/.test(w))  return { stageIdx: _PL_IX.WAIT };
+  if (/mailer|offer|versand|smtp|inbox|outreach/.test(w))   return { stageIdx: _PL_IX.SEND };
+  if (w.includes('mail'))                                   return { stageIdx: _PL_IX.SEND };
+  if (/autobuild|auto_build|builder|website|railway|deploy|hero|github|build/.test(w)) return { stageIdx: _PL_IX.BUILD };
+  // 3-Agenten-Bewertung — jeder Agent seine eigene Station
+  if (/webanalyst|web_analyst|analyst/.test(w))             return { stageIdx: _PL_IX.EVAL_WEB };
+  if (/social/.test(w))                                     return { stageIdx: _PL_IX.EVAL_SOCIAL };
+  if (/scorewriter|score/.test(w))                          return { stageIdx: _PL_IX.EVAL_SCORE };
+  if (lv === 'EVAL' || /eval|bewert|ollama/.test(w))        return { stageIdx: _PL_IX.EVAL_WEB };
+  if (/leadcollector|collector|controller|scrape/.test(w))  return { stageIdx: _PL_IX.COLLECT, scraperIdx: -1 };
+  return { stageIdx: _PL_IX.COLLECT, scraperIdx: -1, generic: true };
 }
 
 function _plReactToLog(e, order) {
   const c = _plClassifyLog(e); if (!c) return;
   const err = e.level === 'ERROR';
   const color = err ? '#ff3b4e'
+              : c.generic ? '#6684a8'                                  // unbekannter Log = neutraler System-Punkt
               : (_PL_LV_COLOR[e.level] || (_PL_STAGES[c.stageIdx] || {}).color || '#00d4ff');
   // Mehrere Logs pro Poll leicht versetzen, damit sie als Kette laufen statt zu klumpen.
   const delay = Math.min(900, (order || 0) * 70);
@@ -256,8 +272,9 @@ function _plLayout(P) {
   const W = P.W, H = P.H, cy = H * 0.5;
   const flowW = P.mini ? W : W * 0.70;      // grosse Ansicht: rechts Platz für die Log-Konsole
   const n = P.st.length;
-  const x0 = flowW * 0.205, x1 = flowW * 0.955;
+  const x0 = flowW * 0.185, x1 = flowW * 0.975;
   P.st.forEach((nd, i) => { nd.x = x0 + (x1 - x0) * (i / (n - 1)); nd.y = cy; });
+  P.stGap = n > 1 ? (x1 - x0) / (n - 1) : flowW;   // Abstand → Label-Breitenlimit
   const sx = flowW * 0.055, m = P.scr.length;
   const top = P.mini ? H * 0.15 : H * 0.10, bot = P.mini ? H * 0.85 : H * 0.86;
   const span = bot - top;
@@ -303,7 +320,8 @@ function pipelineOnEvent(kind, data) {
     if (idx >= 0) _D.scrapers[idx].count++;
     _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, 0, '#00e87a', 'Lead', idx); });
   } else if (kind === 'evaluated') {
-    _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, 1, '#00d4ff', 'bewertet'); });
+    // Bewertung fertig → Punkt landet an der letzten Agenten-Station (SCORING)
+    _PL_INST.forEach(P => { if (_plVisible(P)) _plSpawnStage(P, _PL_IX.EVAL_SCORE, '#c58bff', 'bewertet'); });
   }
 }
 
@@ -326,7 +344,8 @@ function _plMiniCountEl(P) {
 function _plRenderHud(P) {
   if (P.mini) {
     const l = _plMiniCountEl(P);
-    if (l) l.textContent = `${_D.stats.active}/${_D.scrapers.length} aktiv · ${_D.stats.live} live · ${_D.stats.sent} raus`;
+    if (l) l.textContent = `${_D.stats.active}/${_D.scrapers.length} aktiv · ${_D.stats.live} live · `
+      + `${_D.stats.versand} sendebereit · ${_D.stats.sent} raus`;
     return;
   }
   const el = document.getElementById('pipeline-hud'); if (!el) return;
@@ -337,6 +356,8 @@ function _plRenderHud(P) {
     `<span class="ph-chip">${dot('#00e87a')}Leads <b>${(s.total).toLocaleString('de-DE')}</b></span>` +
     (s.building ? `<span class="ph-chip">${dot('#c58bff')}im Bau <b>${s.building}</b></span>` : '') +
     `<span class="ph-chip">${dot('#ffc93d')}Websites live <b>${s.live}</b></span>` +
+    `<span class="ph-chip">${dot('#ffc93d')}Freigabe wartet <b>${s.freigabe}</b></span>` +
+    `<span class="ph-chip">${dot('#9b5de5')}sendebereit <b>${s.versand}</b></span>` +
     `<span class="ph-chip">${dot('#9b5de5')}Angebote raus <b>${s.sent}</b></span>`;
   const lg = document.getElementById('pipeline-legend');
   if (lg && !lg.dataset.done) {
@@ -439,8 +460,39 @@ function _plDraw(P) {
     }
   }
 
+  if (!P.mini) _plDrawGroups(P);
   P.scr.forEach((s, i) => _plDrawScraper(P, s, _D.scrapers[i]));
   P.st.forEach((nd, i) => _plDrawStation(P, nd, _PL_STAGES[i], i));
+}
+
+// Klammer + Titel über zusammenhängenden Stationen gleicher Gruppe (>1 Mitglied) —
+// macht sichtbar, dass die 3 Bewertungs-Stationen EIN Agenten-Team sind.
+function _plDrawGroups(P) {
+  const ctx = P.ctx, R = P.hubR;
+  let i = 0;
+  while (i < _PL_STAGES.length) {
+    const g = _PL_STAGES[i].group;
+    let j = i;
+    while (j + 1 < _PL_STAGES.length && _PL_STAGES[j + 1].group === g) j++;
+    if (g && j > i) {
+      const a = P.st[i], b = P.st[j];
+      const y = a.y - R - 20;
+      const isEval = g.indexOf('Agenten') >= 0;
+      const col = isEval ? '#8fd0ff' : 'rgba(150,175,205,.55)';
+      ctx.save();
+      ctx.strokeStyle = _plAlpha(isEval ? '#38bdf8' : '#7f97b4', 0.5); ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(a.x - R * 0.7, y + 6); ctx.lineTo(a.x - R * 0.7, y);
+      ctx.lineTo(b.x + R * 0.7, y);     ctx.lineTo(b.x + R * 0.7, y + 6);
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = '700 9px Orbitron, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = col; ctx.globalAlpha = 0.9;
+      ctx.fillText(g.toUpperCase(), (a.x + b.x) / 2, y - 4);
+      ctx.restore();
+    }
+    i = j + 1;
+  }
 }
 
 function _plPipe(P, x0, y0, x1, y1, cx, cy, color, alpha, width) {
@@ -477,12 +529,21 @@ function _plPulseRing(P, node, r, color) {
   ctx.strokeStyle = color; ctx.globalAlpha = p * 0.6; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1;
 }
 
-function _plNodeLabel(P, x, y, text, color, sub) {
+// maxW: optionale Maximalbreite — die Schrift wird verkleinert, bis das Label passt,
+// damit bei 8 dicht stehenden Stationen nichts überlappt.
+function _plNodeLabel(P, x, y, text, color, sub, maxW) {
   const ctx = P.ctx; ctx.textAlign = 'center';
-  ctx.font = `700 ${P.mini ? 7 : 10}px Orbitron, sans-serif`; ctx.fillStyle = color;
+  const fit = (t, base, weight, family) => {
+    let fs = base;
+    ctx.font = `${weight} ${fs}px ${family}`;
+    if (maxW) {
+      while (fs > 6 && ctx.measureText(t).width > maxW) { fs -= 0.5; ctx.font = `${weight} ${fs}px ${family}`; }
+    }
+  };
+  fit(text, P.mini ? 7 : 10, 700, 'Orbitron, sans-serif'); ctx.fillStyle = color;
   ctx.fillText(text, x, y);
   if (sub && !P.mini) {
-    ctx.font = '400 8.5px Inter, sans-serif'; ctx.fillStyle = 'rgba(150,175,205,.85)';
+    fit(sub, 8.5, 400, 'Inter, sans-serif'); ctx.fillStyle = 'rgba(150,175,205,.85)';
     ctx.fillText(sub, x, y + 12);
   }
 }
@@ -539,8 +600,72 @@ function _plDrawStation(P, node, stage, idx) {
   _plStationIcon(P, stage.icon, R, col);
   ctx.restore();
 
-  if (!P.mini) _plNodeLabel(P, node.x, node.y + R + 15, stage.label,
-    hasErr ? '#ff6b7c' : (stage.lc || col), hasErr ? nErr + ' Fehler' : stage.sub);
+  // Bei 8 dicht stehenden Stationen die Hauptlabels in ZWEI Reihen versetzen (Stagger) —
+  // so hat jedes Label den doppelten horizontalen Platz und nichts überlappt.
+  let labelBottom = node.y + R + 15;
+  if (!P.mini) {
+    const stag = (idx % 2 === 1) ? 27 : 0;
+    const ly = node.y + R + 15 + stag;
+    _plNodeLabel(P, node.x, ly, stage.label,
+      hasErr ? '#ff6b7c' : (stage.lc || col), hasErr ? nErr + ' Fehler' : stage.sub,
+      (P.stGap || 60) * 1.75);
+    labelBottom = ly + 12;   // unter dem Sublabel
+  }
+
+  // Warteschlangen-Blöcke: FREIGABE = Seiten, die auf Freigabe warten,
+  // VERSAND = freigegebene Seiten, die auf den nächsten Sende-Vorgang warten.
+  if (stage.queue) {
+    const cnt = stage.queue === 'freigabe' ? _D.stats.freigabe : _D.stats.versand;
+    _plDrawQueueBlocks(P, node, R, cnt, stage.color, P.mini ? null : labelBottom + 5);
+  }
+}
+
+// Zeichnet die Warteschlange als einzelne kleine Blöcke UNTER der Station (+ Zähler).
+// Jeder Block = eine wartende Webseite (gedeckelt auf _MAX, Rest als „+N").
+function _plDrawQueueBlocks(P, node, R, count, color, y0Override) {
+  count = Math.max(0, count | 0);
+  const ctx = P.ctx;
+  const bs = P.mini ? 4 : 7;                 // Blockgröße
+  const gap = P.mini ? 2 : 3;
+  const perRow = P.mini ? 5 : 6;
+  const maxBlocks = P.mini ? 10 : 18;
+  const shown = Math.min(count, maxBlocks);
+  // Basislinie: unter dem Label (bzw. direkt unter dem Knoten in der Mini-Ansicht).
+  const y0 = (typeof y0Override === 'number') ? y0Override : node.y + R + (P.mini ? 12 : 34);
+  const rowW = perRow * bs + (perRow - 1) * gap;
+  const x0 = node.x - rowW / 2;
+  // Leerer Rahmen wenn nichts wartet → man sieht die Station trotzdem als „Puffer".
+  if (shown === 0) {
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = _plAlpha(color, 0.35); ctx.lineWidth = 1;
+    _plRoundRect(P, node.x - bs / 2, y0, bs, bs, 1.5); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (!P.mini) {
+      ctx.font = '600 8.5px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(150,175,205,.6)';
+      ctx.fillText('0 warten', node.x, y0 + bs + 11);
+    }
+    return;
+  }
+  for (let i = 0; i < shown; i++) {
+    const r = Math.floor(i / perRow), c = i % perRow;
+    const x = x0 + c * (bs + gap), y = y0 + r * (bs + gap);
+    // sanftes „Atmen" des zuletzt hinzugekommenen Blocks
+    const fresh = (i === shown - 1) ? 0.6 + 0.4 * Math.abs(Math.sin(P.t * 3)) : 1;
+    _plRoundRect(P, x, y, bs, bs, 1.5);
+    ctx.fillStyle = _plAlpha(color, 0.75 * fresh);
+    ctx.shadowColor = color; ctx.shadowBlur = P.mini ? 3 : 5; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = _plAlpha(color, 0.9); ctx.lineWidth = 1; ctx.stroke();
+  }
+  // Zähler / „+N" zentriert unter den Blöcken (nur grosse Ansicht).
+  if (!P.mini) {
+    const rows = Math.ceil(shown / perRow);
+    const ty = y0 + rows * (bs + gap) + 8;
+    ctx.font = '700 9.5px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    const extra = count > maxBlocks ? ` (+${count - maxBlocks})` : '';
+    ctx.fillText(`${count} warten${extra}`, node.x, ty);
+  }
 }
 
 function _plStationIcon(P, icon, R, col) {
@@ -560,6 +685,30 @@ function _plStationIcon(P, icon, R, col) {
     _plRoundRect(P, eo - ew / 2, -eh / 2, ew, eh, 3); ctx.fill();
     ctx.strokeStyle = _plAlpha(col, 0.5); ctx.lineWidth = 1;
     for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * R * 0.09, hh * 0.42); ctx.lineTo(i * R * 0.09, hh * 0.6); ctx.stroke(); }
+  } else if (icon === 'search') {
+    // Lupe = Website-Analyse (Agent 1)
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.arc(-R * 0.12, -R * 0.12, R * 0.42, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(R * 0.18, R * 0.18); ctx.lineTo(R * 0.52, R * 0.52); ctx.stroke();
+    // Scan-Glanz
+    const sw = 0.5 + 0.5 * Math.sin(P.t * 2.4);
+    ctx.globalAlpha = 0.3 + sw * 0.5; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(-R * 0.12, -R * 0.12, R * 0.22, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  } else if (icon === 'social') {
+    // Verbundene Knoten = Social-/Firmen-Recherche (Agent 2)
+    const pts = [[0, -R * 0.42], [-R * 0.42, R * 0.28], [R * 0.42, R * 0.28]];
+    ctx.strokeStyle = _plAlpha(col, 0.6); ctx.lineWidth = 1.5;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    const blink = 0.6 + 0.4 * Math.abs(Math.sin(P.t * 1.8));
+    for (let i = 0; i < pts.length; i++) {
+      ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], R * 0.16, 0, Math.PI * 2);
+      ctx.fillStyle = _plAlpha(col, i === 0 ? blink : 0.85);
+      ctx.shadowColor = col; ctx.shadowBlur = 6; ctx.fill(); ctx.shadowBlur = 0;
+    }
   } else if (icon === 'claude') {
     const rays = 12, rot = _PL_REDUCED ? 0 : P.t * 0.35;
     ctx.strokeStyle = col; ctx.lineCap = 'round';

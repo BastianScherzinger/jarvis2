@@ -100,21 +100,33 @@ async function _renderSummary(){
   try{ s = await(await fetch('/api/evaluated/stats')).json(); }catch{ return; }
 
   const eur = n => (Number(n)||0).toLocaleString('de-DE') + ' €';
+  const num = n => (Number(n)||0).toLocaleString('de-DE');
+  // ECHTE Zahlen statt Fantasie-Maximum: realisierter Umsatz (verkauft) + realistische
+  // Pipeline (Erwartungswert der offenen Hot/Warm-Leads). Das theoretische Maximal-
+  // Potenzial wandert als ehrliche Fußnote nach unten.
   el.innerHTML = `
+    <div class="rs-hero real">
+      <div class="rs-hero-lbl">💰 Realisierter Umsatz</div>
+      <div class="rs-hero-num">${eur(s.umsatz_verkauft)}</div>
+      <div class="rs-hero-sub">${num(s.n_verkauft)} Leads verkauft</div>
+    </div>
     <div class="rs-hero">
-      <div class="rs-hero-lbl">Pipeline-Wert</div>
-      <div class="rs-hero-num">${eur(s.summe_potenzial)}</div>
-      <div class="rs-hero-sub">${(Number(s.total)||0).toLocaleString('de-DE')} bewertete Leads · Ø ${eur(s.avg_potenzial)}</div>
+      <div class="rs-hero-lbl">🎯 Realistische Pipeline</div>
+      <div class="rs-hero-num">${eur(s.pipeline_realistisch)}</div>
+      <div class="rs-hero-sub">${num(s.pipeline_leads)} offene Hot/Warm-Leads · Erwartungswert</div>
     </div>
     <div class="rs-cards">
-      <div class="rs-card"><div class="rs-c-num">${Number(s.total)||0}</div><div class="rs-c-lbl">Gesamt</div></div>
-      <div class="rs-card hot"><div class="rs-c-num">${Number(s.hot)||0}</div><div class="rs-c-lbl">🔴 Hot</div></div>
-      <div class="rs-card warm"><div class="rs-c-num">${Number(s.warm)||0}</div><div class="rs-c-lbl">🟡 Warm</div></div>
-      <div class="rs-card cold"><div class="rs-c-num">${Number(s.cold)||0}</div><div class="rs-c-lbl">🔵 Cold</div></div>
-      <div class="rs-card"><div class="rs-c-num">${Number(s.ohne_website_echt)||0}</div><div class="rs-c-lbl">Ohne Website</div></div>
-      <div class="rs-card"><div class="rs-c-num">${Number(s.mit_bildern)||0}</div><div class="rs-c-lbl">Mit Bildern</div></div>
-      <div class="rs-card"><div class="rs-c-num">${Number(s.mit_email)||0}</div><div class="rs-c-lbl">Mit E-Mail</div></div>
-    </div>`;
+      <div class="rs-card"><div class="rs-c-num">${num(s.total)}</div><div class="rs-c-lbl">Leads gesamt</div></div>
+      <div class="rs-card hot"><div class="rs-c-num">${num(s.hot)}</div><div class="rs-c-lbl">🔴 Hot</div></div>
+      <div class="rs-card warm"><div class="rs-c-num">${num(s.warm)}</div><div class="rs-c-lbl">🟡 Warm</div></div>
+      <div class="rs-card cold"><div class="rs-c-num">${num(s.cold)}</div><div class="rs-c-lbl">🔵 Cold</div></div>
+      <div class="rs-card"><div class="rs-c-num">${num(s.n_kontaktiert)}</div><div class="rs-c-lbl">✉ Kontaktiert</div></div>
+      <div class="rs-card"><div class="rs-c-num">${num(s.n_termin)}</div><div class="rs-c-lbl">📅 Termin</div></div>
+      <div class="rs-card sold"><div class="rs-c-num">${num(s.n_verkauft)}</div><div class="rs-c-lbl">✅ Verkauft</div></div>
+      <div class="rs-card"><div class="rs-c-num">${num(s.ohne_website_echt)}</div><div class="rs-c-lbl">Ohne Website</div></div>
+      <div class="rs-card"><div class="rs-c-num">${num(s.mit_email)}</div><div class="rs-c-lbl">Mit E-Mail</div></div>
+    </div>
+    <div class="rs-foot">Theoretisches Maximal-Potenzial aller ${num(s.total)} Leads: <b>${eur(s.summe_potenzial)}</b> · Ø ${eur(s.avg_potenzial)}/Lead — reines Obergrenzen-Signal, nicht das erwartete Geld.</div>`;
 }
 
 // ── Liste rendern (DocumentFragment, max 200) ────────────────────────────────
