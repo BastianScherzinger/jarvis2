@@ -156,10 +156,6 @@ function _applyStats(s){
   // Telefon aus Session zählen
   const telEl = document.getElementById('s-tel');
   if(telEl) telEl.textContent = _allLeads.filter(l=>l.telefon).length;
-  // Source Chart aus DB-Finder-Daten
-  _renderChart(s.finders || {});
-  // Bundesland-Chart aus DB
-  if(s.bundeslaender) _renderBL(s.bundeslaender);
 }
 
 function _setNum(id, val){
@@ -169,56 +165,14 @@ function _setNum(id, val){
   if(old !== val) el.textContent = val;
 }
 
-// ── Source Chart ──────────────────────────────────────────────────────────────
-function _renderChart(finders){
-  const el  = document.getElementById('source-chart');
-  if(!el) return;
-  const max = Math.max(1, ...Object.values(finders));
-  const ORDER = ['maps_playwright','gelbe_seiten','dasoertliche','elfacht','golocal','ollama_ai'];
-  const rows  = ORDER.filter(k => finders[k] > 0).map(k => {
-    const f   = fi(k);
-    const cnt = finders[k] || 0;
-    const pct = Math.round(cnt/max*100);
-    return `<div class="src-row src-${f.cls}">
-      <div class="src-head">
-        <div class="src-av">${f.av}</div>
-        <span class="src-name">${f.lbl}</span>
-        <span class="src-cnt">${cnt}</span>
-      </div>
-      <div class="src-bar-wrap">
-        <div class="src-bar" style="width:${pct}%"></div>
-      </div>
-    </div>`;
-  }).join('');
-  el.innerHTML = rows || '<div style="color:var(--tx3);font-size:11px;padding:8px 0">Noch keine Daten</div>';
-}
-
-// ── Bundesland-Chart ────────────────────────────────────────────────────────────
-function _renderBL(bl){
-  const el = document.getElementById('bl-chart');
-  if(!el) return;
-  const max = Math.max(1, ...Object.values(bl));
-  const rows = Object.entries(bl).slice(0, 10).map(([name, cnt]) => {
-    const pct = Math.round(cnt/max*100);
-    return `<div class="bl-row">
-      <span class="bl-name">${_e(name.substring(0,16))}</span>
-      <div class="bl-bar-wrap"><div class="bl-bar" style="width:${pct}%"></div></div>
-      <span class="bl-cnt">${cnt}</span>
-    </div>`;
-  }).join('');
-  el.innerHTML = rows || '';
-}
-
 // ── Lead empfangen ────────────────────────────────────────────────────────────
-// Kein Live-Feed mehr (Mein Status zeigt stattdessen Zahlen + eingebettetes Log) —
-// diese Funktion pflegt nur noch die Datengrundlage für Stats/Hot-Liste/Graph/Rate.
+// Kein Live-Feed mehr (Mein Status zeigt stattdessen die Top-25-Rangliste +
+// eingebettetes Log) — diese Funktion pflegt nur noch die Datengrundlage für
+// Stats/Graph/Rate.
 function _onLead(lead){
   _allLeads.unshift(lead);
   _feedCount++;
   _sessionFinder[lead.finder] = (_sessionFinder[lead.finder]||0) + 1;
-
-  // Hot Sidebar
-  if(lead.lead_typ==='Hot') _addHotCard(lead);
 
   // Graph Live-Update
   if(typeof graphOnNewLead === 'function') graphOnNewLead(lead);
@@ -252,23 +206,6 @@ function _jattr(o){
   return JSON.stringify(o)
     .replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')
     .replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ── Hot Sidebar ───────────────────────────────────────────────────────────────
-function _addHotCard(lead){
-  const list = document.getElementById('hot-list');
-  list.querySelector('.hot-empty')?.remove();
-  const card = document.createElement('div');
-  card.className='hot-card';
-  card.innerHTML=`<div class="hc-name">${_e(lead.name)}</div>
-    <div class="hc-meta">
-      ${lead.branche?`<span class="hc-tag">${_e(lead.branche)}</span>`:''}
-      ${lead.stadt?`<span class="hc-tag">${_e(lead.stadt)}</span>`:''}
-      <span class="hc-score">${lead.score}pt</span>
-    </div>`;
-  card.onclick=()=>openModal(lead);
-  list.insertBefore(card,list.firstChild);
-  if(list.querySelectorAll('.hot-card').length>40) list.lastChild?.remove();
 }
 
 function _onVerified(lead){
@@ -676,7 +613,7 @@ function _initSidebar(){
   // ruft _initPageFromHash() showPage() nie auf, darum hier zusätzlich absichern.
   const _activePage = document.querySelector('.page.active');
   if(!_activePage || _activePage.dataset.page === 'leads'){
-    loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll();
+    loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll();
     if(typeof initWebsites === 'function') initWebsites();
   }
 })();
@@ -785,9 +722,9 @@ function showPage(name){
   if(name !== 'costs') _stopCostsPoll();
   if(name === 'home')  loadHome();
   if(name === 'costs') { loadCosts(); _startCostsPoll(); }
-  // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log) nur, solange sichtbar
-  if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); }
-  if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); }
+  // Mein-Status-Polling (Sammler/Bau/Kosten + eingebettetes Log + Top-25-Rangliste) nur, solange sichtbar
+  if(name !== 'leads') { _stopMyStatusPoll(); _stopStatusLogPoll(); _stopMsRankPoll(); }
+  if(name === 'leads')  { loadMyStatus(); _startMyStatusPoll(); _startStatusLogPoll(); _startMsRankPoll(); }
 }
 
 function _initPageFromHash(){
@@ -1557,6 +1494,56 @@ function _startMyStatusPoll(){
 }
 function _stopMyStatusPoll(){
   if(_myStatusPollId){ clearInterval(_myStatusPollId); _myStatusPollId = null; }
+}
+
+// ── Mein-Status: kompakte Top-25-Rangliste (links, alle 10s) ─────────────────
+// Nutzt dieselbe Route wie die volle Rangliste-Seite (ranking.js) — kein neuer
+// Endpoint nötig, nur ein schmalerer Render für die linke Spalte.
+let _msRankData    = [];
+let _msRankTimer    = null;
+
+function _startMsRankPoll(){
+  _loadMsRank();
+  if(_msRankTimer) clearInterval(_msRankTimer);
+  _msRankTimer = setInterval(_loadMsRank, 10000);
+}
+function _stopMsRankPoll(){
+  if(_msRankTimer){ clearInterval(_msRankTimer); _msRankTimer = null; }
+}
+
+async function _loadMsRank(){
+  let data;
+  try{ data = await(await fetch('/api/evaluated/all?limit=25&sort=erwartungswert')).json(); }
+  catch{ return; }
+  _msRankData = Array.isArray(data) ? data : (data.leads || data.items || []);
+  _renderMsRank();
+}
+
+function _renderMsRank(){
+  const list = document.getElementById('ms-rank-list');
+  if(!list) return;
+  if(!_msRankData.length){
+    list.innerHTML = '<div class="ms-rank-empty">Noch keine bewerteten Leads</div>';
+    return;
+  }
+  list.innerHTML = _msRankData.slice(0, 25).map((l, i) => {
+    const typ = l.lead_typ || 'Cold';
+    const sub = [l.branche, l.stadt].filter(Boolean).map(_e).join(' · ');
+    const wert = Number(l.erwartungswert_euro ?? l.potenzial_euro) || 0;
+    return `<div class="ms-rank-row ${typ}" onclick="_msRankOpen(${i})">
+      <span class="mr-rank">${i+1}</span>
+      <span class="mr-body">
+        <div class="mr-name">${_e(l.name)}</div>
+        <div class="mr-sub">${sub}</div>
+      </span>
+      <span class="mr-val">${wert.toLocaleString('de-DE')} €</span>
+    </div>`;
+  }).join('');
+}
+
+function _msRankOpen(i){
+  const lead = _msRankData[i];
+  if(lead && typeof openRankDetail === 'function') openRankDetail(lead);
 }
 
 function _fmtEta(seconds){
