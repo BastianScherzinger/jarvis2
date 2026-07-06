@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
-from leadkey import lead_key as _lead_key
+from leadkey import lead_key as _lead_key, phone_key as _phone_key
 
 DB_PATH = Path(__file__).parent / "data" / "leads_raw.db"
 _lock   = threading.Lock()
@@ -88,7 +88,8 @@ def init_db() -> None:
             eval_status     TEXT DEFAULT 'pending',
             claimed_at      TEXT,
             gefunden_am     TEXT,
-            lead_key        TEXT
+            lead_key        TEXT,
+            tel_key         TEXT
         )
         """)
         c.execute(
@@ -122,13 +123,21 @@ def _migrate() -> None:
         needs_backfill = "lead_key" not in have
         if needs_backfill:
             c.execute("ALTER TABLE raw_leads ADD COLUMN lead_key TEXT")
+        # tel_key = normalisierte Telefonnummer (zusätzlicher Dedup-Anker gegen dieselbe Firma
+        # mit unterschiedlicher Namens-Schreibweise, siehe insert_raw). Wie lead_key nachrüsten.
+        needs_tel_backfill = "tel_key" not in have
+        if needs_tel_backfill:
+            c.execute("ALTER TABLE raw_leads ADD COLUMN tel_key TEXT")
         # Muss NACH der ALTER TABLE oben stehen (nicht in init_db()'s CREATE-INDEX-Block) —
         # bei einer Bestands-DB ohne lead_key-Spalte existiert die Spalte zum Zeitpunkt von
         # init_db() noch nicht, CREATE INDEX würde dort mit "no such column" fehlschlagen.
         c.execute("CREATE INDEX IF NOT EXISTS idx_lead_key_raw ON raw_leads(lead_key)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_tel_key_raw ON raw_leads(tel_key)")
         c.commit()
     if needs_backfill:
         _backfill_lead_keys()
+    if needs_tel_backfill:
+        _backfill_tel_keys()
 
 
 def _backfill_lead_keys() -> None:
@@ -143,6 +152,22 @@ def _backfill_lead_keys() -> None:
             try:
                 key = _lead_key(row["name"] or "", row["stadt"] or "")
                 c.execute("UPDATE raw_leads SET lead_key=? WHERE id=?", (key, row["id"]))
+            except Exception:
+                continue
+        c.commit()
+
+
+def _backfill_tel_keys() -> None:
+    """Einmalige Nachrüstung für Bestands-DBs: berechnet tel_key (normalisierte Telefonnummer,
+    siehe leadkey.phone_key) für alle Zeilen ohne. Läuft nur einmal, best-effort pro Zeile."""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT id, telefon FROM raw_leads WHERE tel_key IS NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                c.execute("UPDATE raw_leads SET tel_key=? WHERE id=?",
+                          (_phone_key(row["telefon"] or ""), row["id"]))
             except Exception:
                 continue
         c.commit()
@@ -190,7 +215,8 @@ def insert_raw(lead: dict) -> int | None:
     from agents.name_clean import quick_clean
     name = quick_clean(name) or name
     lead["name"] = name
-    key = _lead_key(name, stadt)
+    key     = _lead_key(name, stadt)
+    tel_key = _phone_key(lead.get("telefon") or "")
 
     # bilder_maps aus 'bilder' übernehmen wenn nicht explizit gesetzt
     row = {k: v for k, v in lead.items() if k in _RAW_COLUMNS}
@@ -198,6 +224,7 @@ def insert_raw(lead: dict) -> int | None:
         row["bilder_maps"] = int(lead.get("bilder", 0) or 0)
     row.setdefault("gefunden_am", datetime.now().isoformat(timespec="seconds"))
     row["lead_key"] = key
+    row["tel_key"]  = tel_key
 
     with _lock, _conn() as c:
         # Dedup über den globalen lead_key (leadkey.py) — derselbe Schlüssel wie DB2/Cloud
@@ -208,6 +235,17 @@ def insert_raw(lead: dict) -> int | None:
         ).fetchone()
         if dup:
             return None
+        # ZUSÄTZLICHER Dedup über die Telefonnummer: fängt dieselbe Firma ab, die zwei Quellen
+        # mit unterschiedlicher Namens-Schreibweise gefunden haben (verschiedene lead_keys, aber
+        # derselbe Anschluss) — genau die „gleiche Firma zweimal bearbeitet"-Fälle. Nur wenn
+        # tel_key belastbar ist (>=7 Ziffern, sonst ''), damit leere/kurze Nummern nichts falsch
+        # zusammenführen. Indiziert über idx_tel_key_raw.
+        if tel_key:
+            dup_tel = c.execute(
+                "SELECT 1 FROM raw_leads WHERE tel_key=? LIMIT 1", (tel_key,)
+            ).fetchone()
+            if dup_tel:
+                return None
 
         cols = ", ".join(row.keys())
         ph   = ", ".join("?" for _ in row)

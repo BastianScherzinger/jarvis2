@@ -412,11 +412,21 @@ def api_status():
         _lanes = hardware.eval_lanes()
     except Exception:
         _lanes = 1
+    try:
+        import website_builder
+        _blanes = website_builder.makeover_slots()   # echte, wirksame Bau-Parallelität
+    except Exception:
+        try:
+            import hardware
+            _blanes = hardware.build_lanes()
+        except Exception:
+            _blanes = 1
     return jsonify({
         "running": controller.is_running(),
         "stats":   _stats(),
         "workers": controller.worker_health(),   # echte Pro-Worker-Gesundheit
         "eval_lanes": _lanes,                      # parallele Bewertungs-Lanes (RAM-basiert) → Graph
+        "build_lanes": _blanes,                    # parallele Bau-Lanes (Claude-begrenzt) → Graph
         "claude_limit": limit,                    # „Limit voll"-Zeichen fürs Dashboard
         "extra_usage": extra,                      # Paid-Boost/Extra-Modus-Zeichen fürs Dashboard
     })

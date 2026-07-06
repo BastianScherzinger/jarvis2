@@ -805,7 +805,7 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
   flex-direction: column;
   gap: 20px;
   padding: 14px 28px 60px;
-  max-width: 1500px;
+  max-width: 1900px;
   margin: 52px auto 0;
   width: 100%;
   box-sizing: border-box;
@@ -912,7 +912,9 @@ body.sb-collapsed .sb-collapse-btn svg{transform:rotate(180deg)}
 /* ── Live-System-Pipeline (Scraper → JARVIS → Claude → Versand) ────────────── */
 .pipeline-wrap{
   position:relative; width:100%;
-  height:clamp(460px, calc(100vh - 220px), 720px);
+  /* Ganz gross: die Live-System-Pipeline füllt fast die volle Höhe — genug Raum für die
+     parallelen Bewertungs-/Bau-Lanes ober- und unterhalb der Stationen. */
+  height:clamp(620px, calc(100vh - 150px), 1200px);
   border-radius:12px; overflow:hidden;
   background:
     radial-gradient(120% 90% at 20% 45%, rgba(0,212,255,.05) 0%, rgba(0,0,0,0) 55%),

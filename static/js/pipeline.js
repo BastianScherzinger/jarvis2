@@ -78,7 +78,7 @@ const _D = {
   scrapers: _PL_SCRAPERS.map(n => ({ name: n, alive: false, count: 0 })),
   stats: { total: 0, live: 0, sent: 0, building: 0, active: 0, running: false,
            freigabe: 0, versand: 0,     // freigabe = wartet auf Freigabe, versand = sendebereit
-           evalLanes: 1 },              // parallele Bewertungs-Lanes (RAM-basiert, vom Backend)
+           evalLanes: 1, buildLanes: 1 }, // parallele Bewertungs- (RAM) + Bau-Lanes (Claude), Backend
   prev:  { live: -1, sent: -1 },
   logs:  [],            // {ts, level, worker, msg}
   errors: _PL_STAGES.map(() => []),   // pro Station: [{ts, worker, msg, level}]  (rote Blase + Panel)
@@ -117,7 +117,8 @@ async function _plPollStatus() {
       _D.scrapers.forEach(s => { s.alive = !!by[s.name]; });
       _D.stats.active = _D.scrapers.filter(s => s.alive).length;
       if (st.stats) _D.stats.total = st.stats.total || 0;
-      _D.stats.evalLanes = Math.max(1, st.eval_lanes | 0);   // Anzahl paralleler Bewertungs-Lanes
+      _D.stats.evalLanes  = Math.max(1, st.eval_lanes | 0);   // parallele Bewertungs-Lanes
+      _D.stats.buildLanes = Math.max(1, st.build_lanes | 0);  // parallele Bau-Lanes (Claude)
     }
     if (hs) {
       _D.stats.live = hs.live || 0; _D.stats.sent = hs.sent || 0; _D.stats.building = hs.building || 0;
@@ -493,25 +494,27 @@ function _plDrawGroups(P) {
       ctx.stroke(); ctx.setLineDash([]);
       ctx.font = '700 9px Orbitron, sans-serif'; ctx.textAlign = 'center';
       ctx.fillStyle = col; ctx.globalAlpha = 0.9;
-      const lanes = Math.max(1, _D.stats.evalLanes | 0);
-      const gtxt = g.toUpperCase() + (isEval && lanes > 1 ? `  ·  ${lanes}× PARALLEL` : '');
-      ctx.fillText(gtxt, (a.x + b.x) / 2, y - 4);
+      const evLanes = Math.max(1, _D.stats.evalLanes | 0);
+      const blLanes = Math.max(1, _D.stats.buildLanes | 0);
+      let suffix = '';
+      if (isEval && evLanes > 1) suffix = `  ·  ${evLanes}× PARALLEL`;
+      else if (g.indexOf('Produktion') >= 0 && blLanes > 1) suffix = `  ·  ${blLanes}× PARALLEL`;
+      ctx.fillText(g.toUpperCase() + suffix, (a.x + b.x) / 2, y - 4);
       ctx.restore();
     }
     i = j + 1;
   }
 }
 
-// ── Parallele Bewertungs-Lanes ───────────────────────────────────────────────
-// Ab 32 GB RAM laufen mehrere Bewertungs-Lanes gleichzeitig (32 GB → 3, 64 GB → 5). Jede
-// Lane schiebt einen eigenen Lead durch dieselben 3 Agenten (ANALYSE→RECHERCHE→SCORING). Die
-// mittlere Reihe sind die bestehenden Stationen; je zusätzlicher Lane kommt EIN Arbeiter
-// oberhalb und einer unterhalb dazu (32 GB: 1 oben/1 unten, 64 GB: 2 oben/2 unten) — genau die
-// gewünschte Optik. Rein additiv: die Haupt-Stationen bleiben unangetastet.
-function _plDrawEvalLanes(P) {
-  const lanes = Math.max(1, _D.stats.evalLanes | 0);
-  if (lanes < 2) return;
-  const idxs = [_PL_IX.EVAL_WEB, _PL_IX.EVAL_SOCIAL, _PL_IX.EVAL_SCORE];
+// ── Parallele Lanes (Bewertung + Bau) ────────────────────────────────────────
+// Laufen mehrere Lanes gleichzeitig, zeigt der Graph pro betroffener Station zusätzliche
+// Arbeiter — je zusätzlicher Lane EINER oberhalb und EINER unterhalb der Mittelreihe
+// (3 Lanes: 1 oben/1 unten, 5: 2/2). Rein additiv: die Haupt-Stationen bleiben unangetastet.
+//   • Bewertung: RAM-basiert (32 GB → 3, 64 GB → 5) über ANALYSE→RECHERCHE→SCORING.
+//   • Bau:       Claude-begrenzt (Paid-Boost 3, sonst 2) über WEBSEITE→MAKEOVER.
+function _plDrawLanes(P, idxs, lanes, lineColor) {
+  lanes = Math.max(1, lanes | 0);
+  if (lanes < 2 || !idxs || idxs.length === 0) return;
   const extra = lanes - 1;                       // zusätzliche Arbeiter-Reihen (ohne die Mitte)
   const up = Math.floor(extra / 2), down = Math.ceil(extra / 2);
   const offs = [];
@@ -524,13 +527,13 @@ function _plDrawEvalLanes(P) {
   const a = P.st[idxs[0]], b = P.st[idxs[idxs.length - 1]];
   offs.forEach(o => {
     const yoff = o * dy;
-    // durchgehende Lane-Leitung über die 3 Eval-Stationen (fliessende Striche)
+    // durchgehende Lane-Leitung über die betroffenen Stationen (fliessende Striche)
     ctx.save();
-    ctx.strokeStyle = _plAlpha('#38bdf8', 0.16); ctx.lineWidth = 1.1;
+    ctx.strokeStyle = _plAlpha(lineColor || '#38bdf8', 0.16); ctx.lineWidth = 1.1;
     if (!_PL_REDUCED) { ctx.setLineDash([2, 10]); ctx.lineDashOffset = -(P.t * 40) % 12; }
     ctx.beginPath(); ctx.moveTo(a.x, a.y + yoff); ctx.lineTo(b.x, b.y + yoff); ctx.stroke();
     ctx.setLineDash([]); ctx.restore();
-    // je Eval-Station ein Arbeiter-Disc auf dieser Lane + senkrechte Anbindung an die Mitte
+    // je Station ein Arbeiter-Disc auf dieser Lane + senkrechte Anbindung an die Mitte
     idxs.forEach(si => {
       const nd = P.st[si], stg = _PL_STAGES[si];
       const x = nd.x, y = nd.y + yoff;
@@ -548,6 +551,12 @@ function _plDrawEvalLanes(P) {
       ctx.lineWidth = 1.2; ctx.strokeStyle = _plAlpha(stg.color, 0.55 + breathe * 0.3); ctx.stroke();
     });
   });
+}
+
+function _plDrawEvalLanes(P) {
+  // Bewertungs-Lanes (ANALYSE→RECHERCHE→SCORING) + Bau-Lanes (WEBSEITE→MAKEOVER).
+  _plDrawLanes(P, [_PL_IX.EVAL_WEB, _PL_IX.EVAL_SOCIAL, _PL_IX.EVAL_SCORE], _D.stats.evalLanes, '#38bdf8');
+  _plDrawLanes(P, [_PL_IX.BUILD, _PL_IX.MAKEOVER], _D.stats.buildLanes, '#c58bff');
 }
 
 function _plPipe(P, x0, y0, x1, y1, cx, cy, color, alpha, width) {

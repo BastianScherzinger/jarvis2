@@ -103,6 +103,32 @@ def eval_lanes(ram: "float | None" = None) -> int:
     return 1
 
 
+def build_lanes() -> int:
+    """Anzahl paralleler Webseiten-Bau-Lanes (Bau → Makeover → Deploy).
+
+    ANDERS als eval_lanes NICHT RAM-, sondern CLAUDE-begrenzt: jede Lane fährt eine eigene
+    Claude-Bau+Makeover-Pipeline, die sich das Abo-/Token-Limit teilt. Zu viele parallel würden
+    das Limit sofort leeren — „immer nur so viel wie Claude auch schafft".
+
+        Paid-Boost aktiv (per-Token-API / mehrere Keys) → 3,  sonst → 2.
+
+    Override per .env: JARVIS_BUILD_LANES (feste Zahl). Best-effort — eine kaputte
+    cost_tracker-Erkennung darf nie crashen (dann konservativ 2)."""
+    ov = os.environ.get("JARVIS_BUILD_LANES", "").strip()
+    if ov:
+        try:
+            return max(1, int(ov))
+        except (ValueError, TypeError):
+            pass
+    try:
+        import cost_tracker as _ct
+        if _ct.paid_boost_active():
+            return 3
+    except Exception:
+        pass
+    return 2
+
+
 # ── GPU (NVIDIA) ─────────────────────────────────────────────────────────────
 
 def gpu_info() -> tuple[str, float]:

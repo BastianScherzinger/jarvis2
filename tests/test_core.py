@@ -1317,17 +1317,21 @@ def test_deploy_respects_makeover_gate(tmp_path, monkeypatch):
     jid = "testdeploygate"
     wb._jobs[jid] = {"id": jid, "status": "queued", "progress": 0, "step": ""}
     try:
-        assert wb._makeover_gate.acquire(blocking=False)      # „Makeover läuft"
+        # „Makeover/Deploy läuft am SELBEN Repo" = Pro-Ordner-Lock belegt → Deploy verschiebt sich.
+        fgate = wb._folder_gate(str(folder))
+        assert fgate.acquire(blocking=False)
         try:
             wb._run_deploy(jid, str(folder), "X")
         finally:
-            wb._makeover_gate.release()
+            fgate.release()
         assert calls["deploy"] == 0
         assert "verschoben" in wb._jobs[jid].get("step", "").lower()
-        # Gate frei → Deploy läuft normal durch.
+        # Ordner-Lock frei → Deploy läuft normal durch.
         wb._run_deploy(jid, str(folder), "X")
         assert calls["deploy"] == 1
-        assert not wb._makeover_gate.locked()                 # Gate sauber freigegeben
+        assert fgate.acquire(blocking=False)                  # Lock sauber freigegeben
+        fgate.release()
+        assert not wb.makeover_busy()                         # kein Makeover läuft
     finally:
         wb._jobs.pop(jid, None)
 

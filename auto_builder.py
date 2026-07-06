@@ -392,15 +392,19 @@ def _built_keys() -> set:
         return set()
 
 
-def _pick_next_lead():
-    """Bester Lead (Erwartungswert) OHNE Website, noch nicht gebaut, nicht archiviert."""
+def _pick_next_lead(exclude: "set | None" = None):
+    """Bester Lead (Erwartungswert) OHNE Website, noch nicht gebaut, nicht archiviert.
+
+    exclude: lead_keys, die gerade von einer anderen Bau-Lane bearbeitet werden — werden
+    übersprungen, damit bei parallelen Lanes NIE zwei dieselbe Firma bauen."""
     import db_evaluated
     import duplicate_guard
     try:
         from leadkey import lead_key
     except Exception:
         lead_key = None
-    built = _built_keys()
+    built   = _built_keys()
+    exclude = exclude or set()
     for r in db_evaluated.get_all(limit=400, sort="erwartungswert"):
         # Leads mit vorhandener Website oder bereits archivierten überspringen
         if int(r.get("has_website") or 0):
@@ -413,7 +417,7 @@ def _pick_next_lead():
         if not name:
             continue
         sk = lead_key(name, r.get("stadt", "")) if lead_key else None
-        if sk and sk in built:
+        if sk and (sk in built or sk in exclude):
             continue
         # Schnelle lokale Duplikat-Prüfung (kein API-Call, nur DB + Ordner)
         already, _ = duplicate_guard.is_already_built(r, check_apis=False)
@@ -421,6 +425,121 @@ def _pick_next_lead():
             continue
         return r
     return None
+
+
+# ── Paralleles Bauen: atomares Lead-Claiming + Bau-Lanes ─────────────────────────
+# Mehrere Bau-Lanes (hardware.build_lanes, Claude-begrenzt) arbeiten die Scoring-Rangliste
+# gleichzeitig ab — analog zu den parallelen Bewertungs-Lanes. Ein Claim-Lock + ein Set der
+# gerade in Arbeit befindlichen lead_keys stellt sicher, dass NIE zwei Lanes dieselbe Firma
+# bauen (zusätzlich zu duplicate_guard + _built_keys). Der Makeover-Slot-Semaphor in
+# website_builder deckelt zusätzlich, wie viele Claude-Pipelines wirklich gleichzeitig laufen.
+_build_claim_lock = threading.Lock()
+_claimed_keys: set = set()
+_inflight = [0]                      # gerade laufende Bau-Vorgänge (für die Tageslimit-Deckelung)
+
+
+def _build_lanes() -> int:
+    """Parallele Bau-Lanes — gedeckelt auf die Makeover-Slots von website_builder, damit NIE
+    mehr Lanes laufen als Claude-Makeover-Pipelines erlaubt sind (sonst würde eine Lane ihren
+    Makeover-Slot nicht bekommen → halbfertige Seite)."""
+    try:
+        import hardware
+        n = max(1, hardware.build_lanes())
+    except Exception:
+        n = 2
+    try:
+        import website_builder
+        n = min(n, website_builder.makeover_slots())
+    except Exception:
+        pass
+    return max(1, n)
+
+
+def _claim_next_lead_for_build():
+    """Holt ATOMAR den nächsten baubaren Lead und merkt ihn als „in Arbeit" vor (kein
+    Doppelbau bei parallelen Lanes). Gibt (lead, lead_key) oder (None, '')."""
+    try:
+        from leadkey import lead_key as _lk
+    except Exception:
+        _lk = None
+    with _build_claim_lock:
+        lead = _pick_next_lead(exclude=_claimed_keys)
+        if not lead:
+            return None, ""
+        key = _lk((lead.get("name") or "").strip(), lead.get("stadt", "")) if _lk else ""
+        if key:
+            _claimed_keys.add(key)
+        return lead, key
+
+
+def _release_build_claim(key: str) -> None:
+    if not key:
+        return
+    with _build_claim_lock:
+        _claimed_keys.discard(key)
+
+
+def _handle_build_exc(e: Exception) -> None:
+    """Fehlerbehandlung für einen Bau-Vorgang (transient → warten & dranbleiben; sonst zählen)."""
+    msg = f"{type(e).__name__}: {e}"
+    if _is_transient(msg):
+        logger.warn("AutoBuilder", f"Transienter Fehler beim Bau ({type(e).__name__}) — bleibe dran.")
+        _wait_online(600)
+    else:
+        with _lock:
+            _state["failed"] += 1
+        logger.error("AutoBuilder", f"Bau-Fehler: {type(e).__name__}")
+        _idle_sleep(5)
+
+
+def _build_phase_parallel() -> bool:
+    """Phase 1 PARALLEL: baut bis zu _build_lanes() Seiten gleichzeitig (Claude-begrenzt), bis
+    das Tageslimit der aktuellen Session erreicht ist oder keine offenen Leads mehr da sind.
+    Gibt True zurück, wenn mindestens eine Seite in Arbeit genommen wurde (→ Haupt-Loop macht
+    weiter), sonst False (keine offenen Leads → Verbesserungs-Phase)."""
+    with _lock:
+        remaining = _daily_limit() - _count_today()
+    if remaining <= 0:
+        return False
+    lanes   = max(1, min(_build_lanes(), remaining))
+    started = [False]
+
+    def _worker():
+        while is_running() and not _claude_limited:
+            # Kapazität prüfen UND einen In-Flight-Slot reservieren — atomar unter _lock, sonst
+            # könnten zwei Lanes gleichzeitig „noch Platz" sehen und das Tageslimit überschreiten.
+            # `_count_today()` zählt nur ERFOLGREICH gebaute Seiten → ein Fehlschlag verbraucht kein
+            # Tageskontingent (die Lane holt sich den nächsten Lead), genau wie im sequentiellen
+            # Original.
+            with _lock:
+                if _count_today() + _inflight[0] >= _daily_limit():
+                    break
+                _inflight[0] += 1
+            lead, key = _claim_next_lead_for_build()
+            if not lead:
+                with _lock:
+                    _inflight[0] -= 1
+                break                    # keine offenen Leads mehr
+            started[0] = True
+            try:
+                _build_and_email(lead)
+            except Exception as e:
+                _handle_build_exc(e)
+            finally:
+                with _lock:
+                    _inflight[0] -= 1
+                _release_build_claim(key)
+
+    if lanes <= 1:
+        _worker()                        # kein Thread-Overhead bei einer Lane
+    else:
+        threads = [threading.Thread(target=_worker, name=f"BuildLane-{i}", daemon=True)
+                   for i in range(lanes)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    return started[0]
 
 
 # Night-Build verbessert standardmäßig NUR die heute gebauten Seiten (Sirs Vorgabe).
@@ -1462,24 +1581,13 @@ def _loop() -> None:
             _idle_sleep(3)
             continue
 
-        # ── Phase 1: bis Tageslimit neue Seiten bauen (Paid-Boost: ×2) ───────
+        # ── Phase 1: bis Tageslimit neue Seiten bauen (Paid-Boost: ×2), PARALLEL ───────
+        # Bis zu _build_lanes() Seiten gleichzeitig (Claude-begrenzt) — analog zu den parallelen
+        # Bewertungs-Lanes. Atomares Claiming verhindert Doppelbau; der Makeover-Semaphor deckelt
+        # die echte Claude-Parallelität. _build_phase_parallel kehrt erst zurück, wenn das
+        # Session-Tageslimit erreicht ist ODER keine offenen Leads mehr da sind.
         if _count_today() < _daily_limit():
-            lead = _pick_next_lead()
-            if lead:
-                try:
-                    _build_and_email(lead)
-                except Exception as e:
-                    msg = f"{type(e).__name__}: {e}"
-                    if _is_transient(msg):
-                        # Internet-/API-Aussetzer: NICHT als Fehlschlag zählen, auf Verbindung
-                        # warten und denselben Schritt erneut versuchen → der Builder bleibt dran.
-                        logger.warn("AutoBuilder", f"Transienter Fehler beim Bau ({type(e).__name__}) — bleibe dran.")
-                        _wait_online(600)
-                    else:
-                        with _lock:
-                            _state["failed"] += 1
-                        logger.error("AutoBuilder", f"Bau-Fehler: {type(e).__name__}")
-                        _idle_sleep(5)
+            if _build_phase_parallel():
                 continue
             # keine offenen Leads → in die Verbesserungs-Phase fallen
 

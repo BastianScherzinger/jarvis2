@@ -1340,19 +1340,17 @@ def find_built_sites() -> list[dict]:
 
 
 def _run_deploy(job_id: str, folder: str, name: str) -> None:
-    global _makeover_name
-    # Deploy und Makeover dürfen NICHT gleichzeitig am selben Git-Repo arbeiten (sonst
-    # index.lock-Kollision). Beide teilen sich den Makeover-Gate. Kurz (30 s) auf den Slot
-    # warten; ist gerade ein Makeover aktiv, Deploy sauber verschieben (Heal-Watcher/Manuell
-    # versucht es später automatisch erneut). Kein Deadlock: _run_makeover deployt NICHT über
-    # _run_deploy.
-    if not _makeover_gate.acquire(timeout=30):
+    # Deploy und Makeover dürfen NICHT gleichzeitig am SELBEN Git-Repo arbeiten (index.lock-
+    # Kollision). Pro-Ordner-Lock: läuft am selben Ordner gerade ein Makeover/Deploy, wird der
+    # Deploy sauber verschoben (Heal-Watcher/Manuell versucht es später automatisch erneut).
+    # Verschiedene Ordner deployen parallel. Kein Claude-Slot nötig — Deploy ruft kein Claude.
+    # Kein Deadlock: _run_makeover deployt intern direkt (nicht über _run_deploy).
+    _fgate = _folder_gate(folder)
+    if not _fgate.acquire(blocking=False):
         _set(job_id, status="done")
-        _step(job_id, 100, f"Deploy verschoben — es läuft gerade ein Makeover "
-                           f"('{_makeover_name or 'eine Seite'}'). Wird automatisch erneut versucht.")
+        _step(job_id, 100, "Deploy verschoben — am selben Repo läuft gerade ein Makeover/Deploy. "
+                           "Wird automatisch erneut versucht.")
         return
-    _prev_mname = _makeover_name
-    _makeover_name = f"Deploy: {name}"
     try:
         target = Path(folder)
         if not target.is_dir():
@@ -1407,9 +1405,8 @@ def _run_deploy(job_id: str, folder: str, name: str) -> None:
         except Exception:
             pass
     finally:
-        _makeover_name = _prev_mname
         try:
-            _makeover_gate.release()
+            _fgate.release()
         except Exception:
             pass
 
@@ -1550,22 +1547,60 @@ def _run_improve(job_id: str, folder: str, name: str) -> None:
             pass
 
 
-# ── Globaler Makeover-Lock: es darf IMMER NUR EINE Seite gleichzeitig verbessert werden ──
-# (Claude-Code-Läufe sind teuer + teilen sich das Abo-Limit; zwei parallel würden das Limit
-# sofort leeren und um content.json/Git konkurrieren). Egal ob Auto-Builder oder manueller
-# „Verbessern"-Klick: der zweite wird abgewiesen, solange einer läuft.
-_makeover_gate  = threading.Lock()
-_makeover_name  = ""          # Name der gerade verbesserten Seite (für Status/Logging)
+# ── Makeover-Parallelität: bis zu N Seiten gleichzeitig, aber NIE zwei Vorgänge am SELBEN Repo ──
+# Früher genau EINE Seite gleichzeitig (globaler Lock) — das war der Flaschenhals des
+# Webseiten-Baus. Jetzt zwei getrennte Sicherungen:
+#   1. _makeover_gate = BoundedSemaphore(N): begrenzt, wie viele Claude-Makeover-/Premium-
+#      Pipelines PARALLEL laufen dürfen — „so viel wie Claude schafft" (hardware.build_lanes,
+#      Default 2, im Paid-Boost 3; Override JARVIS_BUILD_LANES). Claude-Läufe teilen sich das
+#      Abo-/Token-Limit, darum die Deckelung.
+#   2. _folder_gate(ordner): ein Lock PRO Website-Ordner — Makeover und Deploy desselben Repos
+#      dürfen sich nie überlappen (sonst index.lock-Kollision). Verschiedene Ordner laufen echt
+#      parallel.
+try:
+    import hardware as _hardware
+    _makeover_slots = max(1, _hardware.build_lanes())
+except Exception:
+    _makeover_slots = 2
+_makeover_gate  = threading.BoundedSemaphore(_makeover_slots)
+_makeover_name  = ""          # zuletzt gestartete Seite (nur Status/Logging)
+_makeover_count = [0]         # Anzahl aktuell laufender Makeover/Premium (für makeover_busy)
+_makeover_count_lock = threading.Lock()
+_folder_gates   = {}          # Ordner-Pfad → Lock (Repo-Exklusivität)
+_folder_gates_guard = threading.Lock()
+
+
+def _folder_gate(folder) -> "threading.Lock":
+    """Pro Website-Ordner genau ein Lock — verhindert, dass Makeover und Deploy (oder zwei
+    Makeover) GLEICHZEITIG am selben Git-Repo arbeiten. Verschiedene Ordner laufen parallel."""
+    import os as _os
+    key = _os.path.normcase(_os.path.abspath(str(folder)))
+    with _folder_gates_guard:
+        g = _folder_gates.get(key)
+        if g is None:
+            g = threading.Lock()
+            _folder_gates[key] = g
+    return g
+
+
+def _makeover_count_add(delta: int) -> None:
+    with _makeover_count_lock:
+        _makeover_count[0] = max(0, _makeover_count[0] + delta)
 
 
 def makeover_busy() -> bool:
-    """True, wenn gerade eine Seite verbessert wird (ein Makeover läuft)."""
-    return _makeover_gate.locked()
+    """True, wenn gerade mindestens ein Makeover/Premium-Ausbau läuft."""
+    return _makeover_count[0] > 0
+
+
+def makeover_slots() -> int:
+    """Wie viele Makeover-/Bau-Lanes parallel laufen dürfen (Claude-begrenzt)."""
+    return _makeover_slots
 
 
 def makeover_current() -> str:
-    """Name der aktuell verbesserten Seite ('' wenn keine läuft)."""
-    return _makeover_name
+    """Name einer aktuell verbesserten Seite ('' wenn keine läuft)."""
+    return _makeover_name if _makeover_count[0] > 0 else ""
 
 
 def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
@@ -1582,24 +1617,35 @@ def makeover_existing(folder: str, name: "str | None" = None, stop=None) -> str:
 
 def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
     global _makeover_name
-    # Nur EINE Seite gleichzeitig verbessern: bekommt dieser Job den Lock nicht, läuft schon
-    # eine andere Verbesserung → sauber abweisen (keine zweite parallele Claude-Pipeline).
+    # Claude-Slot (max. _makeover_slots parallel). Ist gerade kein Slot frei → sauber abweisen.
     if not _makeover_gate.acquire(blocking=False):
-        laeuft = _makeover_name or "eine andere Seite"
+        laeuft = _makeover_name or "andere Seiten"
         _set(job_id, status="done")
-        _step(job_id, 100, f"Übersprungen — es wird gerade '{laeuft}' verbessert "
-                           f"(immer nur eine Seite gleichzeitig). Später erneut starten.")
+        _step(job_id, 100, f"Übersprungen — es laufen gerade {_makeover_slots} Makeover "
+                           f"(zuletzt '{laeuft}'). Später erneut starten.")
         try:
             import logger
-            logger.warn("Makeover", f"'{name}' NICHT gestartet — es läuft bereits ein Makeover "
-                                    f"('{laeuft}'). Es wird immer nur eine Seite gleichzeitig verbessert.")
+            logger.warn("Makeover", f"'{name}' NICHT gestartet — alle {_makeover_slots} Makeover-Slots belegt "
+                                    f"(zuletzt '{laeuft}').")
         except Exception:
             pass
         return
+    # Repo-Exklusivität: am SELBEN Ordner darf nicht schon ein Makeover/Deploy laufen.
+    _fgate = _folder_gate(folder)
+    if not _fgate.acquire(blocking=False):
+        try:
+            _makeover_gate.release()
+        except Exception:
+            pass
+        _set(job_id, status="done")
+        _step(job_id, 100, "Übersprungen — an dieser Seite läuft bereits ein Makeover/Deploy.")
+        return
+    _makeover_count_add(1)
     _makeover_name = name
     try:
         import logger
-        logger.info("Makeover", f"🔒 Makeover-Slot belegt von '{name}' (nur 1 Seite gleichzeitig).")
+        logger.info("Makeover", f"🔒 Makeover-Slot belegt von '{name}' "
+                                f"({_makeover_count[0]}/{_makeover_slots} parallel).")
     except Exception:
         pass
     try:
@@ -1740,15 +1786,20 @@ def _run_makeover(job_id: str, folder: str, name: str, stop=None) -> None:
         except Exception:
             pass
     finally:
-        # Makeover-Slot IMMER freigeben (auch bei frühem return/Fehler) → nächste Seite kann dran.
-        _makeover_name = ""
+        # Slot + Ordner-Lock IMMER freigeben (auch bei frühem return/Fehler) → nächste Seite dran.
+        _makeover_count_add(-1)
+        try:
+            _fgate.release()
+        except Exception:
+            pass
         try:
             _makeover_gate.release()
         except Exception:
             pass
         try:
             import logger
-            logger.info("Makeover", f"🔓 Makeover-Slot frei (war '{name}').")
+            logger.info("Makeover", f"🔓 Makeover-Slot frei (war '{name}', "
+                                    f"{_makeover_count[0]}/{_makeover_slots} laufen noch).")
         except Exception:
             pass
 
@@ -1765,14 +1816,25 @@ def premium_upgrade_existing(folder: str, name: "str | None" = None) -> str:
 
 
 def _run_premium(job_id: str, folder: str, name: str) -> None:
-    """1A-Ausbau einer verschickten Seite. Teilt sich den globalen Makeover-Lock (nur EINE
-    Claude-Pipeline gleichzeitig) und re-deployt auf die bestehende Railway-Domain."""
+    """1A-Ausbau einer verschickten Seite. Teilt sich das Makeover-Claude-Kontingent
+    (_makeover_slots parallel) und re-deployt auf die bestehende Railway-Domain."""
     global _makeover_name
     if not _makeover_gate.acquire(blocking=False):
-        laeuft = _makeover_name or "eine andere Seite"
+        laeuft = _makeover_name or "andere Seiten"
         _set(job_id, status="done")
-        _step(job_id, 100, f"Premium-Ausbau später — es wird gerade '{laeuft}' bearbeitet.")
+        _step(job_id, 100, f"Premium-Ausbau später — alle {_makeover_slots} Makeover-Slots belegt "
+                           f"(zuletzt '{laeuft}').")
         return
+    _fgate = _folder_gate(folder)
+    if not _fgate.acquire(blocking=False):
+        try:
+            _makeover_gate.release()
+        except Exception:
+            pass
+        _set(job_id, status="done")
+        _step(job_id, 100, "Premium-Ausbau später — an dieser Seite läuft bereits ein Makeover/Deploy.")
+        return
+    _makeover_count_add(1)
     _makeover_name = name
     try:
         target = Path(folder)
@@ -1850,7 +1912,11 @@ def _run_premium(job_id: str, folder: str, name: str) -> None:
         except Exception:
             pass
     finally:
-        _makeover_name = ""
+        _makeover_count_add(-1)
+        try:
+            _fgate.release()
+        except Exception:
+            pass
         try:
             _makeover_gate.release()
         except Exception:
