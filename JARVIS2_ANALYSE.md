@@ -800,7 +800,69 @@ Tests/Doku:        tests/test_core.py, CLAUDE.md, workspace/*.md (Audit-/Archite
 
 ---
 
+## 20. Architektur-Ausbau (07.07.2026) — breitere Bewertung, Multi-Modell, Recht, Graph
+
+Auf ausdrücklichen Wunsch („Programm breiter bauen — mehr Agenten parallel, bessere Bewertung/
+Analyse, alles rechtlich korrekt, Graph verbessern") umgesetzt. Alle neuen `.env`-Schalter
+defaulten auf sicheres/bisheriges Verhalten; DB-Migrationen additiv (kein UNIQUE-Bruch).
+
+**A — Breitere, teils parallele Bewertungs-Kette** (`agents/evaluator/pipeline.py`).
+Aus der seriellen 3-Agenten-Kette wird eine 5-Agenten-Kette:
+`WebAnalyst → {ContentAnalyst ‖ CompetitorAnalyst ‖ SocialResearcher} → ScoreWriter`.
+Die drei mittleren Agenten laufen **parallel** in einem `ThreadPoolExecutor` (Breite =
+`hardware.analysis_agents()`, RAM-basiert: ≥32 GB→3, ≥16→2, sonst 1 = seriell wie bisher).
+- **`content_analyst.py` (NEU):** liest die von `web_analyst` durchgereichte HTML
+  (`web["html"]`, kein zweiter Fetch) und bewertet den Inhalt **semantisch** per LLM
+  (angebot_klarheit / text_qualitaet / modernitaet / mobil_ok / conversion_schwaeche /
+  pitch_haken). Das war die größte Lücke — vorher rein Regex.
+- **`competitor_analyst.py` (NEU):** nutzt das bis dahin ungenutzte
+  `db_raw.get_competition(stadt, branche)` → `markt_score` 0-10 (Handlungsdruck), heuristisch
+  + optionaler LLM-Feinschliff.
+
+**Scoring** (`score_writer.py`): Der **±15-Deckel ist weg**. `evaluate(lead, web, social,
+content=None, competitor=None)` bildet den finalen Score als **gewichtetes Mittel** aus
+deterministischem Basis-Score und einem echten LLM-`gesamt_score` (Gewicht
+`JARVIS_SCORE_LLM_WEIGHT`, Default 0.5; optionales Median-Sampling `JARVIS_SCORE_SAMPLES`).
+Neue Basis-Faktoren aus Inhalt (schwacher Inhalt = mehr Bedarf) + Marktdruck. **Harter Fallback
+unverändert:** kein Ollama → reiner Basis-Score. Neue DB2-Spalten (additiv): `content_score`,
+`markt_score`, `conversion_schwaeche`, `analyse_json`.
+
+**B — Multi-Modell je Rolle** (`scrapers/_http.py`). Neu `model_for_role("fast"|"strong")`:
+leichte Aufgaben (name-clean) → `JARVIS_EVAL_MODEL_FAST` (klein/schnell), Analyse/Scoring →
+`JARVIS_EVAL_MODEL_STRONG` (stark). VRAM-Check + Fallback auf `best_chat_model()` (auf schwacher
+Hardware also identisch zu vorher = ein Modell). Ollama-Semaphore-Floor jetzt
+`eval_lanes × analysis_agents`, damit die gleichzeitigen Agenten nicht am Semaphor aufstauen.
+
+**C — Graph-Viz** (`static/js/pipeline.js`, `static/css/style.css`). Die Bewertung zeigt jetzt
+**5 Stationen** (ANALYSE·INHALT·WETTBEWERB·RECHERCHE·SCORING, neue Icons `content`/`market`,
+neue Klassifikations-Keywords). Die parallelen **Lane-Arbeiter** (Sirs „Neben-Agents") sind
+größer (`hubR*0.6` statt `0.34`), **klar verbunden** (Anbindungslinien-Alpha 0.14→~0.4, animierter
+Fluss) und mit „LANE n" **beschriftet**. Schrift generell etwas größer: Grundschrift 13→14px,
+Canvas-Labels 10→12px, Sub 8.5→10, Gruppen-Titel 9→11px, Log-Konsole 10.5→12px, HUD 11→12.5px.
+
+**D — Rechtliche Härtung** (volle Ausbaustufe).
+- DSGVO **Art. 14** Herkunftshinweis in der Erstmail (`legal_pages.build_email_footer`) + im
+  Datenschutztext (`build_datenschutz`, neuer Abschnitt „Herkunft der Daten").
+- **Speicherbegrenzung** `data_retention.py` (Daemon in `app.py`, Default AN,
+  `JARVIS_RETENTION=0` aus): löscht nach `JARVIS_RETENTION_DAYS` (Default 180) **nicht
+  kontaktierte** Personendaten — `db_evaluated.purge_stale()` (kontaktiert/verkauft/archiviert
+  bleiben) + `db_raw.purge_older_than()` (nur done/failed).
+- **Verarbeitungs-/Widerspruchs-Audit-Log** (`email_suppress.log_event`,
+  `data/consent_log.jsonl`): Zeitpunkt + Quelle + **HMAC-gehashte** Adresse (kein Klartext-PII).
+- **Impressum-Pflichtfelder** (`legal_pages.missing_impressum_fields`): fehlt eine
+  Pflichtangabe, warnt der Makeover laut statt eine Platzhalter-Seite live zu schicken.
+- **Datenpakete** (`leadpackages/export_csv_excel.py`): Art.-14-Hinweisblatt als zweites
+  Excel-Sheet (Käufer wird Verantwortlicher). *UWG-Kaltakquise bleibt bewusst Geschäfts-
+  entscheidung — technischer Rahmen sauber, keine Rechtsberatung.*
+
+**E — Tests:** `tests/test_core.py` um 17 neue Tests erweitert (neue Agenten inkl.
+Ollama-Ausfall-Fallback, Scoring ohne ±15-Deckel + harter Fallback, Multi-Modell-Auswahl,
+Retention-Purge, Consent-Hash, Art.14/Impressum, Graph-JS-Stationen).
+
+---
+
 *Erstellt durch eine vierfach-parallele Tiefen-Code-Analyse + eigene Verifikation der
 wichtigsten Befunde (insbesondere der Dead-Code-Entdeckung in Abschnitt 10). Bei Widersprüchen
 zwischen diesem Dokument und dem tatsächlichen Code gilt immer der Code — Software entwickelt
-sich weiter, dieses Dokument ist eine Momentaufnahme vom 05.07.2026.*
+sich weiter, dieses Dokument ist eine Momentaufnahme vom 05.07.2026, ergänzt am 07.07.2026
+(Abschnitt 20).*

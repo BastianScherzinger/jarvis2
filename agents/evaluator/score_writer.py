@@ -14,10 +14,26 @@ Preissystem (reale Paketpreise — kein berechneter Erwartungswert mehr):
  1200 € — Außergewöhnliches Potenzial (KI sieht Grund für mehr als 850 €)
 """
 import json
+import os
+import statistics
 
-from scrapers._http import ask_ollama, extract_json, best_chat_model
+from scrapers._http import ask_ollama, extract_json, best_chat_model, model_for_role
 from scrapers.regions import HIGH_VALUE
 import logger
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (ValueError, TypeError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except (ValueError, TypeError):
+        return default
 
 # Feste Paketpreise — kein freier Potenzialwert mehr.
 # Ollama wählt einen dieser Tiers; bei Ablehnung greift die Heuristik.
@@ -79,6 +95,15 @@ def _clamp(v: int) -> int:
     return max(0, min(100, int(v)))
 
 
+def _score_0_100(v) -> "int | None":
+    """Castet einen LLM-Gesamt-Score robust auf 0-100 (None = ungültig/fehlt)."""
+    try:
+        n = int(round(float(v)))
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, n))
+
+
 def _preis_tier(has_web: int, veraltet: int, firmengroesse: str,
                 branche: str, rev: int, score_100: int,
                 ollama_tier: int = None, rating: float = 0.0) -> int:
@@ -131,8 +156,15 @@ def _preis_tier(has_web: int, veraltet: int, firmengroesse: str,
     return 200  # Mindest-Einstiegspreis, solange der Lead überhaupt Bedarf hat
 
 
-def evaluate(lead: dict, web: dict, social: dict) -> dict:
-    """Kombiniert alle Signale → differenzierter Score, Paketpreis, Pitch, E-Mail."""
+def evaluate(lead: dict, web: dict, social: dict,
+             content: dict | None = None, competitor: dict | None = None) -> dict:
+    """Kombiniert alle Signale → differenzierter Score, Paketpreis, Pitch, E-Mail.
+
+    `content` = ContentAnalyst-Ergebnis (semantische Website-Bewertung), `competitor` =
+    CompetitorAnalyst-Ergebnis (Markt/Wettbewerb). Beide optional (None → Verhalten wie die
+    alte 3-Agenten-Kette), damit Bestandsaufrufe/Tests unverändert funktionieren."""
+    content       = content or {}
+    competitor    = competitor or {}
     issues        = web.get("website_probleme") or []
     has_web       = int(web.get("has_website", 0))
     veraltet      = int(web.get("website_veraltet", 0))
@@ -198,9 +230,52 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         breakdown["Kette (kein Zahler)"] = -35
         heur_privat = 0
 
+    # ── Inhalt (ContentAnalyst) — schwacher Inhalt = mehr Bedarf/Upgrade-Motiv ──
+    inhalt_vals = [v for v in (content.get("angebot_klarheit"),
+                               content.get("text_qualitaet"),
+                               content.get("modernitaet")) if isinstance(v, (int, float))]
+    content_score = round(sum(inhalt_vals) / len(inhalt_vals) * 10) if inhalt_vals else -1
+    if has_web and inhalt_vals:
+        avg = content_score / 10.0
+        if avg <= 3:
+            breakdown["Inhalt sehr schwach"] = 14
+        elif avg <= 5:
+            breakdown["Inhalt schwach"] = 9
+        elif avg <= 7:
+            breakdown["Inhalt mittelmäßig"] = 4
+        # avg > 7 → guter Inhalt, kein Aufschlag
+    if has_web and content.get("mobil_ok") is False:
+        breakdown["Nicht mobil-optimiert"] = 6
+
+    # ── Wettbewerb (CompetitorAnalyst) — hoher Marktdruck = höherer Score ──
+    markt_score = competitor.get("markt_score")
+    if isinstance(markt_score, (int, float)):
+        if markt_score >= 8:
+            breakdown["Starker Marktdruck"] = 10
+        elif markt_score >= 6:
+            breakdown["Erhöhter Marktdruck"] = 6
+        elif markt_score >= 4:
+            breakdown["Mittlerer Marktdruck"] = 3
+
     base = _clamp(sum(breakdown.values()))
 
-    # ── Ollama-Verfeinerung (nur Feinschliff + Texte + Tier-Empfehlung) ─────
+    # ── Ollama-Verfeinerung: echtes Gesamt-Urteil + Texte + Tier-Empfehlung ─────
+    # Inhalts-/Wettbewerbs-Zeilen nur anhängen, wenn die neuen Agenten Daten geliefert haben.
+    inhalt_zeile = ""
+    if inhalt_vals:
+        inhalt_zeile = (f"Inhalts-Analyse: Angebot {content.get('angebot_klarheit')}/10, "
+                        f"Texte {content.get('text_qualitaet')}/10, "
+                        f"Modernität {content.get('modernitaet')}/10, "
+                        f"mobil {'ja' if content.get('mobil_ok') else 'nein'}")
+        if content.get("conversion_schwaeche"):
+            inhalt_zeile += f" | Schwäche: {content['conversion_schwaeche']}"
+        inhalt_zeile += "\n"
+    markt_zeile = ""
+    if isinstance(markt_score, (int, float)):
+        markt_zeile = (f"Marktdruck: {markt_score}/10 "
+                       f"({competitor.get('wettbewerb_ohne_website', 0)}/"
+                       f"{competitor.get('wettbewerb_gesamt', 0)} Konkurrenten ohne Website)\n")
+
     context = (
         f"Betrieb: {lead.get('name')} | Branche: {branche} | Stadt: {lead.get('stadt')}\n"
         f"Website: {'Ja' if has_web else 'NEIN'}"
@@ -210,7 +285,8 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         f"Firmengröße: {firmengroesse} | Social: {', '.join(social_media.keys()) or 'keins'}\n"
         f"Telefon: {'ja' if web.get('telefon_verifiziert') else 'nein'} | "
         f"E-Mail: {'ja' if web.get('email_vorhanden') else 'nein'}\n"
-        f"Vorläufiger Basis-Score: {base}/100"
+        + inhalt_zeile + markt_zeile +
+        f"Vorläufiger Basis-Score (Heuristik): {base}/100"
     )
 
     system = (
@@ -236,7 +312,9 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         "- beschreibung: 1-2 sachliche Sätze NUR aus den Fakten, keine Erfindungen.\n"
         "- pitch_hook: 1 konkreter Satz, der einen echten Mangel anspricht.\n\n"
         "Antworte EXAKT in diesem JSON-Format (kein Markdown, deutsche Texte):\n"
-        '{"anpassung": Zahl -15 bis 15 (Korrektur des Basis-Scores), '
+        '{"gesamt_score": Zahl 0-100 (dein eigenes Gesamturteil als Verkaufschance, '
+        'nutze ALLE Signale inkl. Inhalts- und Marktanalyse), '
+        '"anpassung": Zahl -30 bis 30 (nur falls du keinen gesamt_score geben kannst), '
         '"preis_tier": 0 oder 200 oder 350 oder 550 oder 850 oder 1200, '
         '"ist_privat_zahler": 1 oder 0 (1=Einzelbetrieb/KMU, 0=Kette/Konzern), '
         '"beschreibung": "1-2 sachliche Sätze, nur aus den Fakten", '
@@ -246,17 +324,37 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         '"email_text": "sachliche Akquise-Mail, max 80 Wörter, keine Erfindungen"}'
     )
 
-    raw  = ask_ollama(prompt, system=system, model=best_chat_model())
-    data = extract_json(raw)
+    # Echtes KI-Gesamturteil statt ±15-Kosmetik: Der finale Score ist das gewichtete Mittel
+    # aus deterministischem Basis-Score und dem LLM-Gesamturteil (Gewicht JARVIS_SCORE_LLM_WEIGHT,
+    # Default 0.5). Optionales Mehrfach-Sampling (JARVIS_SCORE_SAMPLES) nimmt den Median gegen
+    # LLM-Rauschen. Harter Fallback bleibt: kein Ollama → reiner deterministischer Basis-Score.
+    w       = max(0.0, min(1.0, _env_float("JARVIS_SCORE_LLM_WEIGHT", 0.5)))
+    samples = max(1, min(5, _env_int("JARVIS_SCORE_SAMPLES", 1)))
+    model   = model_for_role("strong")
 
-    # Anpassung anwenden (begrenzt)
-    try:
-        anpassung = int(data.get("anpassung", 0))
-        anpassung = max(-15, min(15, anpassung))
-    except (TypeError, ValueError):
-        anpassung = 0
+    data: dict = {}
+    llm_scores: list[int] = []
+    for _ in range(samples):
+        raw = ask_ollama(prompt, system=system, model=model)
+        d   = extract_json(raw)
+        if d and not data:
+            data = d                     # Texte/Tier vom ersten validen Ergebnis übernehmen
+        gs = _score_0_100(d.get("gesamt_score"))
+        if gs is not None:
+            llm_scores.append(gs)
 
-    score = _clamp(base + anpassung)
+    if llm_scores:
+        llm_score = int(round(statistics.median(llm_scores)))
+        score     = _clamp(round(base * (1 - w) + llm_score * w))
+        anpassung = score - base         # nur fürs Log
+    else:
+        # Kein Gesamturteil verfügbar → alte Anpassungslogik (Deckel gelockert auf ±30),
+        # sonst reiner Basis-Score.
+        try:
+            anpassung = max(-30, min(30, int(data.get("anpassung", 0))))
+        except (TypeError, ValueError):
+            anpassung = 0
+        score = _clamp(base + anpassung)
 
     # Ollama-Tier auslesen (muss exakt in PREIS_TIERS sein)
     try:
@@ -304,9 +402,19 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
 
     logger.eval_(
         "ScoreWriter",
-        f"→ Basis {base} + Ollama {anpassung:+d} = {score} | {lead_typ} | "
-        f"Preis {preis}€ | Sicherheit {sicherheit}",
+        f"→ Basis {base} {'+ KI-Urteil' if llm_scores else '+ Ollama'} {anpassung:+d} = {score} | "
+        f"{lead_typ} | Preis {preis}€ | Sicherheit {sicherheit} | "
+        f"Inhalt {content_score if content_score >= 0 else '—'} | Markt {markt_score if markt_score is not None else '—'}",
     )
+
+    # Pitch bevorzugt aus dem Scoring-LLM, sonst den konkreten Haken des ContentAnalysten.
+    pitch = str(data.get("pitch_hook") or "").strip() or str(content.get("pitch_haken") or "").strip()
+
+    # Roh-Analysen für Nachvollziehbarkeit (Ranking-Detail) — ohne die große HTML.
+    analyse_json = json.dumps({
+        "content":    {k: v for k, v in content.items() if k != "html"},
+        "competitor": competitor,
+    }, ensure_ascii=False)[:4000]
 
     return {
         "score":                 score,
@@ -318,10 +426,15 @@ def evaluate(lead: dict, web: dict, social: dict) -> dict:
         "firmengroesse":         firmengroesse,
         "potenzial_euro":        basis_potenzial,
         "potenzial_begruendung": str(data.get("potenzial_begruendung") or "")[:300],
-        "pitch_hook":            str(data.get("pitch_hook") or "")[:200],
+        "pitch_hook":            pitch[:200],
         "email_entwurf":         email_draft,
         "score_breakdown":       json.dumps(breakdown, ensure_ascii=False),
         "sicherheit_breakdown":  json.dumps(sicherheit_bd, ensure_ascii=False),
         "discovered_website":    web.get("discovered_website", ""),
         "bilder_vorhanden":      bilder,
+        # Neue Bewertungs-Signale (persistiert in DB2)
+        "content_score":         content_score,
+        "markt_score":           markt_score if markt_score is not None else -1,
+        "conversion_schwaeche":  str(content.get("conversion_schwaeche") or "")[:300],
+        "analyse_json":          analyse_json,
     }

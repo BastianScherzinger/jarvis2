@@ -693,6 +693,17 @@ def _ensure_legal(folder: Path, meta: dict) -> None:
     legal = legal_pages.build_all(src)
     for k, v in legal.items():
         content.setdefault(k, v)
+    # Impressums-Pflichtfelder prüfen — fehlt eine Pflichtangabe, LAUT warnen statt eine
+    # Seite mit "[bitte ergänzen]"-Impressum stillschweigend zu deployen (§ 5 DDG).
+    fehlend = legal_pages.missing_impressum_fields(src)
+    if fehlend:
+        try:
+            import logger
+            logger.warn("Recht", f"Impressum unvollständig für {src.get('name') or folder.name}: "
+                                  f"fehlend {', '.join(fehlend)} — vor Versand ergänzen!")
+        except Exception:
+            pass
+        content["_impressum_warnung"] = fehlend
     _write_content(folder, content)
 
 

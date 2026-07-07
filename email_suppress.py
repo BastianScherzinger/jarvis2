@@ -25,6 +25,13 @@ from jsonstate import atomic_write_json
 _PATH = Path(__file__).parent / "data" / "email_optout.json"
 _lock = threading.Lock()
 
+# DSGVO-Nachweis: unveränderliches Append-Log jedes Widerspruchs/Opt-outs. Die Adresse wird
+# NUR als HMAC-Hash abgelegt (kein Klartext-PII-Duplikat), zusammen mit Zeitpunkt, Quelle und
+# Aktion — reicht als Beleg "Widerspruch X wurde am Y beachtet", ohne selbst eine neue
+# Personendaten-Sammlung anzulegen.
+_AUDIT_PATH  = Path(__file__).parent / "data" / "consent_log.jsonl"
+_audit_lock  = threading.Lock()
+
 
 _SECRET_PATH = Path(__file__).parent / "data" / "unsub_secret.txt"
 
@@ -71,6 +78,39 @@ def unsub_link(email: str) -> str:
     return f"{base}/abmelden?" + urllib.parse.urlencode({"e": email, "t": token_for(email)})
 
 
+def email_hash(email: str) -> str:
+    """Nicht umkehrbarer HMAC-Hash einer Adresse fürs Audit-Log (kein Klartext-PII)."""
+    e = (email or "").strip().lower()
+    return hmac.new(_secret(), e.encode(), hashlib.sha256).hexdigest()
+
+
+def log_event(email: str, quelle: str, aktion: str = "opt-out") -> None:
+    """Hängt einen DSGVO-Nachweis-Eintrag ans Audit-Log (Adresse nur gehasht). Best-effort —
+    ein Schreibfehler darf den Abmelde-Vorgang nie scheitern lassen."""
+    try:
+        rec = {
+            "ts":     time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "aktion": aktion,
+            "quelle": quelle,
+            "email_hash": email_hash(email),
+        }
+        _AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _audit_lock:
+            with open(_AUDIT_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def audit_count() -> int:
+    """Anzahl der Audit-Log-Einträge (0 wenn keine Datei)."""
+    try:
+        with _audit_lock, open(_AUDIT_PATH, "r", encoding="utf-8") as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
+
+
 def _load() -> dict:
     try:
         d = json.loads(_PATH.read_text(encoding="utf-8"))
@@ -110,6 +150,7 @@ def suppress(email: str, quelle: str = "link") -> bool:
         d.setdefault("emails", []).append(e)
         d.setdefault("ts", {})[e] = {"ts": time.time(), "quelle": quelle}
         _save(d)
+    log_event(e, quelle, aktion="opt-out")   # DSGVO-Nachweis (gehasht)
     try:
         import logger
         logger.info("Abmeldung", f"Opt-out eingetragen ({quelle}): {e}")

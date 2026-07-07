@@ -509,4 +509,8 @@ def analyze(lead: dict) -> dict:
         steps.append(f"Alter: {alter if alter >= 0 else 'unbekannt'} Jahre")
     steps.append(f"Bilder: {bilder_txt}")
 
+    # Geladene Start-HTML für den ContentAnalyst durchreichen (kein zweiter Fetch).
+    # Nur in-memory, wird NICHT in DB2 geschrieben — die Pipeline pickt gezielte Felder.
+    result["html"] = (html or "")[:200_000]
+
     return result

@@ -5,12 +5,16 @@ import threading
 import time
 import json
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from agents.evaluator.web_analyst        import analyze
 from agents.evaluator.social_researcher  import research
 from agents.evaluator.score_writer       import evaluate
+from agents.evaluator.content_analyst    import analyze as analyze_content
+from agents.evaluator.competitor_analyst import analyze as analyze_competition
 import db_raw
 import db_evaluated
+import hardware
 import logger
 
 
@@ -42,20 +46,45 @@ def _eval_loop(worker_id: int, on_update, stop_event) -> None:
             # Jeder der 3 Agenten meldet Start UND Ergebnis mit EIGENEM Worker-Namen —
             # so reagiert im Graph pro Agent eine eigene Station (ANALYSE/RECHERCHE/SCORING)
             # und wirklich jeder Bewertungs-Schritt wird als Punkt sichtbar.
-            # Agent 1: Website TIEF analysieren (findet Website aktiv, EINE Suche)
+            # Agent 1: Website TIEF analysieren (findet Website aktiv, EINE Suche, lädt HTML).
+            # MUSS zuerst laufen — liefert website_url + geladene HTML + search_hits, die die
+            # nachfolgenden Agenten wiederverwenden (keine zweite Suche/kein zweiter Fetch).
             logger.eval_("WebAnalyst", f"→ Website-Analyse: {_nm}")
             web    = analyze(lead)
             logger.eval_("WebAnalyst",
                          f"✓ {_nm}: Website {'gefunden' if int(web.get('has_website', 0)) else 'KEINE'}"
                          f" · Bilder {'ja' if int(web.get('bilder_vorhanden', 0)) else 'nein'}")
-            # Agent 2: Social + Firmengröße — nutzt die Treffer von Agent 1 (keine 2. Suche)
-            logger.eval_("SocialRes", f"→ Social-Recherche: {_nm}")
-            social = research(lead, web.get("search_hits"))
+
+            # Agenten 2-4 laufen UNABHÄNGIG voneinander (dieselbe HTML/dieselben Treffer) →
+            # parallel in einem ThreadPoolExecutor. Breite = hardware.analysis_agents()
+            # (RAM-basiert: schwache Maschine → 1 = seriell, starke → bis 3 gleichzeitig).
+            n_par = max(1, hardware.analysis_agents())
+
+            def _run_content():
+                logger.eval_("ContentAnalyst", f"→ Inhalts-Analyse: {_nm}")
+                return analyze_content(lead, web)
+
+            def _run_competitor():
+                logger.eval_("CompetitorAnalyst", f"→ Markt-Analyse: {_nm}")
+                return analyze_competition(lead, web)
+
+            def _run_social():
+                logger.eval_("SocialRes", f"→ Social-Recherche: {_nm}")
+                return research(lead, web.get("search_hits"))
+
+            with ThreadPoolExecutor(max_workers=n_par, thread_name_prefix="EvalAgent") as ex:
+                f_content    = ex.submit(_run_content)
+                f_competitor = ex.submit(_run_competitor)
+                f_social     = ex.submit(_run_social)
+                content    = f_content.result()
+                competitor = f_competitor.result()
+                social     = f_social.result()
             logger.eval_("SocialRes",
                          f"✓ {_nm}: {', '.join(social.get('social_media', {}).keys()) or 'kein Social'}")
-            # Agent 3: differenzierter Score + Ollama-Feinschliff + Pitch
+
+            # Agent 5: differenzierter Score + echtes KI-Gesamturteil + Pitch (nutzt alle Signale)
             logger.eval_("ScoreWriter", f"→ Scoring: {_nm}")
-            scored = evaluate(lead, web, social)
+            scored = evaluate(lead, web, social, content, competitor)
 
             # web überschreibt die (oft falschen) Scraper-Werte
             has_website = int(web.get("has_website", 0))

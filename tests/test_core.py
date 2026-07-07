@@ -2770,3 +2770,226 @@ def test_dead_frontend_files_removed():
         f = root / "static" / "js" / name
         if f.exists():
             assert name in index, f"{name} existiert, wird aber nirgends geladen (Dead Code)"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ausbau 07.07.2026: breitere Bewertung (Content/Competitor), Multi-Modell, Recht
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Hardware: analysis_agents (RAM-Stufen + Override) ─────────────────────────
+def test_hardware_analysis_agents_ram_stufen(monkeypatch):
+    import hardware
+    monkeypatch.delenv("JARVIS_ANALYSIS_AGENTS", raising=False)
+    assert hardware.analysis_agents(ram=64) == 3
+    assert hardware.analysis_agents(ram=32) == 3
+    assert hardware.analysis_agents(ram=16) == 2
+    assert hardware.analysis_agents(ram=8) == 1
+    # Override gewinnt und wird auf >=1 geklemmt
+    monkeypatch.setenv("JARVIS_ANALYSIS_AGENTS", "4")
+    assert hardware.analysis_agents(ram=4) == 4
+    monkeypatch.setenv("JARVIS_ANALYSIS_AGENTS", "0")
+    assert hardware.analysis_agents(ram=4) == 1
+
+
+# ── _http.model_for_role: Rollen-Modellwahl (Override ohne Netzwerk) ──────────
+def test_model_for_role_env_override(monkeypatch):
+    import scrapers._http as h
+    h._ROLE_MODEL.clear()
+    # ollama_models() gäbe [] zurück (kein Server) → env-Override greift trotzdem (not by_name).
+    monkeypatch.setattr(h, "ollama_models", lambda: [])
+    monkeypatch.setenv("JARVIS_EVAL_MODEL_STRONG", "qwen2.5:32b")
+    monkeypatch.setenv("JARVIS_EVAL_MODEL_FAST", "qwen2.5:1.5b")
+    assert h.model_for_role("strong") == "qwen2.5:32b"
+    h._ROLE_MODEL.clear()
+    assert h.model_for_role("fast") == "qwen2.5:1.5b"
+
+
+def test_model_for_role_fast_fallback_zu_best(monkeypatch):
+    import scrapers._http as h
+    h._ROLE_MODEL.clear()
+    monkeypatch.delenv("JARVIS_EVAL_MODEL_FAST", raising=False)
+    monkeypatch.setattr(h, "ollama_models", lambda: [])   # kein Schnell-Modell installiert
+    monkeypatch.setattr(h, "best_chat_model", lambda: "geteilt:x")
+    assert h.model_for_role("fast") == "geteilt:x"
+
+
+# ── ContentAnalyst ────────────────────────────────────────────────────────────
+def test_content_analyst_ohne_website_kein_llm(monkeypatch):
+    from agents.evaluator import content_analyst as ca
+    called = {"n": 0}
+    monkeypatch.setattr(ca, "ask_ollama", lambda *a, **k: called.__setitem__("n", called["n"] + 1) or "")
+    res = ca.analyze({"name": "X"}, {"has_website": 0})
+    assert res["keine_website"] == 1 and called["n"] == 0
+
+
+def test_content_analyst_parst_json(monkeypatch):
+    from agents.evaluator import content_analyst as ca
+    monkeypatch.setattr(ca, "model_for_role", lambda role="strong": "m")
+    monkeypatch.setattr(ca, "ask_ollama", lambda *a, **k:
+        '{"angebot_klarheit": 8, "text_qualitaet": 3, "modernitaet": 2, '
+        '"mobil_ok": false, "conversion_schwaeche": "kein CTA", "pitch_haken": "veraltet"}')
+    web = {"has_website": 1, "html": "<title>Firma</title><p>Wir bieten Dachdecken.</p>"}
+    res = ca.analyze({"name": "Dach GmbH", "branche": "Dachdecker"}, web)
+    assert res["angebot_klarheit"] == 8 and res["modernitaet"] == 2
+    assert res["mobil_ok"] is False and res["conversion_schwaeche"] == "kein CTA"
+
+
+def test_content_analyst_fallback_bei_ollama_aus(monkeypatch):
+    from agents.evaluator import content_analyst as ca
+    monkeypatch.setattr(ca, "model_for_role", lambda role="strong": "m")
+    monkeypatch.setattr(ca, "ask_ollama", lambda *a, **k: "")   # Ollama aus
+    web = {"has_website": 1, "html": '<meta name="viewport" content="w"><p>Text genug hier.</p>'}
+    res = ca.analyze({"name": "X"}, web)
+    assert res["angebot_klarheit"] is None and res["mobil_ok"] is True   # nie Exception, Defaults
+
+
+# ── CompetitorAnalyst ─────────────────────────────────────────────────────────
+def test_competitor_analyst_heuristik_ohne_llm(monkeypatch):
+    from agents.evaluator import competitor_analyst as co
+    import db_raw
+    monkeypatch.setattr(db_raw, "get_competition",
+                        lambda stadt, branche: {"gesamt": 10, "ohne_website": 1, "prozent_ohne": 10})
+    monkeypatch.setattr(co, "ask_ollama", lambda *a, **k: "")   # kein LLM → Heuristik
+    res = co.analyze({"name": "X", "stadt": "Ulm", "branche": "Elektriker"}, {"has_website": 0})
+    # Betrieb ohne Website, Markt fast komplett online (prozent_ohne=10) → hoher Druck
+    assert res["markt_score"] >= 8 and res["wettbewerb_gesamt"] == 10
+
+
+def test_competitor_analyst_wenig_daten_kein_llm(monkeypatch):
+    from agents.evaluator import competitor_analyst as co
+    import db_raw
+    monkeypatch.setattr(db_raw, "get_competition",
+                        lambda stadt, branche: {"gesamt": 1, "ohne_website": 0, "prozent_ohne": 0})
+    called = {"n": 0}
+    monkeypatch.setattr(co, "ask_ollama", lambda *a, **k: called.__setitem__("n", called["n"] + 1) or "")
+    res = co.analyze({"name": "X", "stadt": "Ulm", "branche": "Nische"}, {"has_website": 0})
+    assert called["n"] == 0 and res["markt_score"] is not None
+
+
+# ── ScoreWriter: echtes KI-Urteil statt ±15, harter Fallback ──────────────────
+def _score_lead():
+    return ({"name": "Dach GmbH", "branche": "Dachdecker", "stadt": "Ulm",
+             "anz_bewertungen": 30, "bewertung": 4.6},
+            {"has_website": 1, "website_veraltet": 0, "telefon_verifiziert": 1,
+             "email_vorhanden": 1, "bilder_vorhanden": 1, "website_probleme": []},
+            {"social_media": {}, "firmengroesse_hinweis": "3-10"})
+
+
+def test_score_writer_harter_fallback_ohne_ollama(monkeypatch):
+    from agents.evaluator import score_writer as sw
+    monkeypatch.setattr(sw, "model_for_role", lambda role="strong": "m")
+    monkeypatch.setattr(sw, "ask_ollama", lambda *a, **k: "")   # Ollama aus
+    lead, web, social = _score_lead()
+    out = sw.evaluate(lead, web, social)
+    assert 0 <= out["score"] <= 100          # reiner Basis-Score, keine Exception
+    assert out["content_score"] == -1 and out["markt_score"] == -1   # keine neuen Signale
+
+
+def test_score_writer_llm_urteil_ueberschreibt_15er_deckel(monkeypatch):
+    from agents.evaluator import score_writer as sw
+    monkeypatch.setattr(sw, "model_for_role", lambda role="strong": "m")
+    monkeypatch.setenv("JARVIS_SCORE_LLM_WEIGHT", "1.0")   # voll dem LLM-Urteil folgen
+    monkeypatch.setenv("JARVIS_SCORE_SAMPLES", "1")
+    monkeypatch.setattr(sw, "ask_ollama", lambda *a, **k:
+        '{"gesamt_score": 95, "preis_tier": 550, "ist_privat_zahler": 1, '
+        '"beschreibung": "ok", "pitch_hook": "x", "email_betreff": "b", "email_text": "t"}')
+    lead, web, social = _score_lead()
+    out = sw.evaluate(lead, web, social)
+    # Bei Gewicht 1.0 folgt der Score exakt dem LLM-Urteil (95) — weit mehr als ±15 vom Basis.
+    assert out["score"] == 95
+
+
+def test_score_writer_content_competitor_erhoehen_basis(monkeypatch):
+    from agents.evaluator import score_writer as sw
+    monkeypatch.setattr(sw, "model_for_role", lambda role="strong": "m")
+    monkeypatch.setattr(sw, "ask_ollama", lambda *a, **k: "")   # nur Heuristik zählt
+    lead, web, social = _score_lead()
+    ohne = sw.evaluate(lead, web, social)
+    mit = sw.evaluate(lead, web, social,
+                      content={"angebot_klarheit": 2, "text_qualitaet": 2, "modernitaet": 2,
+                               "mobil_ok": False, "conversion_schwaeche": "kein CTA"},
+                      competitor={"markt_score": 9, "wettbewerb_gesamt": 10, "wettbewerb_ohne_website": 1})
+    assert mit["score"] > ohne["score"]         # schwacher Inhalt + hoher Marktdruck → mehr Bedarf
+    assert mit["content_score"] == 20 and mit["markt_score"] == 9
+    assert mit["conversion_schwaeche"] == "kein CTA"
+
+
+# ── DB2: neue Spalten + Purge (DSGVO-Speicherbegrenzung) ─────────────────────
+def test_db_evaluated_neue_spalten_und_purge(tmp_path, monkeypatch):
+    import db_evaluated
+    monkeypatch.setattr(db_evaluated, "DB_PATH", tmp_path / "ev.db")
+    db_evaluated._thread_local.__dict__.clear()
+    db_evaluated.init_db()
+    # Insert akzeptiert die neuen Bewertungsspalten
+    db_evaluated.insert_evaluated({"name": "Alt", "stadt": "Ulm", "lead_key": "k-alt",
+                                   "bewertet_am": "2000-01-01T00:00:00", "content_score": 40,
+                                   "markt_score": 7, "conversion_schwaeche": "x"})
+    db_evaluated.insert_evaluated({"name": "AltKontakt", "stadt": "Ulm", "lead_key": "k-kontakt",
+                                   "bewertet_am": "2000-01-01T00:00:00",
+                                   "kontaktiert_am": "2000-06-01T00:00:00"})
+    db_evaluated.insert_evaluated({"name": "Neu", "stadt": "Ulm", "lead_key": "k-neu",
+                                   "bewertet_am": "2099-01-01T00:00:00"})
+    n = db_evaluated.purge_stale("2020-01-01T00:00:00")
+    assert n == 1                               # nur "Alt" (nicht kontaktiert, alt) gelöscht
+    namen = {r["name"] for r in db_evaluated.get_top(50)}
+    assert namen == {"AltKontakt", "Neu"}
+
+
+def test_db_raw_purge_older_than(tmp_path, monkeypatch):
+    import db_raw
+    monkeypatch.setattr(db_raw, "DB_PATH", tmp_path / "raw.db")
+    db_raw._thread_local.__dict__.clear()
+    db_raw.init_db()
+    db_raw.insert_raw({"name": "AltDone", "stadt": "Ulm", "schluessel": "s1"})
+    db_raw.insert_raw({"name": "AltPending", "stadt": "Ulm", "schluessel": "s2"})
+    with db_raw._conn() as c:
+        c.execute("UPDATE raw_leads SET eval_status='done', gefunden_am='2000-01-01T00:00:00' "
+                  "WHERE name='AltDone'")
+        c.execute("UPDATE raw_leads SET eval_status='pending', gefunden_am='2000-01-01T00:00:00' "
+                  "WHERE name='AltPending'")
+        c.commit()
+    n = db_raw.purge_older_than("2020-01-01T00:00:00")
+    assert n == 1                               # nur done+alt gelöscht, pending bleibt
+
+
+# ── Recht: Consent-Log (gehasht), Art.14, Impressum-Pflichtfelder ─────────────
+def test_email_suppress_consent_log_hasht(tmp_path, monkeypatch):
+    import email_suppress as es
+    monkeypatch.setattr(es, "_AUDIT_PATH", tmp_path / "consent_log.jsonl")
+    monkeypatch.setattr(es, "_PATH", tmp_path / "optout.json")
+    es.log_event("kunde@firma.de", "test", "opt-out")
+    txt = (tmp_path / "consent_log.jsonl").read_text(encoding="utf-8")
+    assert "kunde@firma.de" not in txt          # Klartext-Adresse NICHT im Audit-Log
+    assert es.email_hash("kunde@firma.de") in txt
+    assert es.audit_count() == 1
+
+
+def test_legal_art14_und_impressum_pflichtfelder():
+    import legal_pages as lp
+    footer = lp.build_email_footer("https://x/abmelden?e=a&t=b")
+    assert "Art. 13/14" in footer and "berechtigtes Interesse" in footer
+    ds = lp.build_datenschutz("Firma", "Str 1", "0123", "a@b.de", "Chef")
+    assert "Herkunft der Daten" in ds and "Art. 14" in ds
+    # Pflichtfeld-Prüfung: fehlender Name/Adresse/Kontakt wird gemeldet, vollständig = leer
+    assert lp.missing_impressum_fields({}) == ["name", "adresse", "kontakt (email/telefon)"]
+    assert lp.missing_impressum_fields(
+        {"name": "Firma", "adresse": "Str 1", "email": "a@b.de"}) == []
+
+
+def test_leadpackages_art14_hinweis():
+    from leadpackages import export_csv_excel as ex
+    txt = ex.art14_hinweis()
+    assert "Art. 14 DSGVO" in txt and "UWG" in txt
+    # Excel-Export enthält das Hinweis-Blatt als zweites Sheet
+    xls = ex.to_excel_bytes([{"name": "A", "branche": "B", "stadt": "Ulm"}])
+    assert xls[:2] == b"PK"                       # gültige .xlsx (ZIP-Signatur)
+
+
+# ── Graph-Viz: neue Stationen + verbundene Lanes im JS-Quelltext ──────────────
+def test_pipeline_js_hat_neue_stationen_und_lanes():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "static" / "js" / "pipeline.js").read_text(encoding="utf-8")
+    # 5-Agenten-Kette: die zwei neuen Stationen + Klassifikations-Keywords
+    for token in ("EVAL_CONTENT", "EVAL_MARKET", "Bewertung · 5 Agenten",
+                  "content|inhalt", "competitor|wettbewerb|markt", "LANE "):
+        assert token in src, f"pipeline.js fehlt: {token}"

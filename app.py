@@ -222,6 +222,17 @@ def _start_lead_collector():
 _startup_t.Thread(target=_start_lead_collector, daemon=True).start()
 
 
+# DSGVO-Speicherbegrenzung: löscht täglich nicht kontaktierte Personendaten älter als
+# JARVIS_RETENTION_DAYS (Default 180). Default AN, JARVIS_RETENTION=0 schaltet ab.
+def _start_retention():
+    try:
+        import data_retention
+        data_retention.start()
+    except Exception:
+        pass
+_startup_t.Thread(target=_start_retention, daemon=True).start()
+
+
 # Extra-Nutzungs-Check (alle 5 Min ab Start): erkennt bezahlte Extra-Tokens (Paid-Boost)
 # und meldet den Übergang SOFORT (Discord-Ping), statt eines stillen internen Flags.
 # Braucht keine Konfiguration/Zugangsdaten → immer gestartet.

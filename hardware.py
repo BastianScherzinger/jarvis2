@@ -129,6 +129,39 @@ def build_lanes() -> int:
     return 2
 
 
+def analysis_agents(ram: "float | None" = None) -> int:
+    """Anzahl der LLM-Analyse-Agenten (Inhalt · Wettbewerb · Recherche), die INNERHALB einer
+    Bewertungs-Lane gleichzeitig laufen dürfen.
+
+    Anders als `eval_lanes` (wie viele Leads parallel) steuert das die Breite der Analyse PRO
+    Lead: die neuen Agenten ContentAnalyst/CompetitorAnalyst + SocialResearcher sind voneinander
+    unabhängig (nutzen dieselbe schon geladene HTML / dieselben Suchtreffer) und können daher
+    echt parallel gefahren werden. Jeder gleichzeitige Agent = ein weiterer Ollama-Slot,
+    darum wie eval_lanes an den RAM gebunden.
+
+        >= 32 GB → 3 (voll parallel),  >= 16 GB → 2,  sonst 1 (seriell, kein Overhead).
+
+    Override per .env: JARVIS_ANALYSIS_AGENTS. Bewusst leichtgewichtig (nur ram_gb, kein
+    torch/media_engine-Import) — wird früh von der Evaluator-Pipeline importiert. Auf einer
+    schwachen Maschine bleibt es bei 1 → identisches Verhalten wie die bisherige serielle Kette."""
+    ov = os.environ.get("JARVIS_ANALYSIS_AGENTS", "").strip()
+    if ov:
+        try:
+            return max(1, int(ov))
+        except (ValueError, TypeError):
+            pass
+    if ram is None:
+        try:
+            ram = ram_gb()
+        except Exception:
+            ram = 0.0
+    if ram >= 32:
+        return 3
+    if ram >= 16:
+        return 2
+    return 1
+
+
 # ── GPU (NVIDIA) ─────────────────────────────────────────────────────────────
 
 def gpu_info() -> tuple[str, float]:

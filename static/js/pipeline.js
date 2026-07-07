@@ -55,17 +55,20 @@ const _PL_LOG_SCRAPER = [
 // Die BEWERTUNG ist ein 3-Agenten-Team (WebAnalyst → SocialRes → ScoreWriter) — jeder
 // Agent ist eine eigene Station, damit man live sieht, welcher Agent gerade arbeitet.
 const _PL_STAGES = [
-  { key: 'collect',    label: 'SAMMELN',   sub: 'Rohleads',      color: '#00e87a', icon: 'robot',  lc: '#7fe9b6', group: 'Sammeln' },
-  { key: 'eval_web',   label: 'ANALYSE',   sub: 'Web-Analyst',   color: '#00d4ff', icon: 'search', lc: '#7fd6ff', group: 'Bewertung · 3 Agenten' },
-  { key: 'eval_social',label: 'RECHERCHE', sub: 'Social-Scout',  color: '#38bdf8', icon: 'social', lc: '#9bd8f5', group: 'Bewertung · 3 Agenten' },
-  { key: 'eval_score', label: 'SCORING',   sub: 'Score-Writer',  color: '#c58bff', icon: 'claude', lc: '#d9b6ff', group: 'Bewertung · 3 Agenten' },
-  { key: 'build',      label: 'WEBSEITE',  sub: 'Bau',           color: '#c58bff', icon: 'build',  lc: '#c9a0ff', group: 'Produktion' },
-  { key: 'makeover',   label: 'MAKEOVER',  sub: 'Feinschliff',   color: '#ff9d3d', icon: 'spark',  lc: '#ffb877', group: 'Produktion' },
-  { key: 'wait',       label: 'FREIGABE',  sub: 'Warten',        color: '#ffc93d', icon: 'clock',  lc: '#ffd873', group: 'Versand', queue: 'freigabe' },
-  { key: 'send',       label: 'VERSAND',   sub: 'Angebot raus',  color: '#9b5de5', icon: 'mail',   lc: '#c19bf0', group: 'Versand', queue: 'versand' },
+  { key: 'collect',    label: 'SAMMELN',    sub: 'Rohleads',      color: '#00e87a', icon: 'robot',  lc: '#7fe9b6', group: 'Sammeln' },
+  { key: 'eval_web',   label: 'ANALYSE',    sub: 'Web-Analyst',   color: '#00d4ff', icon: 'search', lc: '#7fd6ff', group: 'Bewertung · 5 Agenten' },
+  { key: 'eval_content',label:'INHALT',     sub: 'Content-KI',    color: '#22d3ee', icon: 'content',lc: '#9beaf5', group: 'Bewertung · 5 Agenten' },
+  { key: 'eval_market',label: 'WETTBEWERB', sub: 'Markt-KI',      color: '#4aa8ff', icon: 'market', lc: '#a8ccff', group: 'Bewertung · 5 Agenten' },
+  { key: 'eval_social',label: 'RECHERCHE',  sub: 'Social-Scout',  color: '#38bdf8', icon: 'social', lc: '#9bd8f5', group: 'Bewertung · 5 Agenten' },
+  { key: 'eval_score', label: 'SCORING',    sub: 'Score-Writer',  color: '#c58bff', icon: 'claude', lc: '#d9b6ff', group: 'Bewertung · 5 Agenten' },
+  { key: 'build',      label: 'WEBSEITE',   sub: 'Bau',           color: '#c58bff', icon: 'build',  lc: '#c9a0ff', group: 'Produktion' },
+  { key: 'makeover',   label: 'MAKEOVER',   sub: 'Feinschliff',   color: '#ff9d3d', icon: 'spark',  lc: '#ffb877', group: 'Produktion' },
+  { key: 'wait',       label: 'FREIGABE',   sub: 'Warten',        color: '#ffc93d', icon: 'clock',  lc: '#ffd873', group: 'Versand', queue: 'freigabe' },
+  { key: 'send',       label: 'VERSAND',    sub: 'Angebot raus',  color: '#9b5de5', icon: 'mail',   lc: '#c19bf0', group: 'Versand', queue: 'versand' },
 ];
 // Station-Index-Konstanten (damit Bursts/Events nicht an Zahlen kleben)
-const _PL_IX = { COLLECT: 0, EVAL_WEB: 1, EVAL_SOCIAL: 2, EVAL_SCORE: 3, BUILD: 4, MAKEOVER: 5, WAIT: 6, SEND: 7 };
+const _PL_IX = { COLLECT: 0, EVAL_WEB: 1, EVAL_CONTENT: 2, EVAL_MARKET: 3, EVAL_SOCIAL: 4,
+                 EVAL_SCORE: 5, BUILD: 6, MAKEOVER: 7, WAIT: 8, SEND: 9 };
 
 const _PL_SEG_DUR_BASE = 1.0;           // Sekunden pro Segment (× Instanz-Faktor)
 const _PL_LV_COLOR = {
@@ -187,7 +190,11 @@ function _plClassifyLog(e) {
   if (/mailer|offer|versand|smtp|inbox|outreach/.test(w))   return { stageIdx: _PL_IX.SEND };
   if (w.includes('mail'))                                   return { stageIdx: _PL_IX.SEND };
   if (/autobuild|auto_build|builder|website|railway|deploy|hero|github|build/.test(w)) return { stageIdx: _PL_IX.BUILD };
-  // 3-Agenten-Bewertung — jeder Agent seine eigene Station
+  // 5-Agenten-Bewertung — jeder Agent seine eigene Station. WICHTIG: content/competitor
+  // VOR dem generischen /analyst/-Check, da "ContentAnalyst"/"CompetitorAnalyst" ihn sonst
+  // fälschlich an der ANALYSE-Station einfangen würden.
+  if (/content|inhalt/.test(w))                             return { stageIdx: _PL_IX.EVAL_CONTENT };
+  if (/competitor|wettbewerb|markt/.test(w))                return { stageIdx: _PL_IX.EVAL_MARKET };
   if (/webanalyst|web_analyst|analyst/.test(w))             return { stageIdx: _PL_IX.EVAL_WEB };
   if (/social/.test(w))                                     return { stageIdx: _PL_IX.EVAL_SOCIAL };
   if (/scorewriter|score/.test(w))                          return { stageIdx: _PL_IX.EVAL_SCORE };
@@ -492,7 +499,7 @@ function _plDrawGroups(P) {
       ctx.moveTo(a.x - R * 0.7, y + 6); ctx.lineTo(a.x - R * 0.7, y);
       ctx.lineTo(b.x + R * 0.7, y);     ctx.lineTo(b.x + R * 0.7, y + 6);
       ctx.stroke(); ctx.setLineDash([]);
-      ctx.font = '700 9px Orbitron, sans-serif'; ctx.textAlign = 'center';
+      ctx.font = '700 11px Orbitron, sans-serif'; ctx.textAlign = 'center';
       ctx.fillStyle = col; ctx.globalAlpha = 0.9;
       const evLanes = Math.max(1, _D.stats.evalLanes | 0);
       const blLanes = Math.max(1, _D.stats.buildLanes | 0);
@@ -520,42 +527,56 @@ function _plDrawLanes(P, idxs, lanes, lineColor) {
   const offs = [];
   for (let u = 1; u <= up; u++) offs.push(-u);
   for (let d = 1; d <= down; d++) offs.push(d);
-  const dy = P.hubR * 2.15;                       // vertikaler Lane-Abstand
-  const r  = P.hubR * 0.34;                        // kleiner Arbeiter-Radius
+  const dy = P.hubR * 2.6;                         // vertikaler Lane-Abstand (mehr Luft)
+  const r  = P.hubR * 0.6;                          // grösserer Arbeiter-Radius (war 0.34)
   const ctx = P.ctx;
   const active = _D.stats.running;
   const a = P.st[idxs[0]], b = P.st[idxs[idxs.length - 1]];
-  offs.forEach(o => {
+  offs.forEach((o, li) => {
     const yoff = o * dy;
-    // durchgehende Lane-Leitung über die betroffenen Stationen (fliessende Striche)
+    // durchgehende Lane-Leitung über die betroffenen Stationen — deutlich sichtbar + fliessend
     ctx.save();
-    ctx.strokeStyle = _plAlpha(lineColor || '#38bdf8', 0.16); ctx.lineWidth = 1.1;
-    if (!_PL_REDUCED) { ctx.setLineDash([2, 10]); ctx.lineDashOffset = -(P.t * 40) % 12; }
+    ctx.strokeStyle = _plAlpha(lineColor || '#38bdf8', 0.35); ctx.lineWidth = 1.6;
+    if (!_PL_REDUCED) { ctx.setLineDash([3, 8]); ctx.lineDashOffset = -(P.t * 55) % 11; }
     ctx.beginPath(); ctx.moveTo(a.x, a.y + yoff); ctx.lineTo(b.x, b.y + yoff); ctx.stroke();
     ctx.setLineDash([]); ctx.restore();
-    // je Station ein Arbeiter-Disc auf dieser Lane + senkrechte Anbindung an die Mitte
+    // je Station ein Arbeiter-Disc auf dieser Lane + kräftige senkrechte Anbindung an die Mitte
     idxs.forEach(si => {
       const nd = P.st[si], stg = _PL_STAGES[si];
       const x = nd.x, y = nd.y + yoff;
-      ctx.save();
-      ctx.strokeStyle = _plAlpha(stg.color, 0.14); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(nd.x, nd.y); ctx.lineTo(x, y); ctx.stroke();
-      ctx.restore();
       const breathe = active ? (0.5 + 0.5 * Math.sin(P.t * 2.2 + si + o)) : 0.2;
+      // Anbindungslinie Lane→Hauptstation: klar sichtbar (war alpha 0.14) + Fluss
+      ctx.save();
+      ctx.strokeStyle = _plAlpha(stg.color, 0.4 + breathe * 0.25); ctx.lineWidth = 1.5;
+      if (!_PL_REDUCED) { ctx.setLineDash([2, 5]); ctx.lineDashOffset = -(P.t * 40) % 7; }
+      ctx.beginPath(); ctx.moveTo(nd.x, nd.y); ctx.lineTo(x, y); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
       const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
-      g.addColorStop(0, _plAlpha(stg.color, 0.28 + breathe * 0.24));
+      g.addColorStop(0, _plAlpha(stg.color, 0.3 + breathe * 0.26));
       g.addColorStop(1, _plAlpha(stg.color, 0));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(8,14,22,.9)'; ctx.fill();
-      ctx.lineWidth = 1.2; ctx.strokeStyle = _plAlpha(stg.color, 0.55 + breathe * 0.3); ctx.stroke();
+      ctx.fillStyle = 'rgba(8,14,22,.92)'; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = _plAlpha(stg.color, 0.6 + breathe * 0.3); ctx.stroke();
+      // Kleiner Kern-Punkt (macht die grösseren Arbeiter als „aktiv" lesbar)
+      ctx.beginPath(); ctx.arc(x, y, r * 0.32, 0, Math.PI * 2);
+      ctx.fillStyle = _plAlpha(stg.color, 0.7 + breathe * 0.3); ctx.fill();
     });
+    // Lane-Beschriftung an der ERSTEN Station dieser Lane — macht klar, dass das ein
+    // eigenständiger paralleler Arbeiter ist (nicht Deko). Lane 1 = Mittelreihe, hier ab 2.
+    const laneNr = li + 2;
+    ctx.save();
+    ctx.font = '700 8.5px Orbitron, sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = _plAlpha(lineColor || '#38bdf8', 0.85);
+    ctx.fillText('LANE ' + laneNr, a.x - r - 6, a.y + yoff + 3);
+    ctx.restore();
   });
 }
 
 function _plDrawEvalLanes(P) {
-  // Bewertungs-Lanes (ANALYSE→RECHERCHE→SCORING) + Bau-Lanes (WEBSEITE→MAKEOVER).
-  _plDrawLanes(P, [_PL_IX.EVAL_WEB, _PL_IX.EVAL_SOCIAL, _PL_IX.EVAL_SCORE], _D.stats.evalLanes, '#38bdf8');
+  // Bewertungs-Lanes (ANALYSE→INHALT→WETTBEWERB→RECHERCHE→SCORING) + Bau-Lanes (WEBSEITE→MAKEOVER).
+  _plDrawLanes(P, [_PL_IX.EVAL_WEB, _PL_IX.EVAL_CONTENT, _PL_IX.EVAL_MARKET,
+                   _PL_IX.EVAL_SOCIAL, _PL_IX.EVAL_SCORE], _D.stats.evalLanes, '#38bdf8');
   _plDrawLanes(P, [_PL_IX.BUILD, _PL_IX.MAKEOVER], _D.stats.buildLanes, '#c58bff');
 }
 
@@ -604,11 +625,11 @@ function _plNodeLabel(P, x, y, text, color, sub, maxW) {
       while (fs > 6 && ctx.measureText(t).width > maxW) { fs -= 0.5; ctx.font = `${weight} ${fs}px ${family}`; }
     }
   };
-  fit(text, P.mini ? 7 : 10, 700, 'Orbitron, sans-serif'); ctx.fillStyle = color;
+  fit(text, P.mini ? 8 : 12, 700, 'Orbitron, sans-serif'); ctx.fillStyle = color;
   ctx.fillText(text, x, y);
   if (sub && !P.mini) {
-    fit(sub, 8.5, 400, 'Inter, sans-serif'); ctx.fillStyle = 'rgba(150,175,205,.85)';
-    ctx.fillText(sub, x, y + 12);
+    fit(sub, 10, 400, 'Inter, sans-serif'); ctx.fillStyle = 'rgba(160,185,215,.9)';
+    ctx.fillText(sub, x, y + 13);
   }
 }
 
@@ -784,6 +805,32 @@ function _plStationIcon(P, icon, R, col) {
     ctx.globalAlpha = 1;
     ctx.beginPath(); ctx.arc(0, 0, R * 0.15, 0, Math.PI * 2);
     ctx.fillStyle = '#ffece3'; ctx.shadowColor = col; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0;
+  } else if (icon === 'content') {
+    // Dokument mit Textzeilen = semantische Inhalts-Analyse
+    const w = R * 0.82, h = R * 1.02;
+    _plRoundRect(P, -w / 2, -h / 2, w, h, R * 0.12);
+    ctx.fillStyle = 'rgba(8,22,26,.95)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.globalAlpha = 0.95; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = _plAlpha(col, 0.75); ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+    const rows = [-0.28, -0.05, 0.18, 0.4];
+    const scan = (0.5 + 0.5 * Math.sin(P.t * 2.2)) * rows.length | 0;
+    rows.forEach((ry, i) => {
+      ctx.globalAlpha = i === scan ? 1 : 0.55;
+      ctx.beginPath(); ctx.moveTo(-w * 0.3, h * ry); ctx.lineTo(w * (i === rows.length - 1 ? 0.05 : 0.3), h * ry); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  } else if (icon === 'market') {
+    // Balkendiagramm = Wettbewerbs-/Markt-Analyse
+    ctx.strokeStyle = _plAlpha(col, 0.4); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(-R * 0.5, R * 0.45); ctx.lineTo(R * 0.5, R * 0.45); ctx.stroke();
+    const bars = [0.42, 0.7, 0.5, 0.9];
+    const bw = R * 0.2, gap = R * 0.06, x0 = -((bars.length * bw + (bars.length - 1) * gap) / 2);
+    bars.forEach((bh, i) => {
+      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(P.t * 1.8 + i * 0.7));
+      const x = x0 + i * (bw + gap), top = R * 0.45 - R * bh * pulse;
+      _plRoundRect(P, x, top, bw, R * 0.45 - top, R * 0.05);
+      ctx.fillStyle = _plAlpha(col, 0.85); ctx.shadowColor = col; ctx.shadowBlur = 5; ctx.fill(); ctx.shadowBlur = 0;
+    });
   } else if (icon === 'build') {
     const w = R * 1.12, h = R * 0.82;
     _plRoundRect(P, -w / 2, -h / 2, w, h, R * 0.14);

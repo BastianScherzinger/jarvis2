@@ -67,11 +67,19 @@ def build_datenschutz(name: str = "", adresse: str = "", telefon: str = "",
         "Der Provider der Seiten erhebt und speichert automatisch Informationen in sogenannten "
         "Server-Log-Dateien (Browsertyp, Betriebssystem, Referrer-URL, Hostname, Uhrzeit). Diese "
         "Daten sind nicht bestimmten Personen zuordenbar und dienen der technischen Sicherheit.\n\n"
-        "5. Ihre Rechte\n"
+        "5. Herkunft der Daten bei Direktansprache\n"
+        "Soweit wir Betriebe erstmals per E-Mail kontaktieren, verarbeiten wir öffentlich "
+        "zugängliche Geschäftskontaktdaten (Firmenname, Anschrift, Telefon, geschäftliche "
+        "E-Mail), die wir aus allgemein einsehbaren Quellen wie Branchenverzeichnissen, "
+        "Kartendiensten (z. B. Google Maps) und der jeweiligen Firmen-Website erhoben haben "
+        "(Art. 14 DSGVO). Zweck ist die einmalige geschäftliche Kontaktaufnahme; Rechtsgrundlage "
+        "ist unser berechtigtes Interesse (Art. 6 Abs. 1 lit. f DSGVO). Nicht kontaktierte "
+        "Datensätze werden nach spätestens sechs Monaten automatisch gelöscht.\n\n"
+        "6. Ihre Rechte\n"
         "Sie haben jederzeit das Recht auf Auskunft, Berichtigung, Löschung oder Einschränkung der "
         "Verarbeitung Ihrer Daten, ein Widerspruchsrecht sowie das Recht auf Datenübertragbarkeit "
         "(Art. 15–21 DSGVO). Zudem steht Ihnen ein Beschwerderecht bei einer Aufsichtsbehörde zu.\n\n"
-        "6. SSL-/TLS-Verschlüsselung\n"
+        "7. SSL-/TLS-Verschlüsselung\n"
         "Diese Seite nutzt aus Sicherheitsgründen eine SSL-/TLS-Verschlüsselung."
     )
 
@@ -137,12 +145,43 @@ def build_email_footer(unsubscribe_url: str = "") -> str:
     if w["vatid"]:
         teile.append(f"USt-IdNr.: {w['vatid']}")
     teile.append("")
+    # DSGVO Art. 14 — Hinweis auf Herkunft der Daten (bei nicht vom Betroffenen erhobenen Daten).
+    ds = f"{w['url']}/datenschutz" if w.get("url") else ""
+    teile.append(
+        "Datenschutzhinweis (Art. 13/14 DSGVO): Wir haben Ihre öffentlich zugänglichen "
+        "Geschäftskontaktdaten aus allgemein einsehbaren Quellen (u. a. Branchenverzeichnisse, "
+        "Google Maps, Ihre Website) erhoben. Verarbeitungszweck ist die einmalige geschäftliche "
+        "Direktansprache; Rechtsgrundlage ist unser berechtigtes Interesse (Art. 6 Abs. 1 lit. f "
+        "DSGVO). Sie können der Verarbeitung jederzeit widersprechen."
+        + (f" Mehr dazu: {ds}" if ds else ""))
+    teile.append("")
     if unsubscribe_url:
         teile.append(f"Keine weiteren Mails? Hier abmelden: {unsubscribe_url}")
     teile.append("Sie erhalten diese einmalige Nachricht als Gewerbetreibender im Rahmen einer "
                  "Geschäftsanbahnung. Möchten Sie keine weitere Mail, antworten Sie einfach mit "
                  "\"STOP\" — wir tragen Sie sofort aus.")
     return "\n".join(teile)
+
+
+def missing_impressum_fields(meta: dict) -> list[str]:
+    """Prüft die Impressums-PFLICHTangaben nach § 5 DDG: Name, ladungsfähige Anschrift und
+    mindestens ein Kontaktweg (E-Mail oder Telefon). Gibt die Namen fehlender/Platzhalter-
+    Felder zurück (leer = vollständig). Damit keine Seite mit `[bitte ergänzen]`-Impressum
+    stillschweigend live geht."""
+    def _fehlt(*keys) -> bool:
+        for k in keys:
+            v = str(meta.get(k) or "").strip()
+            if v and v != _PH:
+                return False
+        return True
+    fehlend: list[str] = []
+    if _fehlt("name", "site_name"):
+        fehlend.append("name")
+    if _fehlt("adresse"):
+        fehlend.append("adresse")
+    if _fehlt("email", "email_adresse", "kontakt_email", "telefon"):
+        fehlend.append("kontakt (email/telefon)")
+    return fehlend
 
 
 def build_all(meta: dict) -> dict:

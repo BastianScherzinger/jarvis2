@@ -66,7 +66,13 @@ def _resolve_ollama_parallel() -> int:
     base = _detect_gpu_parallel()
     try:
         import hardware
-        return max(base, hardware.eval_lanes())
+        # Floor = Lanes × gleichzeitige Analyse-Agenten pro Lane. Seit die neuen Agenten
+        # (Inhalt/Wettbewerb/Recherche) INNERHALB einer Lane parallel laufen, würden ohne
+        # diesen Faktor 3-5 Lanes × mehreren Agenten am Semaphor auf 2-4 aufstauen. Ollama
+        # serialisiert intern ohnehin pro Modell/GPU — hier soll nur der Python-Semaphor
+        # nicht der künstliche Flaschenhals sein.
+        floor = hardware.eval_lanes() * max(1, hardware.analysis_agents())
+        return max(base, floor)
     except Exception:
         return base
 
@@ -409,6 +415,75 @@ def best_chat_model() -> str:
     with _BEST_MODEL_LOCK:
         _BEST_MODEL[0] = chosen
         _BEST_MODEL[1] = time.time()
+    return chosen
+
+
+# ── Rollen-basierte Modellwahl (Multi-Modell) ────────────────────────────────
+# Statt EIN Modell für alles: leichte Aufgaben (Namensbereinigung, simple Klassifikation)
+# bekommen ein schnelles kleines Modell, die eigentliche Analyse/Bewertung ein starkes.
+# Auf schwacher Hardware fallen beide auf best_chat_model() zurück → identisches Verhalten
+# wie bisher (nur EIN Modell im Speicher).
+_ROLE_MODEL: dict = {}            # role -> (model_name, cache_ts)
+_ROLE_MODEL_TTL = 600
+_ROLE_MODEL_LOCK = threading.Lock()
+
+# Bevorzugte kleine, schnelle Nicht-Coder-Modelle für die "fast"-Rolle (in dieser Reihenfolge).
+_FAST_PREFS = ["qwen2.5:3b", "qwen2.5:1.5b", "llama3.2:3b", "llama3.2:1b", "qwen2.5:7b"]
+
+
+def model_for_role(role: str = "strong") -> str:
+    """Bestes lokales Modell für eine Rolle — VRAM-bewusst, 10 Min gecacht.
+
+      role="fast"   → JARVIS_EVAL_MODEL_FAST, sonst kleinstes passendes Schnell-Modell
+                      (name-clean, leichte Klassifikation).
+      role="strong" → JARVIS_EVAL_MODEL_STRONG, sonst best_chat_model()
+                      (ContentAnalyst / CompetitorAnalyst / ScoreWriter).
+
+    Passt ein gewünschtes Modell nicht in den Speicher oder ist es nicht installiert,
+    Fallback auf best_chat_model() — nie ein Modell wählen, das auslagert und alles ausbremst.
+    """
+    role = (role or "strong").strip().lower()
+    now = time.time()
+    with _ROLE_MODEL_LOCK:
+        cached = _ROLE_MODEL.get(role)
+        if cached and now - cached[1] < _ROLE_MODEL_TTL:
+            return cached[0]
+
+    models  = ollama_models()
+    by_name = {m["name"]: m.get("size_gb", 0) for m in models}
+    cap = 0.0
+    try:
+        import hardware
+        hw = hardware.detect()
+        cap = hw["vram_gb"] if hw["has_gpu"] else hw["ram_gb"]
+    except Exception:
+        pass
+
+    def _passt(name: str) -> bool:
+        s = by_name.get(name, 0)
+        return cap <= 0 or s <= 0 or s <= cap * 1.05
+
+    chosen = ""
+    if role == "fast":
+        env = os.environ.get("JARVIS_EVAL_MODEL_FAST", "").strip()
+        if env and (env in by_name and _passt(env) or not by_name):
+            chosen = env
+        else:
+            for cand in _FAST_PREFS:
+                if cand in by_name and _passt(cand):
+                    chosen = cand
+                    break
+        if not chosen:
+            chosen = best_chat_model()          # kein Schnell-Modell da → geteiltes Modell
+    else:  # "strong" (Default)
+        env = os.environ.get("JARVIS_EVAL_MODEL_STRONG", "").strip()
+        if env and (env in by_name and _passt(env) or not by_name):
+            chosen = env
+        else:
+            chosen = best_chat_model()
+
+    with _ROLE_MODEL_LOCK:
+        _ROLE_MODEL[role] = (chosen, now)
     return chosen
 
 

@@ -30,6 +30,8 @@ _COLUMNS = [
     "notiz", "kontaktiert_am", "termin_am", "verkauft_am", "verkauft_euro",
     "score_breakdown", "verify_log", "verifiziert", "status", "bewertet_am",
     "finder", "mockup_url",
+    # Breitere Bewertung (ContentAnalyst + CompetitorAnalyst)
+    "content_score", "markt_score", "conversion_schwaeche", "analyse_json",
 ]
 
 # Neue Spalten (Name → SQL-Definition) für die Migration bestehender DBs.
@@ -63,6 +65,11 @@ _NEW_COLUMNS = {
     # Feed-Konsolidierung (leads.db eliminiert): Quelle + Mockup am kanonischen Lead
     "finder":              "TEXT",
     "mockup_url":          "TEXT",
+    # Breitere Bewertung — semantische Inhalts- + Wettbewerbs-Analyse
+    "content_score":       "INTEGER DEFAULT -1",   # 0-100 Website-Inhaltsqualität (-1 = n/a)
+    "markt_score":         "INTEGER DEFAULT -1",   # 0-10 regionaler Marktdruck (-1 = n/a)
+    "conversion_schwaeche":"TEXT",                 # 1 Satz: wo die Seite Kunden verliert
+    "analyse_json":        "TEXT",                 # Roh-Ausgaben Content/Competitor (Detail)
 }
 
 
@@ -476,6 +483,27 @@ def clear_all() -> int:
         c.execute("DELETE FROM evaluated_leads")
         c.commit()
     return n
+
+
+def purge_stale(cutoff_iso: str) -> int:
+    """DSGVO-Speicherbegrenzung: löscht NICHT kontaktierte Bewertungen, die vor `cutoff_iso`
+    erstellt wurden. Bleibt erhalten, sobald ein Kontakt-/Vertragsschritt stattfand
+    (kontaktiert/termin/verkauft/Mail versendet) — dann besteht ein Vertragsanbahnungs-Bezug
+    (Art. 6 Abs. 1 lit. b). 'archiviert' bleibt ebenfalls (Sticky-Dedup: verhindert erneutes
+    Bauen bereits verworfener Seiten)."""
+    if not cutoff_iso:
+        return 0
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "DELETE FROM evaluated_leads WHERE "
+            "bewertet_am IS NOT NULL AND bewertet_am < ? "
+            "AND kontaktiert_am IS NULL AND termin_am IS NULL AND verkauft_am IS NULL "
+            "AND (email_gesendet_am IS NULL OR email_gesendet_am='') "
+            "AND COALESCE(status,'neu') NOT IN ('archiviert','kontaktiert','versendet','replied','verkauft')",
+            (cutoff_iso,),
+        )
+        c.commit()
+        return cur.rowcount or 0
 
 
 def get_by_raw_id(raw_id: int) -> dict | None:

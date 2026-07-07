@@ -345,6 +345,22 @@ def clear_all() -> int:
     return n
 
 
+def purge_older_than(cutoff_iso: str) -> int:
+    """DSGVO-Speicherbegrenzung: löscht bereits abgearbeitete Rohleads (eval_status done/failed),
+    die vor `cutoff_iso` (ISO-Zeitstempel) gefunden wurden. Pending/running-Leads bleiben
+    unangetastet (noch nicht bewertet), die kanonische DB2 behält kontaktierte Leads separat."""
+    if not cutoff_iso:
+        return 0
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "DELETE FROM raw_leads WHERE eval_status IN ('done','failed') "
+            "AND gefunden_am IS NOT NULL AND gefunden_am < ?",
+            (cutoff_iso,),
+        )
+        c.commit()
+        return cur.rowcount or 0
+
+
 def get_pending_count() -> int:
     with _lock, _conn() as c:
         return c.execute(
