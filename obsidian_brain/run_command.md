@@ -8,7 +8,7 @@
 - Tool: run_command
 - Aktion: Get-Content "C:\Users\basti\Desktop\jarvis\.env"
 - Ergebnis: STDOUT:
-ANTHROPIC_KEY=sk-ant-api03-Vr8K9eBL8Wtxq_ak3_ElT7VpOntU4ppu3U70NkQATjzvSuq7-Iw2XrZdbabWrrV2dC9F7F3B7d5m8-Q3H0bhr
+ANTHROPIC_KEY=[SCHLUESSEL ENTFERNT 2026-08-03]
 
 ## 2026-06-08 01:27
 - Tool: run_command

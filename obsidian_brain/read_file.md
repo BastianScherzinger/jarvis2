@@ -37,7 +37,7 @@
 ## 2026-06-08 01:26
 - Tool: read_file
 - Aktion: C:\Users\basti\Desktop\jarvis\.env
-- Ergebnis: ANTHROPIC_KEY=sk-ant-api03-Vr8K9eBL8Wtxq_ak3_ElT7VpOntU4ppu3U70NkQATjzvSuq7-Iw2XrZdbabWrrV2dC9F7F3B7d5m8-Q3H0bhrw-VPrvlg
+- Ergebnis: ANTHROPIC_KEY=[SCHLUESSEL ENTFERNT 2026-08-03]
 
 ## 2026-06-08 01:26
 - Tool: read_file
@@ -123,14 +123,14 @@ import log
 ## 2026-06-08 02:34
 - Tool: read_file
 - Aktion: C:\Users\basti\Desktop\jarvis\.env
-- Ergebnis: ANTHROPIC_KEY=sk-ant-api03-Vr8K9eBL8Wtxq_ak3_ElT7VpOntU4ppu3U70NkQATjzvSuq7-Iw2XrZdbabWrrV2dC9F7F3B7d5m8-Q3H0bhrw-VPrvlg
+- Ergebnis: ANTHROPIC_KEY=[SCHLUESSEL ENTFERNT 2026-08-03]
 
 ## 2026-06-08 02:38
 - Tool: read_file
 - Aktion: C:\Users\basti\Desktop\jarvis\.env
-- Ergebnis: ANTHROPIC_KEY=sk-ant-api03-Vr8K9eBL8Wtxq_ak3_ElT7VpOntU4ppu3U70NkQATjzvSuq7-Iw2XrZdbabWrrV2dC9F7F3B7d5m8-Q3H0bhrw-VPrvlg
+- Ergebnis: ANTHROPIC_KEY=[SCHLUESSEL ENTFERNT 2026-08-03]
 
 ## 2026-06-08 03:55
 - Tool: read_file
 - Aktion: C:\Users\basti\Desktop\jarvis\.env
-- Ergebnis: ANTHROPIC_KEY=sk-ant-api03-Vr8K9eBL8Wtxq_ak3_ElT7VpOntU4ppu3U70NkQATjzvSuq7-Iw2XrZdbabWrrV2dC9F7F3B7d5m8-Q3H0bhrw-VPrvlg
+- Ergebnis: ANTHROPIC_KEY=[SCHLUESSEL ENTFERNT 2026-08-03]
